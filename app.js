@@ -1064,24 +1064,28 @@ function updateNotifBellCounter() {
   const badgeEl = document.getElementById('notifBellBadge');
   if (!bellBtn || !badgeEl) return;
 
-  if (!currentUser || (document.getElementById('loginPage') && document.getElementById('loginPage').classList.contains('active'))) {
+  const isLoginPage = (document.getElementById('loginPage') && document.getElementById('loginPage').classList.contains('active')) || !currentUser;
+  if (isLoginPage) {
     bellBtn.style.setProperty('display', 'none', 'important');
     return;
   }
 
-  bellBtn.style.display = 'flex';
+  bellBtn.style.setProperty('display', 'flex', 'important');
 
-  const userNotifs = getAccessibleNotifications();
+  const userNotifs = typeof getAccessibleNotifications === 'function' ? getAccessibleNotifications() : [];
   const unreadCount = userNotifs.filter(n => {
-    if (!n || !n.readBy) return true;
+    if (!n) return false;
+    if (!n.readBy) return true;
     return !n.readBy.includes(currentUser.id) && !n.readBy.includes(currentUser.username);
   }).length;
 
   if (unreadCount > 0) {
     badgeEl.textContent = unreadCount > 99 ? '99+' : unreadCount;
-    badgeEl.style.display = 'flex';
+    badgeEl.style.setProperty('display', 'flex', 'important');
+    badgeEl.style.setProperty('visibility', 'visible', 'important');
+    badgeEl.style.setProperty('opacity', '1', 'important');
   } else {
-    badgeEl.style.display = 'none';
+    badgeEl.style.setProperty('display', 'none', 'important');
   }
 }
 
@@ -1379,6 +1383,7 @@ async function hapusSemuaNotifikasiSystem() {
         // 5. REFRESH TAMPILAN POPUP NOTIFIKASI & LONCENG SEKETIKA
         if (typeof loadNotificationList === 'function') loadNotificationList();
         if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         if (typeof updateNotifBadgeCount === 'function') updateNotifBadgeCount();
 
         hideLoading();
@@ -1703,6 +1708,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (typeof loadRiwayat === 'function') loadRiwayat();
       if (document.getElementById('masterDbTableBody') && typeof loadMasterDbTable === 'function') loadMasterDbTable();
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
       if (typeof startGlobalRealtimeLoop === 'function') startGlobalRealtimeLoop();
     }
 
@@ -1765,6 +1771,7 @@ function onSupabaseDataChange(keyChanged) {
   }
 
   if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
   if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
 
   const popupBantuan = document.getElementById('popupBantuan');
@@ -1891,6 +1898,7 @@ function startFirebaseRealtimeChatListener() {
           if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
           if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
           if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
           return;
         }
 
@@ -1936,6 +1944,7 @@ function startFirebaseRealtimeChatListener() {
         if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
         if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
         if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         if (typeof renderChatBoxUser === 'function') renderChatBoxUser();
         if (typeof renderChatBoxAdmin === 'function') renderChatBoxAdmin();
       }, err => {
@@ -1966,6 +1975,7 @@ function startFirebaseRealtimeNotifListener() {
           try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(emptyPayload)); } catch(e) {}
           if (typeof loadNotificationList === 'function') loadNotificationList();
           if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
           if (typeof updateNotifBadgeCount === 'function') updateNotifBadgeCount();
           return;
         }
@@ -1982,6 +1992,7 @@ function startFirebaseRealtimeNotifListener() {
 
         if (typeof loadNotificationList === 'function') loadNotificationList();
         if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         if (typeof updateNotifBadgeCount === 'function') updateNotifBadgeCount();
       }, err => {
         console.warn('[FIRESTORE NOTIF REALTIME LISTENER]:', err);
@@ -2360,6 +2371,7 @@ async function initSupabaseRealtimeEngine() {
           if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
           if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
           if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         }
       )
       .on(
@@ -2380,6 +2392,7 @@ async function initSupabaseRealtimeEngine() {
             if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
             if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
             if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
           }
         }
       )
@@ -2676,6 +2689,7 @@ function handleRealtimePermintaanToko(payload) {
             try { localStorage.setItem(CHAT_DB_KEY, JSON.stringify(parsedChats)); } catch(e) {}
             if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
             if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
             if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
           }
         }
@@ -2757,6 +2771,7 @@ function handleRealtimeNotification(payload) {
         appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(notifs));
         try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(notifs)); } catch(e) {}
         if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         const popupNotifList = document.getElementById('popupNotifList');
         if (popupNotifList && (popupNotifList.classList.contains('show') || popupNotifList.style.display === 'flex')) {
           if (typeof loadNotificationList === 'function') loadNotificationList();
@@ -2769,11 +2784,13 @@ function handleRealtimeNotification(payload) {
         notifs[idx] = { ...notifs[idx], ...n };
         appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(notifs));
         if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
       }
     } else if (eventType === 'DELETE' && payload.old) {
       notifs = notifs.filter(x => x.id !== payload.old.id);
       appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(notifs));
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
     }
   } catch (err) {
     console.warn('[REALTIME NOTIF ERROR]:', err);
@@ -2829,6 +2846,7 @@ function handleRealtimeChatMessage(payload) {
 
         if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
         if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
       }
     }
@@ -2977,6 +2995,7 @@ function refreshRealtimeUI() {
       loadMasterDbTable();
     }
     if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
   }
 }
 
@@ -3062,6 +3081,7 @@ async function syncSupabaseIncremental() {
           appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(currentNotifs));
           try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(currentNotifs)); } catch(e) {}
           if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         }
       }
     } catch (e) {}
@@ -4504,9 +4524,9 @@ function getAppDirectLink(noSurat) {
       return `${originPath}?noSurat=${encodeURIComponent(rawNoSurat)}`;
     }
     
-    return `https://jabargroup.github.io/PERMINTAANV2/index.html?noSurat=${encodeURIComponent(rawNoSurat)}`;
+    return `https://polytasik-pixel.github.io/permintaanToko/index.html?noSurat=${encodeURIComponent(rawNoSurat)}`;
   } catch (e) {
-    return `https://jabargroup.github.io/PERMINTAANV2/index.html?noSurat=${encodeURIComponent(noSurat)}`;
+    return `https://polytasik-pixel.github.io/permintaanToko/index.html?noSurat=${encodeURIComponent(noSurat)}`;
   }
 }
 window.getAppDirectLink = getAppDirectLink;
@@ -4995,12 +5015,13 @@ const STORE_REMEMBER_LOGIN_CREDS_KEY = 'STORE_REMEMBER_LOGIN_CREDS_V1';
 
 async function clearLocalStorageKeepThemeAndTTD() {
   try {
-    // 1. BACK UP THEME SETTINGS
+    // 1. BACK UP THEME SETTINGS (TEMA)
     const globalTheme = appStorage.getItem(GLOBAL_THEME_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(GLOBAL_THEME_KEY) : null);
     const localUserTheme = appStorage.getItem(LOCAL_USER_THEME_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(LOCAL_USER_THEME_KEY) : null);
     const lastAdminThemeTime = appStorage.getItem(LAST_ADMIN_THEME_TIME_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(LAST_ADMIN_THEME_TIME_KEY) : null);
     const appTheme = appStorage.getItem(THEME_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(THEME_KEY) : null);
     const appSelectedTheme = (typeof localStorage !== 'undefined' ? localStorage.getItem('APP_SELECTED_THEME') : null);
+    const bgOpacity = (typeof localStorage !== 'undefined' ? localStorage.getItem(BG_OPACITY_KEY) : null);
 
     // 2. BACK UP DIGITAL SIGNATURES (TTD)
     const ttdDbMap = appStorage.getItem(TTD_DB_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(TTD_DB_KEY) : null);
@@ -5010,13 +5031,13 @@ async function clearLocalStorageKeepThemeAndTTD() {
     if (typeof localStorage !== 'undefined') {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('LOCAL_TTD_') || key.startsWith('TTD_') || key.includes('TTD'))) {
+        if (key && (key.startsWith('LOCAL_TTD_') || key.startsWith('TTD_') || key.includes('TTD') || key.includes('ttd'))) {
           localTtdEntries.push({ key, value: localStorage.getItem(key) });
         }
       }
     }
 
-    // 3. BACK UP ESSENTIAL CREDENTIALS & CONFIG
+    // 3. BACK UP ESSENTIAL CREDENTIALS & KEYS
     const rememberCreds = appStorage.getItem(STORE_REMEMBER_LOGIN_CREDS_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(STORE_REMEMBER_LOGIN_CREDS_KEY) : null);
     const fonteToken = typeof getFonteToken === 'function' ? getFonteToken() : '';
     const secretKey = typeof getSavedAdminSecretKey === 'function' ? getSavedAdminSecretKey() : '';
@@ -5024,13 +5045,14 @@ async function clearLocalStorageKeepThemeAndTTD() {
     const geminiKey = appStorage.getItem('gemini_api_key') || (typeof localStorage !== 'undefined' ? localStorage.getItem('gemini_api_key') : null);
     const geminiKeyUpper = appStorage.getItem('GEMINI_API_KEY') || (typeof localStorage !== 'undefined' ? localStorage.getItem('GEMINI_API_KEY') : null);
 
-    // 4. CLEAR STORAGE & BROWSER CACHES
+    // 4. TOTAL FLUSH: LOCAL STORAGE, SESSION STORAGE, APP STORAGE & BROWSER CACHES
     if (typeof appStorage !== 'undefined' && appStorage.clear) {
       appStorage.clear();
     }
     try { localStorage.clear(); } catch(e) {}
     try { sessionStorage.clear(); } catch(e) {}
 
+    // Flush CacheStorage (PWA & Network caches)
     if ('caches' in window && caches.keys) {
       try {
         const keys = await caches.keys();
@@ -5038,7 +5060,7 @@ async function clearLocalStorageKeepThemeAndTTD() {
       } catch(e) {}
     }
 
-    // 5. RESTORE THEME SETTINGS
+    // 5. RESTORE THEME SETTINGS (TEMA)
     if (globalTheme) {
       appStorage.setItem(GLOBAL_THEME_KEY, globalTheme);
       try { localStorage.setItem(GLOBAL_THEME_KEY, globalTheme); } catch(e) {}
@@ -5058,6 +5080,9 @@ async function clearLocalStorageKeepThemeAndTTD() {
     if (appSelectedTheme) {
       try { localStorage.setItem('APP_SELECTED_THEME', appSelectedTheme); } catch(e) {}
     }
+    if (bgOpacity) {
+      try { localStorage.setItem(BG_OPACITY_KEY, bgOpacity); } catch(e) {}
+    }
 
     // 6. RESTORE DIGITAL SIGNATURES (TTD)
     if (ttdDbMap) {
@@ -5074,7 +5099,7 @@ async function clearLocalStorageKeepThemeAndTTD() {
       }
     });
 
-    // 7. RESTORE ESSENTIAL CREDENTIALS & CONFIG
+    // 7. RESTORE ESSENTIAL CREDENTIALS & KEYS
     if (rememberCreds) {
       appStorage.setItem(STORE_REMEMBER_LOGIN_CREDS_KEY, rememberCreds);
       try { localStorage.setItem(STORE_REMEMBER_LOGIN_CREDS_KEY, rememberCreds); } catch(e) {}
@@ -5100,12 +5125,11 @@ async function clearLocalStorageKeepThemeAndTTD() {
       try { localStorage.setItem('GEMINI_API_KEY', geminiKeyUpper); } catch(e) {}
     }
 
-    // 8. RE-APPLY THEME IMMEDIATELY
-    if (typeof applyThemeToDocument === 'function') {
-      applyThemeToDocument();
-    }
+    console.log('[PENYIMPANAN LOKAL]: Seluruh cache & penyimpanan lokal berhasil dibersihkan (TTD & TEMA tetap terjaga).');
+    return true;
   } catch (err) {
-    console.warn('[CLEAR LOCALSTORAGE KEEP THEME & TTD NOTICE]:', err);
+    console.warn('[CLEAR STORAGE WARN]:', err);
+    return false;
   }
 }
 window.clearLocalStorageKeepThemeAndTTD = clearLocalStorageKeepThemeAndTTD;
@@ -5293,45 +5317,27 @@ async function logout() {
     : 'YAKIN INGIN KELUAR DARI APLIKASI?';
   showConfirm(confirmMsg, function() {
     var _asyncTask = async function() {
-    let rememberedCreds = null;
-    try {
-      rememberedCreds = appStorage.getItem(STORE_REMEMBER_LOGIN_CREDS_KEY);
-      if (!rememberedCreds && typeof localStorage !== 'undefined') {
-        rememberedCreds = localStorage.getItem(STORE_REMEMBER_LOGIN_CREDS_KEY);
+      // Hapus sesi login saja (Penyimpanan lokal & cache tetap aman)
+      currentUser = null;
+      appStorage.removeItem(SESSION_KEY);
+      try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
+
+      tutupAkun(true);
+      tutupNotificationModal();
+      const popupBantuan = document.getElementById('popupBantuan');
+      if (popupBantuan) popupBantuan.classList.remove('show');
+      const bottomMenu = document.getElementById('bottomMenu');
+      if (bottomMenu) bottomMenu.style.display = 'none';
+      const helpBtn = document.getElementById('helpButton');
+      if (helpBtn) helpBtn.style.display = 'none';
+
+      pindahHalaman('loginPage');
+      if (typeof loadRememberedCredentials === 'function') {
+        loadRememberedCredentials();
       }
-    } catch (e) {}
-
-    currentUser = null;
-    appStorage.removeItem(SESSION_KEY);
-
-    // BERSIHKAN PENYIMPANAN LOKAL PERANGKAT (KECUALI TTD, TEMA & KEY GEMINI)
-    if (typeof clearLocalStorageKeepThemeAndTTD === 'function') {
-      await clearLocalStorageKeepThemeAndTTD();
-    }
-
-    if (rememberedCreds) {
-      try {
-        appStorage.setItem(STORE_REMEMBER_LOGIN_CREDS_KEY, rememberedCreds);
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(STORE_REMEMBER_LOGIN_CREDS_KEY, rememberedCreds);
-        }
-      } catch (e) {}
-    }
-
-    tutupAkun(true);
-    tutupNotificationModal();
-    const popupBantuan = document.getElementById('popupBantuan');
-    if (popupBantuan) popupBantuan.classList.remove('show');
-    const bottomMenu = document.getElementById('bottomMenu');
-    if (bottomMenu) bottomMenu.style.display = 'none';
-    const helpBtn = document.getElementById('helpButton');
-    if (helpBtn) helpBtn.style.display = 'none';
-
-    pindahHalaman('loginPage');
-    if (typeof loadRememberedCredentials === 'function') {
-      loadRememberedCredentials();
-    }
-    if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+      if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+      if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
+      if (typeof showNotif === 'function') showNotif('ANDA TELAH LOGOUT!', 'info');
     };
     _asyncTask();
   });
@@ -5384,6 +5390,7 @@ async function bukaMainApp() {
 
   if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
   if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
   if (typeof checkUrlDirectNoSuratOpen === 'function') checkUrlDirectNoSuratOpen();
 }
 window.bukaMainApp = bukaMainApp;
@@ -5528,28 +5535,40 @@ function aturTampilanLonceng(pageId) {
   const isDashboard = isLoggedIn && (activePage === 'dashboardPage');
 
   if (topHeader) {
-    topHeader.style.display = isLoggedIn ? 'flex' : 'none';
+    topHeader.style.setProperty('display', isDashboard ? 'flex' : 'none', 'important');
   }
 
   if (notifBtn) {
     if (isDashboard) {
       notifBtn.style.setProperty('display', 'flex', 'important');
+      notifBtn.style.setProperty('pointer-events', 'auto', 'important');
     } else {
       notifBtn.style.setProperty('display', 'none', 'important');
     }
   }
   
   if (helpBtn) {
-    helpBtn.style.display = isLoggedIn ? 'flex' : 'none';
+    if (isDashboard) {
+      helpBtn.style.setProperty('display', 'flex', 'important');
+      helpBtn.style.setProperty('pointer-events', 'auto', 'important');
+    } else {
+      helpBtn.style.setProperty('display', 'none', 'important');
+    }
   }
 
   if (dotEl) {
-    dotEl.style.display = isLoggedIn ? 'block' : 'none';
+    if (isDashboard) {
+      dotEl.style.setProperty('display', 'block', 'important');
+      dotEl.style.setProperty('pointer-events', 'auto', 'important');
+    } else {
+      dotEl.style.setProperty('display', 'none', 'important');
+    }
   }
 
   if (isLoggedIn) {
-    updateNotifBellCounter();
+    if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
     if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
   }
 }
 
@@ -5784,12 +5803,17 @@ function pindahHalaman(pageId, pushHistory = true) {
 
   document.querySelectorAll('.page').forEach(p => {
     p.classList.remove('active');
-    p.style.display = 'none';
+    p.style.setProperty('display', 'none', 'important');
   });
+
   const target = document.getElementById(pageId);
   if (target) {
     target.classList.add('active');
-    target.style.display = 'block';
+    target.style.setProperty('display', (pageId === 'dashboardPage' || pageId === 'loginPage' || pageId === 'masterDbPage' || pageId === 'riwayatPage') ? 'flex' : 'block', 'important');
+  }
+
+  if (typeof aturTampilanLonceng === 'function') {
+    aturTampilanLonceng(pageId);
   }
 
   updateBottomMenuHighlight(pageId);
@@ -5801,67 +5825,37 @@ function pindahHalaman(pageId, pushHistory = true) {
     } catch(e) {}
   }
 
+  // AUTO LOAD / INITIALIZE CONTENT FOR THE ACTIVE PAGE
+  if (pageId === 'inputPage') {
+    if (typeof loadForm === 'function') loadForm();
+  } else if (pageId === 'dashboardPage') {
+    if (typeof loadDashboard === 'function') loadDashboard();
+  } else if (pageId === 'riwayatPage') {
+    if (typeof filterRiwayat === 'function') filterRiwayat();
+  } else if (pageId === 'masterDbPage') {
+    if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
+  } else if (pageId === 'userManagementPage') {
+    if (typeof loadUsersManagement === 'function') loadUsersManagement();
+  }
+
   if (pageId === 'loginPage' || (typeof currentUser === 'undefined' || !currentUser)) {
     document.body.style.setProperty('overflow', 'hidden', 'important');
     document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+    document.body.style.setProperty('touch-action', 'none', 'important');
     const appEl = document.getElementById('app');
-    if (appEl) appEl.style.setProperty('overflow', 'hidden', 'important');
-    if (typeof closeAllPopups === 'function') closeAllPopups();
-    const bottomMenu = document.getElementById('bottomMenu');
-    if (bottomMenu) {
-      bottomMenu.classList.add('login-hidden');
-      bottomMenu.style.setProperty('display', 'none', 'important');
-    }
-    const notifBtn = document.getElementById('notifBellBtn');
-    if (notifBtn) notifBtn.style.setProperty('display', 'none', 'important');
-    const helpBtn = document.getElementById('helpButton');
-    if (helpBtn) helpBtn.style.setProperty('display', 'none', 'important');
-    const dotEl = document.getElementById('firebaseOnlineDot');
-    if (dotEl) dotEl.style.setProperty('display', 'none', 'important');
-    const topHeader = document.getElementById('topHeaderActions');
-    if (topHeader) topHeader.style.setProperty('display', 'none', 'important');
-    if (typeof loadRememberedCredentials === 'function') {
-      loadRememberedCredentials();
-    }
-    const uInput = document.getElementById('username');
-    if (uInput) {
-      setTimeout(() => { try { uInput.focus(); } catch(e) {} }, 150);
+    if (appEl) {
+      appEl.style.setProperty('overflow', 'hidden', 'important');
+      appEl.style.setProperty('height', '100vh', 'important');
     }
   } else {
     document.body.style.removeProperty('overflow');
     document.documentElement.style.removeProperty('overflow');
+    document.body.style.removeProperty('touch-action');
     const appEl = document.getElementById('app');
-    if (appEl) appEl.style.removeProperty('overflow');
-    const bottomMenu = document.getElementById('bottomMenu');
-    if (bottomMenu) {
-      bottomMenu.classList.remove('login-hidden');
-      bottomMenu.style.display = 'flex';
+    if (appEl) {
+      appEl.style.removeProperty('overflow');
+      appEl.style.removeProperty('height');
     }
-    const topHeader = document.getElementById('topHeaderActions');
-    if (topHeader) topHeader.style.display = 'flex';
-    aturTampilanLonceng(pageId);
-    try {
-      let savedVal = localStorage.getItem(BG_OPACITY_KEY) || '48';
-      if (typeof applyAdaptiveTextColors === 'function') applyAdaptiveTextColors(savedVal);
-    } catch(e) {}
-  }
-
-  if (pageId === 'dashboardPage') {
-    loadDashboard();
-  } else if (pageId === 'inputPage') {
-    loadForm();
-    if (typeof updatePhotoSectionVisibility === 'function') updatePhotoSectionVisibility();
-  } else if (pageId === 'riwayatPage') {
-    loadRiwayat();
-  } else if (pageId === 'masterDbPage') {
-    loadMasterDbTable();
-  } else if (pageId === 'userManagementPage') {
-    loadFonteToken();
-    loadFirebaseConfigInput();
-    loadUsersManagement();
-    updateActivePdfModelBadge();
-    if (typeof updatePhotoSectionVisibility === 'function') updatePhotoSectionVisibility();
-    if (typeof updateAdminReminderUI === 'function') updateAdminReminderUI();
   }
 }
 
@@ -6127,17 +6121,32 @@ window.resetCariToko = resetCariToko;
 
 function loadForm() {
   const tglEl = document.getElementById('tanggal');
-  if (tglEl && !tglEl.value) {
-    tglEl.value = getFormattedDateDDMMYYYY();
+  if (tglEl) {
+    if (!tglEl.value || tglEl.value.trim() === '') {
+      tglEl.value = (typeof getFormattedDateDDMMYYYY === 'function') ? getFormattedDateDDMMYYYY() : (function() {
+        const d = new Date();
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+      })();
+    }
+  }
+
+  const jenisEl = document.getElementById('jenisPermintaan');
+  if (jenisEl && (!jenisEl.value || jenisEl.value.trim() === '')) {
+    jenisEl.value = 'DEFAULT';
   }
 
   const cariInput = document.getElementById('cariTokoInput');
   if (cariInput) cariInput.value = '';
 
-  updateStoreDropdownOptions();
+  if (typeof updateStoreDropdownOptions === 'function') {
+    updateStoreDropdownOptions();
+  }
 
   const containerTambahToko = document.getElementById('containerTambahToko');
-  if (containerTambahToko) {
+  if (containerTambahToko && typeof currentUser !== 'undefined' && currentUser) {
     containerTambahToko.style.display = (currentUser.category === 'TOKO' || currentUser.category === 'GBJ') ? 'none' : 'block';
   }
 
@@ -6153,7 +6162,7 @@ function loadForm() {
 
 function gantiJenis() {
   const container = document.getElementById('detailContainer');
-  if (container && container.children.length > 0 && !modeEdit) {
+  if (container && !modeEdit) {
     container.innerHTML = '';
     tambahRow();
   }
@@ -6841,14 +6850,19 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       saveRequestsToDB(requests);
 
       // 2. MUNCULKAN NOTIFIKASI LANGSUNG DI AWAL & PINDAH HALAMAN
-      showNotif(`PERMINTAAN #${editNoSurat} DATA BERHASIL DIPERBARUHI!`, 'success');
+      const targetNoSurat = editNoSurat || (requests[idx] ? requests[idx].noSurat : '');
+      showNotif(`PERMINTAAN #${targetNoSurat} DATA BERHASIL DIPERBARUHI!`, 'success');
       bersihkanForm();
       pindahHalaman('riwayatPage');
       if (typeof loadRiwayat === 'function') loadRiwayat();
       if (typeof loadDashboard === 'function') loadDashboard();
 
       // 3. PROSES PENGIRIMAN KE SUPABASE DI LATAR BELAKANG
-      const docId = String(editNoSurat).replace(/[\/\.]/g, '_');
+      const docId = String(targetNoSurat).replace(/[\/\.]/g, '_');
+      if (!docId) {
+        console.warn('[DOC ID EMPTY NOTICE]: Skipped Firestore/Supabase sync because docId was empty.');
+        return;
+      }
       const supaEditRow = {
         id: docId,
         no_surat: requests[idx].noSurat,
@@ -6878,10 +6892,10 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
           if (error) console.warn('[SUPABASE UPDATE NOTICE]:', error.message);
         }).catch(e => console.warn(e));
       }
-      if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
-      if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
         dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
       }
     }
@@ -7044,10 +7058,10 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
         if (error) console.warn('[SUPABASE SAVE NOTICE]:', error.message);
       }).catch(e => console.warn(e));
     }
-    if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+    if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
       dbFirestore.collection('requests').doc(docId).set(newRecord).catch(e => console.warn('[FIRESTORE SAVE NOTICE]:', e));
     }
-    if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+    if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
       dbRealtime.ref(`requests/${docId}`).set(newRecord).catch(e => console.warn('[REALTIME SAVE NOTICE]:', e));
     }
 
@@ -7573,10 +7587,10 @@ function approveService(noSurat) {
           updated_at: new Date().toISOString()
         }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
       }
-      if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
-      if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
         dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
       }
 
@@ -7640,6 +7654,7 @@ function approveDM(noSurat) {
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
       if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
 
       // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
@@ -7653,10 +7668,10 @@ function approveDM(noSurat) {
           updated_at: new Date().toISOString()
         }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
       }
-      if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
-      if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
         dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
       }
 
@@ -7695,6 +7710,8 @@ function doneService(noSurat) {
 
   const artemisNoSurat = document.getElementById('artemisNoSurat');
   if (artemisNoSurat) artemisNoSurat.value = noSurat;
+  const inputKet = document.getElementById('inputKetPartArtemis');
+  if (inputKet) inputKet.value = '';
 
   const artemisSubTitle = document.getElementById('artemisSubTitle');
   if (artemisSubTitle) artemisSubTitle.textContent = `UPLOAD FOTO BUKTI PROSES ARTEMIS UNTUK MENYELESAIKAN PERMINTAAN #${noSurat}:`;
@@ -7874,17 +7891,21 @@ function prosesSimpanDoneDenganBuktiArtemis() {
           requests[idx].photos = [...requests[idx].photos, ...tempArtemisPhotos];
         }
 
-        // OTOMATIS: JIKA STATUS DONE, SEMUA ITEM YANG TERPENUHI MAKA KETPART JADI "DIPENUHI"
+        // STATUS PART: JIKA DIISI TEKS MAKA GUNAKAN TEKS TERSEBUT, JIKA KOSONG MAKA DEFAULT = "DIPENUHI"
+        const elKetArtemis = document.getElementById('inputKetPartArtemis');
+        const customKetPart = elKetArtemis ? elKetArtemis.value.trim() : '';
+        const finalStatusPart = customKetPart || 'DIPENUHI';
+
         if (Array.isArray(requests[idx].items)) {
           requests[idx].items.forEach(item => {
             if (!item.unfulfilled) {
-              if (!item.statusPart && !item.keteranganPart) {
-                item.statusPart = 'DIPENUHI';
-                item.keteranganPart = 'DIPENUHI';
-              }
+              item.statusPart = finalStatusPart;
+              item.keteranganPart = finalStatusPart;
+              item.updatePart = finalStatusPart;
             } else {
               item.statusPart = 'TIDAK DIPENUHI';
               item.keteranganPart = 'TIDAK DIPENUHI';
+              item.updatePart = 'TIDAK DIPENUHI';
             }
           });
         }
@@ -7984,10 +8005,10 @@ function batalApproveService(noSurat) {
           updated_at: new Date().toISOString()
         }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
       }
-      if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
-      if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
         dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
       }
     }
@@ -8036,10 +8057,10 @@ function batalApproveDM(noSurat) {
           updated_at: new Date().toISOString()
         }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
       }
-      if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
-      if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
         dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
       }
     }
@@ -8109,10 +8130,10 @@ function kirimReject() {
         updated_at: new Date().toISOString()
       }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
     }
-    if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+    if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
       dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
     }
-    if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+    if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
       dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
     }
 
@@ -8770,6 +8791,12 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     }
   }
 
+        actionButtons.push(`
+        <button type="button" class="btnIcon btnIconOnly" title="DOWNLOAD EXCEL DETAIL (.XLSX)" onclick="downloadSingleDetailExcel('${req.noSurat}');" style="background: #107c41 !important; color: #ffffff !important;">
+          <span class="material-symbols-rounded">file_download</span>
+        </button>
+      `);
+
   const allReqPhotos = [
     ...(Array.isArray(req.photos) ? req.photos : []),
     ...(Array.isArray(req.artemisPhotos) ? req.artemisPhotos : [])
@@ -9005,10 +9032,10 @@ function simpanStatusPart() {
           updated_at: new Date().toISOString()
         }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE STATUS PART UPDATE NOTICE]:', e));
       }
-      if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
-      if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
         dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
       }
     } catch (err) {
@@ -9162,10 +9189,10 @@ function simpanKeteranganPartSingle() {
         updated_at: new Date().toISOString()
       }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE STATUS PART UPDATE NOTICE]:', e));
     }
-    if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+    if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
       dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
     }
-    if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+    if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
       dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
     }
   } catch (err) {
@@ -9562,6 +9589,7 @@ function tampilkanPilihanCetakPdf(noSurat) {
     showNotif('DOKUMEN TIDAK DITEMUKAN!', 'warning');
     return;
   }
+  window._currentActivePdfNoSurat = req.noSurat;
 
   const userCat = (currentUser && currentUser.category) ? String(currentUser.category).toUpperCase() : '';
   const isAdmUser = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (userCat === 'ADMIN' || (currentUser && currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
@@ -9661,6 +9689,7 @@ function bukaPdfModal(noSurat, includePhotos = null) {
     showNotif('DOKUMEN TIDAK DITEMUKAN!', 'warning');
     return;
   }
+  window._currentActivePdfNoSurat = req.noSurat;
 
   const userCat = (currentUser && currentUser.category) ? String(currentUser.category).toUpperCase() : '';
   const isAdmUser = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (userCat === 'ADMIN' || (currentUser && currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
@@ -10521,6 +10550,7 @@ function refreshActiveChatUI() {
     }
   }
   if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
   if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
 }
 
@@ -11297,24 +11327,49 @@ function cekUnreadNotif() {
   const badge = document.getElementById('unreadBadge');
   if (!badge) return;
 
+  const isAdm = typeof isServiceTSMUser === 'function' ? isServiceTSMUser() : false;
+  isAdminChat = isAdm;
+
+  const allChats = JSON.parse(appStorage.getItem(CHAT_DB_KEY) || '[]');
   const rooms = JSON.parse(appStorage.getItem(CHAT_ROOM_DB_KEY) || '[]');
 
-  if (isAdminChat) {
-    const total = rooms.reduce((acc, curr) => acc + (curr.unreadAdmin || 0), 0);
-    if (total > 0) {
-      badge.textContent = total > 99 ? '99+' : total;
-      badge.style.display = 'flex';
-    } else {
-      badge.style.display = 'none';
+  let unreadCount = 0;
+
+  if (isAdm) {
+    let roomTotal = Array.isArray(rooms) ? rooms.reduce((acc, curr) => acc + (Number(curr.unreadAdmin) || 0), 0) : 0;
+    if (roomTotal === 0 && Array.isArray(allChats) && allChats.length > 0) {
+      roomTotal = allChats.filter(c => c && c.pengirim === 'USER' && c.read !== true && (!c.readBy || !c.readBy.includes(currentUser.username))).length;
     }
+    unreadCount = roomTotal;
   } else {
-    const myRoom = rooms.find(r => r.room === 'ROOM_' + currentUser.username);
-    if (myRoom && myRoom.unreadUser > 0) {
-      badge.textContent = myRoom.unreadUser > 99 ? '99+' : myRoom.unreadUser;
-      badge.style.display = 'flex';
-    } else {
-      badge.style.display = 'none';
+    const myUname = String(currentUser.username || '').trim().toUpperCase();
+    const myRoom = Array.isArray(rooms) ? rooms.find(r => 
+      String(r.room || '').trim().toUpperCase() === 'ROOM_' + myUname || 
+      String(r.user || '').trim().toUpperCase() === myUname
+    ) : null;
+
+    if (myRoom && (Number(myRoom.unreadUser) || 0) > 0) {
+      unreadCount = Number(myRoom.unreadUser);
+    } else if (Array.isArray(allChats) && allChats.length > 0) {
+      unreadCount = allChats.filter(c => {
+        if (!c) return false;
+        const cUser = String(c.user || c.senderUsername || '').trim().toUpperCase();
+        const cRoom = String(c.room || '').trim().toUpperCase();
+        const isMyChat = (cUser === myUname || cRoom === 'ROOM_' + myUname);
+        const isFromService = (c.pengirim === 'SERVICE' || c.pengirim === 'ADMIN');
+        const isUnread = c.read !== true && (!c.readBy || !c.readBy.includes(myUname));
+        return isMyChat && isFromService && isUnread;
+      }).length;
     }
+  }
+
+  if (unreadCount > 0) {
+    badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+    badge.style.setProperty('display', 'flex', 'important');
+    badge.style.setProperty('visibility', 'visible', 'important');
+    badge.style.setProperty('opacity', '1', 'important');
+  } else {
+    badge.style.setProperty('display', 'none', 'important');
   }
 }
 
@@ -11390,6 +11445,7 @@ async function hapusChatRoom(roomTarget, userTarget) {
       if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
       if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
 
       hideLoading();
       showNotif(`CHAT ROOM '${userTarget || roomTarget}' BERHASIL DIHAPUS DARI DATABASE & SEMUA PERANGKAT!`, 'success');
@@ -11473,6 +11529,7 @@ async function hapusSemuaChatAdmin() {
       if (typeof refreshActiveChatUI === 'function') refreshActiveChatUI();
       if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
       if (typeof loadDaftarChatAdmin === 'function') loadDaftarChatAdmin();
 
       hideLoading();
@@ -12800,7 +12857,7 @@ function downloadMasterExcel() {
     rows.push([
       'NO SURAT', 'TANGGAL', 'TOKO / PEMOHON', 'AREA', 'JENIS',
       'TIPE BARANG', 'NO SERI', 'NO SERI DUS', 'PERMINTAAN',
-      'ALASAN', 'QTY', 'NO PART', 'UPDATE PART / STATUS PART', 'STATUS', 'CATATAN', 'LOG APPROVAL'
+      'ALASAN', 'QTY', 'STATUS PART', 'STATUS', 'CATATAN', 'LOG APPROVAL'
     ]);
 
     data.forEach(r => {
@@ -12819,8 +12876,7 @@ function downloadMasterExcel() {
           isUnfulfilled ? `${it.barang || it.permintaan || '-'} [TIDAK DIPENUHI]` : (it.barang || it.permintaan || '-'),
           it.alasan || '-',
           it.qty || it.jumlah || 1,
-          it.noPart || it.nopart || '-',
-          it.statusPart || it.keteranganPart || it.updatePart || '-',
+          it.statusPart || it.keteranganPart || it.updatePart || (r.status === 'DONE' ? 'DIPENUHI' : '-'),
           isUnfulfilled ? `${r.status} (TIDAK DIPENUHI)` : r.status,
           r.catatan || '',
           logStr
@@ -13989,7 +14045,7 @@ function downloadExcel() {
     rows.push([
       'NO SURAT', 'TANGGAL', 'TOKO', 'AREA', 'JENIS PERMINTAAN', 'STATUS',
       'NO', 'TYPE BARANG', 'NO SERI', 'DUS BARANG', 'PERMINTAAN DETAIL', 'ALASAN', 'QTY',
-      'NO PART', 'UPDATE PART / STATUS PART',
+      'STATUS PART',
       'PEMOHON', 'CATATAN'
     ]);
 
@@ -14010,8 +14066,7 @@ function downloadExcel() {
             item.barang || item.permintaan || '-',
             item.alasan || '-',
             item.qty || item.jumlah || 1,
-            item.noPart || item.nopart || '-',
-            item.statusPart || item.keteranganPart || item.updatePart || '-',
+            item.statusPart || item.keteranganPart || item.updatePart || (r.status === 'DONE' ? 'DIPENUHI' : '-'),
             r.createdBy,
             r.catatan || ''
           ]);
@@ -14031,7 +14086,6 @@ function downloadExcel() {
           '-',
           '-',
           1,
-          '-',
           '-',
           r.createdBy,
           r.catatan || ''
@@ -14694,22 +14748,7 @@ function initAllDraggableButtons() {
   // Fixed top-header layout per user instruction (non-draggable)
 }
 
-(function() {
-  const styleTag = document.createElement('style');
-  styleTag.innerHTML = `
-    body:has(#loginPage.active) #notifBellBtn,
-    body:has(#loginPage.active) .notif-bell-btn,
-    body:has(#loginPage.active) #helpButton,
-    body:has(#loginPage.active) .helpButton,
-    body:has(#loginPage.active) #firebaseOnlineDot,
-    body:has(.page.active:not(#dashboardPage)) #notifBellBtn,
-    body:has(.page.active:not(#dashboardPage)) #helpButton,
-    body:has(.page.active:not(#dashboardPage)) #firebaseOnlineDot {
-      display: none !important;
-    }
-  `;
-  document.head.appendChild(styleTag);
-})();
+// Rogue global style override removed
 
 async function hapusSemuaDataLokal() {
   const isAdminUser = (typeof checkIsAdminUser === 'function' && checkIsAdminUser()) || 
@@ -16493,9 +16532,6 @@ if (typeof initFirebaseDB === 'function') {
   try { initFirebaseDB(); } catch(e) {}
 }
 
-async 
-
-
 function hapusPenyimpananLokalAkun() {
   const modal = document.getElementById('popupSecurityPinHapusLokal');
   const inputPin = document.getElementById('inputPinHapusLokal');
@@ -16578,6 +16614,7 @@ async function verifikasiDanEksekusiHapusLokal() {
       loadRememberedCredentials();
     }
     if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
+    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
 
     hideLoading();
     showNotif('PENYIMPANAN LOKAL BERHASIL DIBERSIHKAN! ANDA TELAH LOGOUT.', 'success');
@@ -16588,3 +16625,158 @@ async function verifikasiDanEksekusiHapusLokal() {
   }
 }
 window.verifikasiDanEksekusiHapusLokal = verifikasiDanEksekusiHapusLokal;
+// =======================================================================
+// PWA & DESKTOP/MOBILE HOME SCREEN APP BADGING API
+// =======================================================================
+function updateGlobalDeviceAppBadge() {
+  if (!('setAppBadge' in navigator) && !('setExperimentalAppBadge' in navigator)) return;
+
+  try {
+    if (!currentUser) {
+      if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+      return;
+    }
+
+    // 1. Hitung notifikasi sistem belum dibaca
+    const userNotifs = typeof getAccessibleNotifications === 'function' ? getAccessibleNotifications() : [];
+    const unreadNotifCount = userNotifs.filter(n => {
+      if (!n) return false;
+      if (!n.readBy) return true;
+      return !n.readBy.includes(currentUser.id) && !n.readBy.includes(currentUser.username);
+    }).length;
+
+    // 2. Hitung chat belum dibaca
+    const isAdm = typeof isServiceTSMUser === 'function' ? isServiceTSMUser() : false;
+    const allChats = JSON.parse(appStorage.getItem(CHAT_DB_KEY) || '[]');
+    const rooms = JSON.parse(appStorage.getItem(CHAT_ROOM_DB_KEY) || '[]');
+
+    let unreadChatCount = 0;
+    if (isAdm) {
+      let roomTotal = Array.isArray(rooms) ? rooms.reduce((acc, curr) => acc + (Number(curr.unreadAdmin) || 0), 0) : 0;
+      if (roomTotal === 0 && Array.isArray(allChats) && allChats.length > 0) {
+        roomTotal = allChats.filter(c => c && c.pengirim === 'USER' && c.read !== true && (!c.readBy || !c.readBy.includes(currentUser.username))).length;
+      }
+      unreadChatCount = roomTotal;
+    } else {
+      const myUname = String(currentUser.username || '').trim().toUpperCase();
+      const myRoom = Array.isArray(rooms) ? rooms.find(r => 
+        String(r.room || '').trim().toUpperCase() === 'ROOM_' + myUname || 
+        String(r.user || '').trim().toUpperCase() === myUname
+      ) : null;
+
+      if (myRoom && (Number(myRoom.unreadUser) || 0) > 0) {
+        unreadChatCount = Number(myRoom.unreadUser);
+      } else if (Array.isArray(allChats) && allChats.length > 0) {
+        unreadChatCount = allChats.filter(c => {
+          if (!c) return false;
+          const cUser = String(c.user || c.senderUsername || '').trim().toUpperCase();
+          const cRoom = String(c.room || '').trim().toUpperCase();
+          const isMyChat = (cUser === myUname || cRoom === 'ROOM_' + myUname);
+          const isFromService = (c.pengirim === 'SERVICE' || c.pengirim === 'ADMIN');
+          const isUnread = c.read !== true && (!c.readBy || !c.readBy.includes(myUname));
+          return isMyChat && isFromService && isUnread;
+        }).length;
+      }
+    }
+
+    const grandTotalUnread = unreadNotifCount + unreadChatCount;
+
+    if (grandTotalUnread > 0) {
+      if (navigator.setAppBadge) {
+        navigator.setAppBadge(grandTotalUnread).catch(() => {});
+      } else if (navigator.setExperimentalAppBadge) {
+        navigator.setExperimentalAppBadge(grandTotalUnread).catch(() => {});
+      }
+    } else {
+      if (navigator.clearAppBadge) {
+        navigator.clearAppBadge().catch(() => {});
+      } else if (navigator.clearExperimentalAppBadge) {
+        navigator.clearExperimentalAppBadge().catch(() => {});
+      }
+    }
+  } catch(e) {}
+}
+window.updateGlobalDeviceAppBadge = updateGlobalDeviceAppBadge;
+
+// =======================================================================
+// DOWNLOAD EXCEL SINGLE DETAIL PERMINTAAN DENGAN STATUS PART
+// =======================================================================
+function downloadSingleDetailExcel(noSurat) {
+  if (!noSurat) return;
+  const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = requests.find(r => r && (r.noSurat === noSurat || String(r.noSurat) === String(noSurat) || r.id === noSurat));
+
+  if (!req) {
+    if (typeof showNotif === 'function') showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    if (typeof showNotif === 'function') showNotif('MODUL EXCEL (.XLSX) BELUM SIAP!', 'warning');
+    return;
+  }
+
+  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
+  setTimeout(() => {
+    hideLoading();
+    const rows = [];
+    rows.push([
+      'NO', 'NO SURAT', 'TANGGAL', 'TOKO', 'AREA', 'JENIS PERMINTAAN',
+      'TIPE BARANG', 'NO SERI', 'DUS BARANG', 'PERMINTAAN DETAIL', 'ALASAN', 'QTY',
+      'STATUS PART', 'STATUS SURAT', 'PEMOHON', 'CATATAN'
+    ]);
+
+    let rawItems = req.items;
+    let itemsList = [];
+    if (Array.isArray(rawItems)) itemsList = rawItems;
+    else if (typeof rawItems === 'string') {
+      try { itemsList = JSON.parse(rawItems || '[]'); } catch (e) { itemsList = []; }
+    }
+
+    if (itemsList.length > 0) {
+      itemsList.forEach((it, idx) => {
+        const isUnfulfilled = !!(it.unfulfilled || it.batal || it.status === 'TIDAK BISA DIPENUHI' || req.status === 'BATAL');
+        let statusPartVal = (it.statusPart || it.keteranganPart || it.updatePart || it.noPart || '').trim();
+        if (isUnfulfilled) {
+          statusPartVal = 'TIDAK DIPENUHI';
+        } else if (req.status === 'DONE' && !statusPartVal) {
+          statusPartVal = 'DIPENUHI';
+        } else if (!statusPartVal) {
+          statusPartVal = '-';
+        }
+
+        rows.push([
+          idx + 1,
+          req.noSurat || '-',
+          req.tanggal || '-',
+          req.toko || '-',
+          req.area || '-',
+          req.jenis || '-',
+          it.type || it.tipe || '-',
+          it.seri || it.sn || '-',
+          it.dus || '-',
+          isUnfulfilled ? `${it.barang || it.permintaan || '-'} [TIDAK DIPENUHI]` : (it.barang || it.permintaan || '-'),
+          it.alasan || '-',
+          it.qty || it.jumlah || 1,
+          statusPartVal,
+          isUnfulfilled ? `${req.status} (TIDAK DIPENUHI)` : (req.status || '-'),
+          req.createdBy || '-',
+          req.catatan || ''
+        ]);
+      });
+    } else {
+      rows.push([
+        1, req.noSurat || '-', req.tanggal || '-', req.toko || '-', req.area || '-', req.jenis || '-',
+        '-', '-', '-', '-', '-', 1, '-', req.status || '-', req.createdBy || '-', req.catatan || ''
+      ]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Detail Permintaan");
+    const cleanNo = String(req.noSurat || 'DETAIL').replace(/[/\\?%*:|"<>]/g, '_');
+    XLSX.writeFile(wb, `DETAIL_PERMINTAAN_${cleanNo}.xlsx`);
+    if (typeof showNotif === 'function') showNotif('FILE EXCEL DETAIL BERHASIL DI-DOWNLOAD!', 'info');
+  }, 250);
+}
+window.downloadSingleDetailExcel = downloadSingleDetailExcel;

@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>PERMINTAAN TOKO</title>
+  <!-- Favicon Toko Biru -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260819_v10096">
+  <link rel="alternate icon" href="favicon.svg?v=20260819_v10096">
+  <link rel="apple-touch-icon" href="favicon.svg?v=20260819_v10096">
 
   <!-- Google Fonts: Poppins & Material Symbols Rounded -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -27,8 +31,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics-compat.js"></script>
 
   <!-- Master Stylesheet -->
-  <link rel="stylesheet" href="styles.css?v=20260819_v10091">
-  <script src="app.js?v=20260819_v10091"></script>
+  <link rel="stylesheet" href="styles.css?v=20260819_v10145">
+  <script src="app.js?v=20260819_v10145"></script>
 
   <!-- Global Failsafe Gemini AI Key Handler -->
   <script>
@@ -971,8 +975,6 @@
       </div>
     </div>
   </div>
-  </div>
-  </div>
 
   <!-- POPUP TAMBAH TOKO MODAL (UNTUK SEMUA USER - OTOMATIS MASUK AREA USER & GENERATE 2 DIGIT KODE TOKO) -->
   <div id="popupTambahToko" class="popupOverlay" onclick="if(event.target === this || event.target.id === 'popupTambahToko') { if(typeof window.tutupModalTambahToko==='function') window.tutupModalTambahToko(); else if(typeof tutupModalTambahToko==='function') tutupModalTambahToko(); }" style="display: none; align-items: center !important; justify-content: center !important; padding-top: 1mm !important; padding-bottom: 2cm !important; padding-left: 4px !important; padding-right: 4px !important; box-sizing: border-box !important;">
@@ -1040,7 +1042,7 @@
   </div>
 
 <!-- 2. POPUP CAMERA BARCODE / QR SCANNER (1MM SCREEN MARGIN ON HP) -->
-  <div id="scannerModal" class="popupOverlay">
+  <div id="scannerModal" class="popupOverlay" style="display: none;">
     <div class="popupBox">
       <div class="popupHeader" style="background: var(--primary); border-radius: 5px 5px 0 0; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;">
         <span style="font-size: 13px; font-weight: 800; color: #ffffff;"><span class="material-symbols-rounded" style="vertical-align: middle; font-size: 18px;">qr_code_scanner</span> SCAN BARCODE / QR NO SERI</span>
@@ -1057,7 +1059,7 @@
   </div>
 
   <!-- 3. POPUP CONFIRMATION MODAL (YES/NO CENTERED SCREEN CARD) -->
-  <div id="confirmOverlay" class="popupOverlay" style="z-index: 999999999 !important; align-items: center !important; justify-content: center !important;">
+  <div id="confirmOverlay" class="popupOverlay" style="display: none; z-index: 999999999 !important; align-items: center !important; justify-content: center !important;">
     <div class="popupNotifCard" id="confirmBoxCard" style="width: 350px !important; max-width: 88vw !important; border-radius: 5px !important; overflow: hidden !important; margin: auto !important;">
       <div class="popupNotifBody" style="padding: 16px 18px 12px 18px; text-align: center;">
         <span class="material-symbols-rounded" style="font-size: 32px; color: var(--primary); margin-bottom: 4px; display: block;">help</span>
@@ -1071,7 +1073,7 @@
   </div>
 
   <!-- 4. CLEAN & ATTRACTIVE NOTIFICATION DIALOG MODAL (OK CENTERED SCREEN CARD) -->
-  <div id="popupNotif" class="popupOverlay" style="z-index: 9999999999 !important; align-items: center !important; justify-content: center !important;">
+  <div id="popupNotif" class="popupOverlay" style="display: none; z-index: 9999999999 !important; align-items: center !important; justify-content: center !important;">
     <div class="popupNotifCard" id="popupNotifCard" style="width: 350px !important; max-width: 88vw !important; border-radius: 5px !important; overflow: hidden !important; margin: auto !important;">
       <div class="popupNotifBody" style="padding: 16px 18px 12px 18px; text-align: center;">
         <span id="popupNotifIcon" class="material-symbols-rounded" style="font-size: 32px; color: var(--primary); margin-bottom: 4px; display: block;">info</span>
@@ -1186,6 +1188,13 @@
           </div>
         </div>
 
+                <div style="margin-bottom: 14px;">
+          <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-main); margin-bottom: 5px;">
+            STATUS / KETERANGAN PART (OPSIONAL)
+          </label>
+          <input type="text" id="inputKetPartArtemis" placeholder="Default: DIPENUHI (Isi jika ada keterangan part khusus)..." style="width: 100%; height: 38px; padding: 0 12px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-body); color: var(--text-main); font-size: 12px; font-weight: 600; box-sizing: border-box; outline: none;">
+        </div>
+
         <div id="artemisPhotoPreviewGrid" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 180px; overflow-y: auto; margin-bottom: 14px; padding: 6px; background: var(--bg-body); border-radius: 5px; border: 1px dashed var(--border-color);">
           <!-- Photo previews injected dynamically -->
         </div>
@@ -1211,7 +1220,7 @@
   </div>
 
   <!-- 7. POPUP DIGITAL SIGNATURE (TTD) MODAL -->
-  <div id="popupTTD" class="popupTTD popupOverlay" onclick="if(event.target === this) tutupTTD();">
+  <div id="popupTTD" class="popupTTD popupOverlay" onclick="if(event.target === this) tutupTTD();" style="display: none;">
     <div class="ttdBox" onclick="event.stopPropagation()" style="position: relative !important; padding: 4mm !important; box-sizing: border-box !important;">
       <button type="button" class="popupClose popupCloseTTD" onclick="tutupTTD()" title="TUTUP" style="position: absolute !important; top: 6px !important; right: 8px !important; background: transparent !important; border: none !important; color: var(--primary) !important; font-size: 26px !important; font-weight: 900 !important; line-height: 1 !important; cursor: pointer !important; padding: 0 6px !important; z-index: 20 !important;">&times;</button>
       <h3 style="color: var(--primary); margin-bottom: 4px; font-size: 15px; font-weight: 800; padding-right: 24px;">TANDA TANGAN DIGITAL (TTD)</h3>
@@ -1293,7 +1302,7 @@
   <!-- ==========================================================================
        POPUP MODAL: MANAJEMEN AKUN USER & HAK AKSES (1CM ATAS-BAWAH, SCROLL 4 ARAH)
        ========================================================================== -->
-  <div id="popupUserManagementModal" class="popupOverlay" onclick="if(event.target === this) tutupPopupUserManagement()" style="padding: 1mm !important; box-sizing: border-box !important;">
+  <div id="popupUserManagementModal" class="popupOverlay" onclick="if(event.target === this) tutupPopupUserManagement()" style="display: none; padding: 1mm !important; box-sizing: border-box !important;">
     <div class="userManagementBoxPopup" onclick="event.stopPropagation()">
       <!-- Popup Header -->
       <div class="userManagementHeader">
@@ -1443,40 +1452,9 @@
       <!-- DUA TOMBOL SEJAJAR: BATAL (MERAH) & SIMPAN USER (HIJAU) -->
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex-shrink: 0;">
         <button type="button" onclick="tutupUserModal()" style="height: 36px; background: #dc2626 !important; color: #ffffff !important; font-weight: 800; font-size: 11.5px; border-radius: 6px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 2px 6px rgba(220,38,38,0.3); transition: filter 0.2s;">BATAL</button>
-        <button type="button" onclick="simpanUserData(this)" style="height: 36px; background: #16a34a !important; color: #ffffff !important; font-weight: 800; font-size: 11.5px; border-radius: 6px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 2px 6px rgba(22,163,74,0.3); transition: filter 0.2s;">SIMPAN USER</button>
+        <button type="button" onclick="simpanUserData(this)" style="height: 36px; background: #16a34a !important; color: #ffffff !important; font-weight: 800; font-size: 11.5px; border-radius: 6px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 2px 6px rgba(220,38,38,0.3); transition: filter 0.2s;">SIMPAN USER</button>
       </div>
 
-    </div>
-  </div>
-
-
-      <!-- DUA TOMBOL SEJAJAR: BATAL (MERAH) & SIMPAN USER (HIJAU) -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex-shrink: 0;">
-        <button type="button" onclick="tutupUserModal()" style="height: 36px; background: #dc2626; color: #ffffff; font-weight: 800; font-size: 11.5px; border-radius: 6px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 2px 6px rgba(220,38,38,0.3); transition: filter 0.2s;">BATAL</button>
-        <button type="button" onclick="simpanUserData(this)" style="height: 36px; background: #16a34a; color: #ffffff; font-weight: 800; font-size: 11.5px; border-radius: 6px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 2px 6px rgba(22,163,74,0.3); transition: filter 0.2s;">SIMPAN USER</button>
-      </div>
-
-    </div>
-  </div>
-
-
-      <!-- DUA TOMBOL SEJAJAR: BATAL (CORAL RED) & SIMPAN USER (RED) -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-        <button type="button" onclick="tutupUserModal()" style="height: 42px; background: #f87171; color: #ffffff; font-weight: 800; font-size: 12px; border-radius: 8px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 3px 8px rgba(248,113,113,0.35); transition: background 0.2s;">BATAL</button>
-        <button type="button" onclick="simpanUserData(this)" style="height: 42px; background: #dc2626; color: #ffffff; font-weight: 800; font-size: 12px; border-radius: 8px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 3px 8px rgba(220,38,38,0.35); transition: background 0.2s;">SIMPAN USER</button>
-      </div>
-
-    </div>
-  </div>
-
-
-      <!-- FOOTER (DIAM / FIXED) -->
-      <div class="popupFooter" style="padding: 10px 16px !important; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px; background: var(--bg-box) !important; flex-shrink: 0; border-radius: 0 0 5px 5px !important;">
-        <button type="button" class="btnKembali" onclick="tutupUserModal()" style="padding: 8px 16px; border-radius: 5px; font-size: 12px; font-weight: 700; cursor: pointer;">BATAL</button>
-        <button type="button" class="btnSimpan" onclick="simpanUserData(this)" style="background: #16a34a; padding: 8px 20px; border-radius: 5px; font-size: 12px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 6px; cursor: pointer; border: none;">
-          <span class="material-symbols-rounded" style="font-size: 17px;">save</span> SIMPAN USER
-        </button>
-      </div>
     </div>
   </div>
 
@@ -1512,7 +1490,7 @@
   </div>
 
   <!-- 9. POPUP MODAL PILIHAN 5 MODEL TEMPLATE PDF (SIMPLE COMPACT 1-5 BUTTONS WITH FULL HEIGHT PREVIEW) -->
-  <div id="popupPdfModelsModal" class="popupOverlay" onclick="if(event.target === this) tutupModalPdfModels();" style="z-index: 1000000; align-items: center !important; justify-content: center !important; padding: 1cm 4px !important; box-sizing: border-box !important;">
+  <div id="popupPdfModelsModal" class="popupOverlay" onclick="if(event.target === this) tutupModalPdfModels();" style="display: none; z-index: 1000000; align-items: center !important; justify-content: center !important; padding: 1cm 4px !important; box-sizing: border-box !important;">
     <div class="popupBox" style="width: 780px !important; max-width: calc(100vw - 8px) !important; height: calc(100vh - 2cm) !important; max-height: calc(100vh - 2cm) !important; display: flex !important; flex-direction: column !important; padding: 0 !important; border-radius: 0px !important; overflow: hidden !important; position: relative !important; box-shadow: 0 20px 50px rgba(0,0,0,0.35) !important; margin: auto !important; -webkit-clip-path: none !important; clip-path: none !important;">
       <div class="popupHeader" style="background: var(--primary) !important; background-color: var(--primary) !important; background-image: none !important; padding: 12px 18px; position: relative; justify-content: center !important; border-radius: 0px !important; ">
         <span style="font-size: 15px; font-weight: 900; color: #fff; text-align: center; letter-spacing: 0.5px;">

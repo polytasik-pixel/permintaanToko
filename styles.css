@@ -9369,3 +9369,198 @@ html body #pdfDocumentContent {
   background: #f8fafc !important;
   box-sizing: border-box !important;
 }
+
+/* ==========================================================================
+   LOGIN SCREEN & LOGIN CARD STYLES (FLAWLESS CENTERING & CONTAINMENT)
+   ========================================================================== */
+#loginPage,
+#loginPage.page,
+html body #loginPage {
+  display: none !important;
+  width: 100% !important;
+  min-height: 100vh !important;
+  min-height: 100dvh !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+#loginPage.active,
+#loginPage.page.active,
+html body #loginPage.active {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  min-height: 100vh !important;
+  min-height: 100dvh !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  padding: 16px !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+.login-card,
+#loginPage .login-card,
+html body .login-card,
+html body #loginPage .login-card {
+  width: 380px !important;
+  max-width: calc(100vw - 32px) !important;
+  margin: auto !important;
+  background: var(--bg-box, #ffffff) !important;
+  border-radius: 8px !important;
+  -webkit-clip-path: none !important;
+  clip-path: none !important;
+  padding: 28px 24px 28px 24px !important;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+  border: 1px solid var(--border-color, #e2e8f0) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  height: auto !important;
+  min-height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 20 !important;
+  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+.login-card .logo {
+  width: 56px !important;
+  height: 56px !important;
+  min-width: 56px !important;
+  min-height: 56px !important;
+  margin: 0 auto 12px auto !important;
+  border-radius: 50% !important;
+  background: var(--primary, #2563eb) !important;
+  color: #ffffff !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35) !important;
+  flex-shrink: 0 !important;
+}
+
+.login-card .logo .material-symbols-rounded {
+  font-size: 28px !important;
+  color: #ffffff !important;
+}
+
+.login-card h2 {
+  text-align: center !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  margin: 0 0 4px 0 !important;
+  color: var(--text-main, #1e293b) !important;
+  letter-spacing: 0.5px !important;
+}
+
+.login-card p {
+  text-align: center !important;
+  color: var(--text-muted, #64748b) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  margin: 0 0 18px 0 !important;
+  letter-spacing: 0.3px !important;
+}
+
+#loginForm {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.login-card .input-group {
+  display: flex !important;
+  align-items: center !important;
+  border: 1px solid var(--border-color, #cbd5e1) !important;
+  border-radius: 6px !important;
+  overflow: hidden !important;
+  background: var(--input-bg, #ffffff) !important;
+  margin-bottom: 12px !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
+  box-sizing: border-box !important;
+  height: 48px !important;
+  min-height: 48px !important;
+}
+
+.login-card .input-group:focus-within {
+  border-color: var(--primary, #2563eb) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18) !important;
+}
+
+.login-card .input-group span {
+  width: 44px !important;
+  height: 100% !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  color: var(--primary, #2563eb) !important;
+  background: transparent !important;
+  flex-shrink: 0 !important;
+}
+
+.login-card .input-group input {
+  flex: 1 1 auto !important;
+  border: none !important;
+  outline: none !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  color: var(--input-text, #0f172a) !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+}
+
+#btnLogin,
+.login-card button.btn-primary,
+.login-card #btnLogin {
+  width: 100% !important;
+  margin-top: 14px !important;
+  margin-bottom: 0 !important;
+  border: none !important;
+  padding: 12px 18px !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  border-radius: 6px !important;
+  background: var(--primary, #2563eb) !important;
+  color: #ffffff !important;
+  cursor: pointer !important;
+  font-size: 13.5px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.5px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+#btnLogin:hover,
+.login-card button.btn-primary:hover {
+  background: var(--primary-hover, #1d4ed8) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
+}
+
+#btnLogin:active,
+.login-card button.btn-primary:active {
+  transform: translateY(0) !important;
+}

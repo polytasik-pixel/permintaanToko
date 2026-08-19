@@ -8126,7 +8126,7 @@ function hapusBarisItemDetailAdmin(noSurat, itemIndex) {
       saveRequestsToDB(requests);
       isItemModifiedMap[noSurat] = true;
 
-      showNotif(`ITEM DITANDAI TIDAK DIPENUHI. KLIK 'SIMPAN PERUBAHAN' UNTUK MENYIMPAN.`, 'warning');
+      showNotif(`ITEM DITANDAI TIDAK DIPENUHI ?`, 'warning');
       lihatDetail(noSurat);
     });
   }
@@ -8181,8 +8181,8 @@ async function simpanPerubahanDetailAdmin(noSurat) {
     return;
   }
 
-  showConfirm(`APAKAH ANDA YAKIN INGIN MENYIMPAN PERUBAHAN ITEM PERMINTAAN #${noSurat}?`, () => {
-    showLoading('MENYIMPAN PERUBAHAN ITEM...');
+  showConfirm(`SIMPAN PERUBAHAN PERMINTAAN #${noSurat}?`, () => {
+    showLoading('MENYIMPAN PERUBAHAN...');
     setTimeout(async () => {
       try {
         const requests = getRequestsFromDB();
@@ -12599,7 +12599,7 @@ function downloadMasterExcel() {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX) MASTER LENGKAP...');
+  showLoading('MOHON TUNGGU');
   setTimeout(() => {
     hideLoading();
     const rows = [];
@@ -13814,7 +13814,7 @@ function downloadExcel() {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
+  showLoading('MOHON TUNGGU');
   setTimeout(() => {
     hideLoading();
     const rows = [];

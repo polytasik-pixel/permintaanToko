@@ -54,10 +54,10 @@ function getReqPhotosList(req) {
 window.getReqPhotosList = getReqPhotosList;
 
 // 1. SUPABASE CLIENT & CREDENTIALS
-const SUPABASE_URL = 'https://bfkmxhvqezdobsbgxmzg.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FMzN5oje55yHwz3Sv1s6ww_AyYU3r9K';
-const SUPABASE_SECRET_KEY = '';
-const SUPABASE_JWKS_URL = 'https://bfkmxhvqezdobsbgxmzg.supabase.co/auth/v1/.well-known/jwks.json';
+const SUPABASE_URL = 'https://nmzulwgqkcyxjjwroxvq.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_ygnIgHTSuSb7pt0s7hrQ6w_9iRs-7bf';
+const SUPABASE_SECRET_KEY = 'sb_secret_uF5qmjxW4W1038i0lkqFyw_dI93LO3r';
+const SUPABASE_JWKS_URL = 'https://nmzulwgqkcyxjjwroxvq.supabase.co/auth/v1/.well-known/jwks.json';
 
 const supabaseAuthOptions = {
   auth: {
@@ -148,7 +148,7 @@ async function muatMetrikKapasitasDatabase(isRefresh = false) {
         supabase.from('permintaan_toko').select('*', { count: 'exact', head: true }),
         supabase.from('users').select('*', { count: 'exact', head: true }),
         supabase.from('toko_list').select('*', { count: 'exact', head: true }),
-        supabase.from('chat_messages').select('*', { count: 'exact', head: true })
+        supabase.from('permintaan_toko').select('no_surat', { count: 'exact', head: true }).limit(1)
       ]);
 
       const endTime = performance.now();
@@ -1226,28 +1226,7 @@ function markNotifAsRead(notifId, noSurat = '') {
     appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload));
     try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload)); } catch(e) {}
 
-    if (typeof supabase !== 'undefined' && supabase) {
-      try {
-        const systemNotifRow = {
-          id: '__SYSTEM_NOTIFICATIONS__',
-          no_surat: '__SYSTEM_NOTIFICATIONS__',
-          tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
-          toko: 'SYSTEM',
-          area: 'ALL',
-          jenis: 'SYSTEM',
-          catatan: JSON.stringify(payload),
-          items: [],
-          photos: [],
-          status: 'DONE',
-          service_approve: true,
-          created_by: 'SYSTEM',
-          created_at: new Date().toISOString()
-        };
-        safeSupabaseUpsertPermintaan(systemNotifRow).then(({ error }) => {
-          if (error) console.warn('[SUPABASE NOTIF SAVE NOTICE]:', error.message);
-        });
-      } catch(e) {}
-    }
+    // Notifikasi dikelola secara lokal & Firebase (tidak dikirim ke Supabase)
   }
 
   updateNotifBellCounter();
@@ -1291,28 +1270,7 @@ function markAllNotifAsRead(silent = false) {
   appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload));
   try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload)); } catch(e) {}
 
-  if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      const systemNotifRow = {
-        id: '__SYSTEM_NOTIFICATIONS__',
-        no_surat: '__SYSTEM_NOTIFICATIONS__',
-        tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
-        toko: 'SYSTEM',
-        area: 'ALL',
-        jenis: 'SYSTEM',
-        catatan: JSON.stringify(payload),
-        items: [],
-        photos: [],
-        status: 'DONE',
-        service_approve: true,
-        created_by: 'SYSTEM',
-        created_at: new Date().toISOString()
-      };
-      safeSupabaseUpsertPermintaan(systemNotifRow).then(({ error }) => {
-        if (error) console.warn('[SUPABASE NOTIF SAVE NOTICE]:', error.message);
-      });
-    } catch(e) {}
-  }
+  // Notifikasi dikelola secara lokal & Firebase (tidak dikirim ke Supabase)
 
   updateNotifBellCounter();
   loadNotificationList();
@@ -3102,7 +3060,7 @@ async function syncAllDataToCache() {
   try {
     await syncSupabaseRequestsToLocalCache();
     await syncSupabaseUsersToLocalCache();
-    await syncSupabaseNotifsAndChatToLocalCache();
+    // await syncSupabaseNotifsAndChatToLocalCache(); // Notif & Chat managed via Firebase/Local
     await syncSupabaseStoresToLocalCache();
     await syncSupabaseLookupToLocalCache();
     await syncSupabaseThemeToLocalCache();
@@ -3275,35 +3233,8 @@ async function broadcastSystemUsersMasterToSupabase() {
 window.broadcastSystemUsersMasterToSupabase = broadcastSystemUsersMasterToSupabase;
 
 async function syncSupabaseNotifsAndChatToLocalCache() {
-  if (typeof supabase === 'undefined' || !supabase) return;
-
-  try {
-    try {
-      const { data: ntfData } = await supabase.from('notifications').select('*');
-      if (ntfData && Array.isArray(ntfData) && ntfData.length > 0) {
-        const parsedNotifs = ntfData.map(n => ({
-          id: n.id,
-          targetRoles: n.target_roles || n.targetRoles || [],
-          targetArea: n.target_area || n.targetArea || 'ALL',
-          message: n.message,
-          noSurat: n.no_surat || n.noSurat || '',
-          time: n.time || '',
-          readBy: n.read_by || n.readBy || []
-        }));
-        if (parsedNotifs.length > 0) {
-          appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(parsedNotifs));
-          try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(parsedNotifs)); } catch(e) {}
-        }
-      }
-    } catch(e) {}
-
-    // Fetch & Sync Chat Messages from Supabase
-    if (typeof fetchChatFromSupabase === 'function') {
-      await fetchChatFromSupabase();
-    }
-  } catch (err) {
-    console.warn('[SUPABASE NOTIF & CHAT SYNC NOTICE]:', err);
-  }
+  // Notifikasi dan Chat dikelola khusus melalui Firebase Realtime / Firestore & Local Storage (tidak menggunakan Supabase)
+  return;
 }
 
 async function syncSupabaseStoresToLocalCache() {
@@ -3339,156 +3270,8 @@ async function syncSupabaseStoresToLocalCache() {
 window.syncSupabaseStoresToLocalCache = syncSupabaseStoresToLocalCache;
 
 async function syncSupabaseLookupToLocalCache() {
-  if (typeof supabase === 'undefined' || !supabase) return;
-  try {
-    const { data: lookupData } = await supabase.from('lookup').select('*');
-    if (Array.isArray(lookupData)) {
-      lookupData.forEach(item => {
-        // KODE UNIT / MASTER TYPE DIKELOLA SEPENUHNYA MELALUI FIREBASE
-        if (item.key === 'FEATURE_PHOTOS' || item.code === 'FEATURE_PHOTOS') {
-          let val = 'true';
-          if (item.value !== undefined && item.value !== null) {
-            if (typeof item.value === 'object') {
-              val = item.value.enabled !== undefined ? String(item.value.enabled) : String(item.value.featurePhotos || 'true');
-            } else {
-              val = String(item.value);
-            }
-          } else if (item.type !== undefined && item.type !== null) {
-            val = String(item.type);
-          }
-          appStorage.setItem(FEATURE_PHOTOS_KEY, val);
-          try { localStorage.setItem(FEATURE_PHOTOS_KEY, val); } catch(e) {}
-          if (typeof updatePhotoSectionVisibility === 'function') updatePhotoSectionVisibility();
-        }
-        if (item.key === 'global_theme' || item.code === 'GLOBAL_THEME') {
-          const cloudTheme = item.value ? (typeof item.value === 'object' ? item.value.theme : String(item.value)) : (item.type || 'dark-mode');
-          if (cloudTheme) {
-            appStorage.setItem(GLOBAL_THEME_KEY, cloudTheme);
-            const activeLocalTheme = getSavedLocalTheme();
-            if (typeof updateBodyClasses === 'function') {
-              updateBodyClasses(activeLocalTheme);
-            }
-          }
-        }
-        if (item.key === 'fonteToken' || item.code === 'FONTE_TOKEN' || item.key === 'FONTE_TOKEN') {
-          const val = item.value ? (typeof item.value === 'object' ? String(item.value.token || item.value.fonteToken || '') : String(item.value)) : (item.type || '');
-          if (val) {
-            appStorage.setItem(FONTE_TOKEN_KEY, val);
-            try { localStorage.setItem(FONTE_TOKEN_KEY, val); } catch(e) {}
-            if (typeof loadFonteToken === 'function') loadFonteToken();
-          }
-        }
-        if (item.key === 'adminReminder' || item.code === 'ADMIN_REMINDER') {
-          const rVal = item.value ? (typeof item.value === 'object' ? String(item.value.enabled || item.value.adminReminder || 'true') : String(item.value)) : (item.type || 'true');
-          appStorage.setItem(ADMIN_REMINDER_KEY, rVal);
-          try { localStorage.setItem(ADMIN_REMINDER_KEY, rVal); } catch(e) {}
-          if (typeof updateAdminReminderUI === 'function') updateAdminReminderUI();
-        }
-        if (item.key === 'adminReminderTime' || item.code === 'ADMIN_REMINDER_TIME') {
-          const tVal = item.value ? (typeof item.value === 'object' ? String(item.value.time || item.value.adminReminderTime || '09:00') : String(item.value)) : (item.type || '09:00');
-          appStorage.setItem(ADMIN_REMINDER_TIME_KEY, tVal);
-          try { localStorage.setItem(ADMIN_REMINDER_TIME_KEY, tVal); } catch(e) {}
-          if (typeof loadAdminReminderTimeInput === 'function') loadAdminReminderTimeInput();
-        }
-      });
-    }
-
-    // Explicitly sync __SYSTEM_PHOTO_FEATURE__ from permintaan_toko
-    try {
-      const { data: sysPhoto } = await supabase.from('permintaan_toko').select('catatan').eq('no_surat', '__SYSTEM_PHOTO_FEATURE__').maybeSingle();
-      if (sysPhoto && sysPhoto.catatan) {
-        let valStr = 'true';
-        try {
-          const parsed = JSON.parse(sysPhoto.catatan);
-          if (parsed.featurePhotos !== undefined) valStr = String(parsed.featurePhotos);
-          else if (parsed.enabled !== undefined) valStr = parsed.enabled ? 'true' : 'false';
-        } catch(e) {
-          valStr = String(sysPhoto.catatan);
-        }
-        appStorage.setItem(FEATURE_PHOTOS_KEY, valStr);
-        try { localStorage.setItem(FEATURE_PHOTOS_KEY, valStr); } catch(e) {}
-        if (typeof updatePhotoSectionVisibility === 'function') updatePhotoSectionVisibility();
-      }
-    } catch(e) {}
-
-    // Explicitly sync __SYSTEM_FONTE_TOKEN__ from permintaan_toko
-    try {
-      const { data: sysFonte } = await supabase.from('permintaan_toko').select('catatan').eq('no_surat', '__SYSTEM_FONTE_TOKEN__').maybeSingle();
-      if (sysFonte && sysFonte.catatan) {
-        let valStr = '';
-        try {
-          const parsed = JSON.parse(sysFonte.catatan);
-          if (parsed.fonteToken !== undefined) valStr = String(parsed.fonteToken);
-        } catch(e) {
-          valStr = String(sysFonte.catatan);
-        }
-        if (valStr) {
-          appStorage.setItem(FONTE_TOKEN_KEY, valStr);
-          try { localStorage.setItem(FONTE_TOKEN_KEY, valStr); } catch(e) {}
-          if (typeof loadFonteToken === 'function') loadFonteToken();
-        }
-      }
-    } catch(e) {}
-
-    // Explicitly sync __SYSTEM_REMINDER_SETTINGS__ from permintaan_toko
-    try {
-      const { data: sysReminder } = await supabase.from('permintaan_toko').select('catatan').eq('no_surat', '__SYSTEM_REMINDER_SETTINGS__').maybeSingle();
-      if (sysReminder && sysReminder.catatan) {
-        try {
-          const parsed = JSON.parse(sysReminder.catatan);
-          if (parsed.adminReminder !== undefined) {
-            const rVal = String(parsed.adminReminder);
-            appStorage.setItem(ADMIN_REMINDER_KEY, rVal);
-            try { localStorage.setItem(ADMIN_REMINDER_KEY, rVal); } catch(e) {}
-          }
-          if (parsed.adminReminderTime !== undefined) {
-            const tVal = String(parsed.adminReminderTime);
-            appStorage.setItem(ADMIN_REMINDER_TIME_KEY, tVal);
-            try { localStorage.setItem(ADMIN_REMINDER_TIME_KEY, tVal); } catch(e) {}
-          }
-          if (typeof updateAdminReminderUI === 'function') updateAdminReminderUI();
-        } catch(e) {}
-      }
-    } catch(e) {}
-
-    // Explicitly sync __SYSTEM_TTD_MAP__ from permintaan_toko & lookup
-    try {
-      const { data: sysTtd } = await supabase.from('permintaan_toko').select('catatan').eq('no_surat', '__SYSTEM_TTD_MAP__').maybeSingle();
-      let rawTtd = sysTtd && sysTtd.catatan;
-      if (!rawTtd) {
-        const { data: lkpTtd } = await supabase.from('lookup').select('value').eq('key', 'SYSTEM_TTD_MAP').maybeSingle();
-        if (lkpTtd && lkpTtd.value) rawTtd = lkpTtd.value;
-      }
-      if (rawTtd) {
-        try {
-          const ttdMap = typeof rawTtd === 'object' ? rawTtd : JSON.parse(rawTtd);
-          if (ttdMap && typeof ttdMap === 'object') {
-            const currentMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
-            const merged = { ...currentMap, ...ttdMap };
-            appStorage.setItem(TTD_DB_KEY, JSON.stringify(merged));
-            try { localStorage.setItem(TTD_DB_KEY, JSON.stringify(merged)); } catch(e) {}
-            try { localStorage.setItem('APP_USER_TTD_MAP', JSON.stringify(merged)); } catch(e) {}
-
-            // Populate signatures into local users database
-            const allUsers = getUsersFromDB();
-            let anyU = false;
-            allUsers.forEach(u => {
-              if (u) {
-                const s = ttdMap[u.id] || ttdMap[u.username] || ttdMap[u.fullName];
-                if (s && typeof s === 'string' && s.length > 50 && (!u.ttd || u.ttd.length < 50)) {
-                  u.ttd = s;
-                  anyU = true;
-                }
-              }
-            });
-            if (anyU) saveUsersToDB(allUsers);
-          }
-        } catch(e) {}
-      }
-    } catch(e) {}
-  } catch (err) {
-    console.warn('[SUPABASE LOOKUP SYNC NOTICE]:', err);
-  }
+  // Master lookup tipe barang / kode unit map dikelola khusus melalui Firebase & Local Storage
+  return;
 }
 window.syncSupabaseLookupToLocalCache = syncSupabaseLookupToLocalCache;
 
@@ -3658,31 +3441,7 @@ async function pushCentralCloudDB(target = null) {
 
         // Database is single source of truth: wholesale store dumps disabled
 
-        // PUSH TYPE LOOKUP KODE UNIT MAP TO SUPABASE SYSTEM ROW
-        if (typeof getKodeUnitMap === 'function') {
-          const unitMap = getKodeUnitMap();
-          if (unitMap && Object.keys(unitMap).length > 0) {
-
-            const systemUnitRow = {
-              id: '__SYSTEM_KODE_UNIT_MAP__',
-              no_surat: '__SYSTEM_KODE_UNIT_MAP__',
-              tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
-              toko: 'SYSTEM',
-              area: 'ALL',
-              jenis: 'SYSTEM',
-              catatan: JSON.stringify(unitMap),
-              items: [],
-              photos: [],
-              status: 'DONE',
-              service_approve: true,
-              created_by: 'SYSTEM',
-              created_at: new Date().toISOString()
-            };
-            try {
-              await safeSupabaseUpsertPermintaan(systemUnitRow);
-            } catch(e) {}
-          }
-        }
+        // Master lookup tipe / kode unit dikelola khusus via Firebase & Penyimpanan Lokal (tidak dikirim ke Supabase)
 
         const ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
         const systemTtdRow = {
@@ -5293,14 +5052,8 @@ async function prosesLogin() {
 window.prosesLogin = prosesLogin;
 
 async function catatLogLogin(username, nama, area, status) {
-  if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      await supabase.from('lookup').upsert({
-        key: `login_log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
-        value: { username, nama, area, status, time: new Date().toISOString() }
-      }, { onConflict: 'key' });
-    } catch (e) {}
-  }
+  // Log login dinonaktifkan untuk mempercepat proses login & menghemat kuota database
+  return;
 }
 
 function fillLogin(u, p) {
@@ -10560,10 +10313,7 @@ async function pushChatToSupabase(allChats, newChatObj) {
 }
 window.pushChatToSupabase = pushChatToSupabase;
 
-async function fetchChatFromSupabase() {
-  // Chat data is purely managed via Firebase & Local Storage
-  return JSON.parse(appStorage.getItem(CHAT_DB_KEY) || '[]');
-}
+async function fetchChatFromSupabase() { return JSON.parse(appStorage.getItem(CHAT_DB_KEY) || '[]'); }
 window.fetchChatFromSupabase = fetchChatFromSupabase;
 
 function startActiveChatRefresh() {

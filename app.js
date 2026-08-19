@@ -5090,8 +5090,7 @@ async function logout() {
       }
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
       if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
-      if (typeof showNotif === 'function') showNotif('ANDA TELAH LOGOUT!', 'info');
-    };
+      };
     _asyncTask();
   });
 }
@@ -9232,12 +9231,12 @@ function renderFullPdfPreviewDocument(modelId) {
       <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 10px; border: 1px solid #cbd5e1;">
         <thead>
           <tr style="background: ${tableHeaderBg}; color: #ffffff;">
-            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">NO</th>
-            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">TIPE BARANG</th>
-            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">NO. SERI</th>
-            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">NAMA BARANG</th>
-            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">ALASAN</th>
-            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">QTY</th>
+            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; white-space: nowrap !important; width: 1%;">NO</th>
+            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left; white-space: nowrap !important; width: 1%;">TIPE BARANG</th>
+            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left; white-space: nowrap !important; width: 1%;">NO. SERI</th>
+            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left; white-space: normal !important;">NAMA BARANG</th>
+            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left; white-space: normal !important;">ALASAN</th>
+            <th style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; white-space: nowrap !important; width: 1%;">QTY</th>
           </tr>
         </thead>
         <tbody>
@@ -9486,21 +9485,21 @@ function bukaPdfModal(noSurat, includePhotos = null) {
       req.unfulfilled
     );
     const rowTdStyle = isUnfulfilled 
-      ? 'padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 3px; font-weight: bold; color: #b91c1c; background-color: #fef2f2;' 
+      ? 'padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 2px; font-weight: bold; color: #b91c1c; background-color: #fef2f2;' 
       : 'padding:6px 6px; border:1px solid #cbd5e1; font-size:11px;';
     const numTdStyle = isUnfulfilled 
-      ? 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 3px; font-weight: bold; color: #b91c1c; background-color: #fef2f2;' 
-      : 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px;';
+      ? 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 2px; font-weight: bold; color: #b91c1c; background-color: #fef2f2; white-space: nowrap !important;' 
+      : 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important;';
 
     return `
       <tr style="border-bottom:1px solid #cbd5e1; ${isUnfulfilled ? 'background-color:#fef2f2;' : ''}">
-        <td style="${numTdStyle}">${idx + 1}</td>
-        <td style="${rowTdStyle} word-break:break-word;">${i.type || i.tipe || '-'}</td>
-        <td style="${rowTdStyle} word-break:break-all;">${i.seri || i.sn || '-'}</td>
-        ${req.jenis === 'DUS' ? `<td style="${rowTdStyle} color:${isUnfulfilled ? '#b91c1c' : '#d97706'}; font-weight:600; word-break:break-all;">${i.dus || '-'}</td>` : ''}
-        <td style="${rowTdStyle} word-break:break-word;">${i.barang || i.permintaan || '-'}</td>
-        <td style="${rowTdStyle} word-break:break-word;">${i.alasan || '-'}</td>
-        <td style="${numTdStyle}">${i.qty || 1}</td>
+        <td style="${numTdStyle} width:1%;">${idx + 1}</td>
+        <td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left;">${i.type || i.tipe || '-'}</td>
+        <td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left;">${i.seri || i.sn || '-'}</td>
+        ${req.jenis === 'DUS' ? `<td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left; color:${isUnfulfilled ? '#b91c1c' : '#d97706'}; font-weight:600;">${i.dus || '-'}</td>` : ''}
+        <td style="${rowTdStyle} white-space: normal !important; word-break: break-word; text-align:left;">${i.barang || i.permintaan || '-'}</td>
+        <td style="${rowTdStyle} white-space: normal !important; word-break: break-word; text-align:left;">${i.alasan || '-'}</td>
+        <td style="${numTdStyle} width:1%;">${i.qty || 1}</td>
       </tr>
     `;
   }).join('');
@@ -9638,13 +9637,13 @@ function bukaPdfModal(noSurat, includePhotos = null) {
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11.5px; border: 1px solid #cbd5e1;">
           <thead>
             <tr style="background: ${tableHeaderBg}; color: #ffffff;">
-              <th style="width: 38px; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700;">NO</th>
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center;">TIPE BARANG</th>
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center;">NO. SERI</th>
-              ${req.jenis === 'DUS' ? `<th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center;">NO. SERI DUS</th>` : ''}
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center;">PERMINTAAN BARANG</th>
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center;">ALASAN PERMINTAAN</th>
-              <th style="width: 45px; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700;">QTY</th>
+              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">NO</th>
+              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">TIPE BARANG</th>
+              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI</th>
+              ${req.jenis === 'DUS' ? `<th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI DUS</th>` : ''}
+              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">PERMINTAAN BARANG</th>
+              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">ALASAN PERMINTAAN</th>
+              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">QTY</th>
             </tr>
           </thead>
           <tbody>${itemRowsHtml}</tbody>
@@ -12613,7 +12612,35 @@ function downloadMasterExcel() {
     data.forEach(r => {
       const logStr = (r.log || []).map(l => `${l.action} by ${l.user} (${l.time})`).join(' | ');
       r.items.forEach(it => {
-        const isUnfulfilled = !!(it.unfulfilled || it.batal || it.status === 'TIDAK BISA DIPENUHI' || r.status === 'BATAL' || r.unfulfilled);
+        const isUnfulfilled = !!(it.unfulfilled || it.batal || it.status === 'TIDAK BISA DIPENUHI' || it.status === 'TIDAK DIPENUHI' || r.status === 'BATAL' || r.unfulfilled);
+        const customKet = (it.statusPart || it.keteranganPart || it.updatePart || it.noPart || it.alasanBatal || '').trim();
+        
+        let statusPartVal = '';
+        if (isUnfulfilled) {
+          if (customKet && customKet !== 'TIDAK DIPENUHI' && customKet !== 'TIDAK BISA DIPENUHI') {
+            statusPartVal = `TIDAK DIPENUHI (${customKet})`;
+          } else {
+            statusPartVal = 'TIDAK DIPENUHI';
+          }
+        } else if (customKet) {
+          statusPartVal = customKet;
+        } else if (r.status === 'DONE') {
+          statusPartVal = 'DIPENUHI';
+        } else {
+          statusPartVal = '-';
+        }
+
+        let namaBarangDisplay = it.barang || it.permintaan || '-';
+        if (isUnfulfilled) {
+          if (customKet && customKet !== 'TIDAK DIPENUHI' && customKet !== 'TIDAK BISA DIPENUHI') {
+            namaBarangDisplay = `${namaBarangDisplay} [TIDAK DIPENUHI: ${customKet}]`;
+          } else {
+            namaBarangDisplay = `${namaBarangDisplay} [TIDAK DIPENUHI]`;
+          }
+        } else if (customKet && customKet !== 'DIPENUHI') {
+          namaBarangDisplay = `${namaBarangDisplay} [Ket: ${customKet}]`;
+        }
+
         rows.push([
           r.noSurat,
           r.tanggal,
@@ -12623,10 +12650,10 @@ function downloadMasterExcel() {
           it.type || it.tipe || '-',
           it.seri || it.sn || '-',
           it.dus || '',
-          isUnfulfilled ? `${it.barang || it.permintaan || '-'} [TIDAK DIPENUHI]` : (it.barang || it.permintaan || '-'),
+          namaBarangDisplay,
           it.alasan || '-',
           it.qty || it.jumlah || 1,
-          it.statusPart || it.keteranganPart || it.updatePart || (r.status === 'DONE' ? 'DIPENUHI' : '-'),
+          statusPartVal,
           isUnfulfilled ? `${r.status} (TIDAK DIPENUHI)` : r.status,
           r.catatan || '',
           logStr
@@ -12639,8 +12666,7 @@ function downloadMasterExcel() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Master Data");
       XLSX.writeFile(wb, `MASTER_DATA_PERMINTAAN_LENGKAP_${new Date().toISOString().split('T')[0]}.xlsx`);
-      showNotif('FILE EXCEL (.XLSX) BERHASIL DI-DOWNLOAD!', 'info');
-    } else {
+      } else {
       showNotif('MODUL EXCEL (.XLSX) BELUM SIAP, PERIKSA KONEKSI INTERNET!', 'warning');
     }
   }, 400);
@@ -13802,6 +13828,35 @@ function downloadExcel() {
     data.forEach(r => {
       if (r.items && r.items.length > 0) {
         r.items.forEach((item, itemIdx) => {
+          const isUnfulfilled = !!(item.unfulfilled || item.batal || item.status === 'TIDAK BISA DIPENUHI' || item.status === 'TIDAK DIPENUHI' || r.status === 'BATAL');
+          const customKet = (item.statusPart || item.keteranganPart || item.updatePart || item.noPart || item.alasanBatal || '').trim();
+          
+          let statusPartVal = '';
+          if (isUnfulfilled) {
+            if (customKet && customKet !== 'TIDAK DIPENUHI' && customKet !== 'TIDAK BISA DIPENUHI') {
+              statusPartVal = `TIDAK DIPENUHI (${customKet})`;
+            } else {
+              statusPartVal = 'TIDAK DIPENUHI';
+            }
+          } else if (customKet) {
+            statusPartVal = customKet;
+          } else if (r.status === 'DONE') {
+            statusPartVal = 'DIPENUHI';
+          } else {
+            statusPartVal = '-';
+          }
+
+          let namaBarangDisplay = item.barang || item.permintaan || '-';
+          if (isUnfulfilled) {
+            if (customKet && customKet !== 'TIDAK DIPENUHI' && customKet !== 'TIDAK BISA DIPENUHI') {
+              namaBarangDisplay = `${namaBarangDisplay} [TIDAK DIPENUHI: ${customKet}]`;
+            } else {
+              namaBarangDisplay = `${namaBarangDisplay} [TIDAK DIPENUHI]`;
+            }
+          } else if (customKet && customKet !== 'DIPENUHI') {
+            namaBarangDisplay = `${namaBarangDisplay} [Ket: ${customKet}]`;
+          }
+
           rows.push([
             r.noSurat,
             r.tanggal,
@@ -13813,10 +13868,10 @@ function downloadExcel() {
             item.type || item.tipe || '-',
             item.seri || item.sn || '-',
             item.dus || '-',
-            item.barang || item.permintaan || '-',
+            namaBarangDisplay,
             item.alasan || '-',
             item.qty || item.jumlah || 1,
-            item.statusPart || item.keteranganPart || item.updatePart || (r.status === 'DONE' ? 'DIPENUHI' : '-'),
+            statusPartVal,
             r.createdBy,
             r.catatan || ''
           ]);
@@ -13848,8 +13903,7 @@ function downloadExcel() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Data Permintaan Detail");
       XLSX.writeFile(wb, `DATA_PERMINTAAN_DETAIL_${new Date().toISOString().split('T')[0]}.xlsx`);
-      showNotif('BERHASIL DI-DOWNLOAD!', 'info');
-    } else {
+      } else {
       showNotif('MODUL EXCEL (.XLSX) BELUM SIAP, PERIKSA KONEKSI INTERNET!', 'warning');
     }
   }, 400);
@@ -14911,9 +14965,7 @@ function unduhTemplateExcelProses(jenis) {
   XLSX.writeFile(workbook, fileName);
 
   closeExcelTemplateModal();
-  if (typeof showNotif === 'function') {
-    showNotif(`TEMPLATE EXCEL ${selectedJenis} BERHASIL DIUNDUH!`, 'success');
-  }
+  
 }
 window.unduhTemplateExcelProses = unduhTemplateExcelProses;
 
@@ -16485,14 +16537,33 @@ function downloadSingleDetailExcel(noSurat) {
 
     if (itemsList.length > 0) {
       itemsList.forEach((it, idx) => {
-        const isUnfulfilled = !!(it.unfulfilled || it.batal || it.status === 'TIDAK BISA DIPENUHI' || req.status === 'BATAL');
-        let statusPartVal = (it.statusPart || it.keteranganPart || it.updatePart || it.noPart || '').trim();
+        const isUnfulfilled = !!(it.unfulfilled || it.batal || it.status === 'TIDAK BISA DIPENUHI' || it.status === 'TIDAK DIPENUHI' || req.status === 'BATAL');
+        const customKet = (it.statusPart || it.keteranganPart || it.updatePart || it.noPart || it.alasanBatal || '').trim();
+        
+        let statusPartVal = '';
         if (isUnfulfilled) {
-          statusPartVal = 'TIDAK DIPENUHI';
-        } else if (req.status === 'DONE' && !statusPartVal) {
+          if (customKet && customKet !== 'TIDAK DIPENUHI' && customKet !== 'TIDAK BISA DIPENUHI') {
+            statusPartVal = `TIDAK DIPENUHI (${customKet})`;
+          } else {
+            statusPartVal = 'TIDAK DIPENUHI';
+          }
+        } else if (customKet) {
+          statusPartVal = customKet;
+        } else if (req.status === 'DONE') {
           statusPartVal = 'DIPENUHI';
-        } else if (!statusPartVal) {
+        } else {
           statusPartVal = '-';
+        }
+
+        let namaBarangDisplay = it.barang || it.permintaan || '-';
+        if (isUnfulfilled) {
+          if (customKet && customKet !== 'TIDAK DIPENUHI' && customKet !== 'TIDAK BISA DIPENUHI') {
+            namaBarangDisplay = `${namaBarangDisplay} [TIDAK DIPENUHI: ${customKet}]`;
+          } else {
+            namaBarangDisplay = `${namaBarangDisplay} [TIDAK DIPENUHI]`;
+          }
+        } else if (customKet && customKet !== 'DIPENUHI') {
+          namaBarangDisplay = `${namaBarangDisplay} [Ket: ${customKet}]`;
         }
 
         rows.push([
@@ -16505,11 +16576,11 @@ function downloadSingleDetailExcel(noSurat) {
           it.type || it.tipe || '-',
           it.seri || it.sn || '-',
           it.dus || '-',
-          isUnfulfilled ? `${it.barang || it.permintaan || '-'} [TIDAK DIPENUHI]` : (it.barang || it.permintaan || '-'),
+          namaBarangDisplay,
           it.alasan || '-',
           it.qty || it.jumlah || 1,
           statusPartVal,
-          isUnfulfilled ? `${req.status} (TIDAK DIPENUHI)` : (req.status || '-'),
+          isUnfulfilled ? `${req.status || 'PENDING'} (TIDAK DIPENUHI)` : (req.status || '-'),
           req.createdBy || '-',
           req.catatan || ''
         ]);
@@ -16526,7 +16597,6 @@ function downloadSingleDetailExcel(noSurat) {
     XLSX.utils.book_append_sheet(wb, ws, "Detail Permintaan");
     const cleanNo = String(req.noSurat || 'DETAIL').replace(/[/\\?%*:|"<>]/g, '_');
     XLSX.writeFile(wb, `DETAIL_PERMINTAAN_${cleanNo}.xlsx`);
-    if (typeof showNotif === 'function') showNotif('FILE EXCEL DETAIL BERHASIL DI-DOWNLOAD!', 'info');
-  }, 250);
+    }, 250);
 }
 window.downloadSingleDetailExcel = downloadSingleDetailExcel;

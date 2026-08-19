@@ -544,10 +544,19 @@ function gantiBackgroundApp() {
     nextBg = 'bg-scenery.jpg';
     nextName = 'Danau & Pegunungan';
   } else if (currentBg === 'bg-scenery.jpg') {
-    nextBg = 'none';
+    nextBg = 'bg-scenery-3.jpg';        // <-- FOTO BARU 1
+    nextName = 'Pemandangan 3';
+  } else if (currentBg === 'bg-scenery-3.jpg') {
+    nextBg = 'bg-scenery-4.jpg';        // <-- FOTO BARU 2
+    nextName = 'Pemandangan 4';
+  } else if (currentBg === 'bg-scenery-4.jpg') {
+    nextBg = 'bg-scenery-5.jpg';        // <-- FOTO BARU 3
+    nextName = 'Pemandangan 5';
+  } else if (currentBg === 'bg-scenery-5.jpg') {
+    nextBg = 'none';                    // <-- POLOS TANPA GAMBAR
     nextName = 'Polos / Tanpa Gambar';
   } else {
-    nextBg = 'bg-scenery-2.jpg';
+    nextBg = 'bg-scenery-2.jpg';        // <-- KEMBALI KE FOTO 1
     nextName = 'Malam Bulan Fantasi';
   }
 

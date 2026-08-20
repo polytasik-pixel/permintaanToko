@@ -393,6 +393,7 @@ try {
   pingSupabaseKeepAlive();
   setTimeout(() => {
     if (typeof initSupabaseRealtimeEngine === 'function') initSupabaseRealtimeEngine();
+  if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
   }, 100);
 } catch (e) {}
 
@@ -544,13 +545,13 @@ function gantiBackgroundApp() {
     nextBg = 'bg-scenery.jpg';
     nextName = 'Danau & Pegunungan';
   } else if (currentBg === 'bg-scenery.jpg') {
-    nextBg = 'bg-scenery-3.jpg';        // <-- FOTO BARU 1
+    nextBg = 'bg-scenery-3.png';        // <-- FOTO BARU 1 (PNG)
     nextName = 'Pemandangan 3';
-  } else if (currentBg === 'bg-scenery-3.jpg') {
-    nextBg = 'bg-scenery-4.jpg';        // <-- FOTO BARU 2
+  } else if (currentBg === 'bg-scenery-3.png') {
+    nextBg = 'bg-scenery-4.png';        // <-- FOTO BARU 2 (PNG)
     nextName = 'Pemandangan 4';
-  } else if (currentBg === 'bg-scenery-4.jpg') {
-    nextBg = 'bg-scenery-5.jpg';        // <-- FOTO BARU 3
+  } else if (currentBg === 'bg-scenery-4.png') {
+    nextBg = 'bg-scenery-5.jpg';        // <-- FOTO BARU 3 (JPG)
     nextName = 'Pemandangan 5';
   } else if (currentBg === 'bg-scenery-5.jpg') {
     nextBg = 'none';                    // <-- POLOS TANPA GAMBAR
@@ -5138,6 +5139,7 @@ async function bukaMainApp() {
   if (typeof loadDashboard === 'function') loadDashboard();
   if (typeof loadRiwayat === 'function') loadRiwayat();
   if (typeof initSupabaseRealtimeEngine === 'function') initSupabaseRealtimeEngine();
+  if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
 
   if (typeof setupBottomMenuAutoHide === 'function') {
     setupBottomMenuAutoHide();
@@ -8135,7 +8137,7 @@ function hapusBarisItemDetailAdmin(noSurat, itemIndex) {
       saveRequestsToDB(requests);
       isItemModifiedMap[noSurat] = true;
 
-      showNotif(`ITEM DITANDAI TIDAK DIPENUHI ?`, 'warning');
+      showNotif(`ITEM DITANDAI TIDAK DIPENUHI. KLIK 'SIMPAN PERUBAHAN' UNTUK MENYIMPAN.`, 'warning');
       lihatDetail(noSurat);
     });
   }
@@ -8190,8 +8192,8 @@ async function simpanPerubahanDetailAdmin(noSurat) {
     return;
   }
 
-  showConfirm(`SIMPAN PERUBAHAN PERMINTAAN #${noSurat}?`, () => {
-    showLoading('MENYIMPAN PERUBAHAN...');
+  showConfirm(`APAKAH ANDA YAKIN INGIN MENYIMPAN PERUBAHAN ITEM PERMINTAAN #${noSurat}?`, () => {
+    showLoading('MENYIMPAN PERUBAHAN ITEM...');
     setTimeout(async () => {
       try {
         const requests = getRequestsFromDB();
@@ -12608,7 +12610,7 @@ function downloadMasterExcel() {
     return;
   }
 
-  showLoading('MOHON TUNGGU');
+  showLoading('MEMBUAT FILE EXCEL (.XLSX) MASTER LENGKAP...');
   setTimeout(() => {
     hideLoading();
     const rows = [];
@@ -13823,7 +13825,7 @@ function downloadExcel() {
     return;
   }
 
-  showLoading('MOHON TUNGGU');
+  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
   setTimeout(() => {
     hideLoading();
     const rows = [];
@@ -16609,3 +16611,14 @@ function downloadSingleDetailExcel(noSurat) {
     }, 250);
 }
 window.downloadSingleDetailExcel = downloadSingleDetailExcel;
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && currentUser) {
+    if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
+  }
+});
+window.addEventListener('focus', () => {
+  if (currentUser) {
+    if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
+  }
+});

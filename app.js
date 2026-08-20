@@ -2997,44 +2997,7 @@ async function syncSupabaseIncremental() {
       }
     }
 
-    // Delta Query for Notifications
-    try {
-      const { data: deltaNotifs } = await supabase
-        .from('notifications')
-        .select('*')
-        .gt('updated_at', lastSync);
-
-      if (Array.isArray(deltaNotifs) && deltaNotifs.length > 0) {
-        const currentNotifs = getSystemNotifications();
-        let notifUpdated = false;
-
-        deltaNotifs.forEach(n => {
-          const parsed = {
-            id: n.id,
-            targetRoles: n.target_roles || n.targetRoles || [],
-            targetArea: n.target_area || n.targetArea || 'ALL',
-            message: n.message,
-            noSurat: n.no_surat || n.noSurat || '',
-            time: n.time || `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`,
-            readBy: n.read_by || n.readBy || []
-          };
-          const idx = currentNotifs.findIndex(x => x.id === parsed.id);
-          if (idx !== -1) {
-            currentNotifs[idx] = { ...currentNotifs[idx], ...parsed };
-          } else {
-            currentNotifs.unshift(parsed);
-          }
-          notifUpdated = true;
-        });
-
-        if (notifUpdated) {
-          appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(currentNotifs));
-          try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(currentNotifs)); } catch(e) {}
-          if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
-    if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
-        }
-      }
-    } catch (e) {}
+// Notifikasi dikelola melalui Firebase & Local Storage
 
     // Update last sync timestamp
     const newSyncTime = new Date().toISOString();

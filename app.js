@@ -3017,6 +3017,7 @@ async function syncAllDataToCache() {
     await syncSupabaseUsersToLocalCache();
     // await syncSupabaseNotifsAndChatToLocalCache(); // Notif & Chat managed via Firebase/Local
     await syncSupabaseStoresToLocalCache();
+    await syncMasterBarangToLocalCache();
     await syncSupabaseLookupToLocalCache();
     await syncSupabaseThemeToLocalCache();
 
@@ -3224,8 +3225,79 @@ async function syncSupabaseStoresToLocalCache() {
 }
 window.syncSupabaseStoresToLocalCache = syncSupabaseStoresToLocalCache;
 
-async function syncSupabaseLookupToLocalCache() {
-  // Master lookup tipe barang / kode unit map dikelola khusus melalui Firebase & Local Storage
+async function syncMasterBarangToLocalCache() {
+  let masterJson = '';
+
+  // 1. Coba ambil data Master Type Barang dari Firebase Firestore
+  try {
+    const fs = typeof getDbFirestore === 'function' ? getDbFirestore() : null;
+    if (fs) {
+      const docSnap = await fs.collection('master_lookup').doc('kode_unit_map').get();
+      if (docSnap && docSnap.exists) {
+        const d = docSnap.data();
+        if (d && (d.dataJson || d.kodeUnitMapJson)) {
+          masterJson = d.dataJson || d.kodeUnitMapJson;
+        }
+      }
+      if (!masterJson) {
+        const cfgSnap = await fs.collection('app_settings').doc('config').get();
+        if (cfgSnap && cfgSnap.exists) {
+          const cd = cfgSnap.data();
+          if (cd && cd.kodeUnitMapJson) {
+            masterJson = cd.kodeUnitMapJson;
+          }
+        }
+      }
+    }
+  } catch(e) {
+    console.warn('[FIRESTORE MASTER BARANG SYNC NOTICE]:', e);
+  }
+
+  // 2. Jika Firestore belum mengembalikan data, coba ambil dari Firebase Realtime DB
+  if (!masterJson) {
+    try {
+      const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
+      if (rtdb) {
+        const snap = await rtdb.ref('master_kode_unit_json').once('value');
+        if (snap && snap.exists() && snap.val()) {
+          masterJson = snap.val();
+        } else {
+          const snap2 = await rtdb.ref('app_settings/kodeUnitMapJson').once('value');
+          if (snap2 && snap2.exists() && snap2.val()) {
+            masterJson = snap2.val();
+          }
+        }
+      }
+    } catch(e) {
+      console.warn('[RTDB MASTER BARANG SYNC NOTICE]:', e);
+    }
+  }
+
+  // 3. Simpan data Master Barang dari FIREBASE ke Penyimpanan Lokal perangkat
+  if (masterJson) {
+    try {
+      let parsed = typeof masterJson === 'string' ? JSON.parse(masterJson) : masterJson;
+      if (parsed && typeof parsed === 'object') {
+        const existingMap = JSON.parse(appStorage.getItem(KODE_UNIT_MAP_KEY) || '{}');
+        const merged = { ...KODE_UNIT_MAP, ...existingMap, ...parsed };
+        const cleanStr = JSON.stringify(merged);
+        appStorage.setItem(KODE_UNIT_MAP_KEY, cleanStr);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(KODE_UNIT_MAP_KEY, cleanStr);
+        }
+        console.log(`⚡ [FIREBASE MASTER BARANG SYNC SUCCESS]: ${Object.keys(merged).length} Master Kode Barang berhasil dipulihkan dari FIREBASE!`);
+        return merged;
+      }
+    } catch(err) {
+      console.warn('[PARSING MASTER BARANG ERROR]:', err);
+    }
+  }
+  return null;
+}
+window.syncMasterBarangToLocalCache = syncMasterBarangToLocalCache;
+
+function syncSupabaseLookupToLocalCache() {
+  // Master lookup type barang FULL 100% dikelola via Firebase & Local Storage
   return;
 }
 window.syncSupabaseLookupToLocalCache = syncSupabaseLookupToLocalCache;
@@ -5082,6 +5154,12 @@ async function bukaMainApp() {
   // 1. CEK SESI & PENYIMPANAN LOKAL (0ms INSTANT LOAD TANPA AMBIL DATABASE SAAT REFRESH)
   pindahHalaman('dashboardPage');
   if (typeof loadDashboard === 'function') loadDashboard();
+  if (typeof syncMasterBarangToLocalCache === 'function') {
+    const curMap = JSON.parse(appStorage.getItem(KODE_UNIT_MAP_KEY) || '{}');
+    if (Object.keys(curMap).length <= 5) {
+      syncMasterBarangToLocalCache().catch(() => {});
+    }
+  }
   if (typeof loadRiwayat === 'function') loadRiwayat();
   if (typeof initSupabaseRealtimeEngine === 'function') initSupabaseRealtimeEngine();
   if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
@@ -6190,21 +6268,21 @@ async function migrasiTtdBase64KeUrl() {
       if (!r) continue;
       let changedRow = false;
 
-      if (r.serviceTTD && r.serviceTTD.startsWith('data:image/')) {
+      if (r.serviceTTD && (r.serviceTTD.startsWith('data:image/') || r.serviceTTD.startsWith('blob:'))) {
         const newUrl = await uploadSignatureDataUrlToSupabaseStorage(r.serviceTTD, `TTD_SRV_${r.noSurat.replace(/[\/\.]/g, '_')}.png`);
         if (newUrl && newUrl !== r.serviceTTD) {
           r.serviceTTD = newUrl;
           changedRow = true;
         }
       }
-      if (r.dmTTD && r.dmTTD.startsWith('data:image/')) {
+      if (r.dmTTD && (r.dmTTD.startsWith('data:image/') || r.dmTTD.startsWith('blob:'))) {
         const newUrl = await uploadSignatureDataUrlToSupabaseStorage(r.dmTTD, `TTD_DM_${r.noSurat.replace(/[\/\.]/g, '_')}.png`);
         if (newUrl && newUrl !== r.dmTTD) {
           r.dmTTD = newUrl;
           changedRow = true;
         }
       }
-      if (r.pemohonTTD && r.pemohonTTD.startsWith('data:image/')) {
+      if (r.pemohonTTD && (r.pemohonTTD.startsWith('data:image/') || r.pemohonTTD.startsWith('blob:'))) {
         const newUrl = await uploadSignatureDataUrlToSupabaseStorage(r.pemohonTTD, `TTD_TK_${r.noSurat.replace(/[\/\.]/g, '_')}.png`);
         if (newUrl && newUrl !== r.pemohonTTD) {
           r.pemohonTTD = newUrl;
@@ -8974,9 +9052,18 @@ function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', 
 
   const isValidSig = (s) => {
     if (!s || typeof s !== 'string') return false;
-    if (s.includes('DIGITALLY VERIFIED') || s.includes('OfficialDigitalSignatureStamp') || s.includes('rect x="1.5"') || s.includes('<svg') || s.includes('APPROVED')) return false;
-    return s.startsWith('data:image/') || s.startsWith('http') || s.length > 50;
+    const trimmed = s.trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return false;
+    if (trimmed.startsWith('blob:')) return false; // BLOB URLs are local to device browser and fail on other devices
+    if (trimmed.includes('DIGITALLY VERIFIED') || trimmed.includes('OfficialDigitalSignatureStamp') || trimmed.includes('rect x="1.5"') || trimmed.includes('<svg') || trimmed.includes('APPROVED')) return false;
+    return trimmed.startsWith('data:image/') || trimmed.startsWith('http://') || trimmed.startsWith('https://');
   };
+
+  function renderSafeTtdImageTag(sigUrl, styleAttr = 'max-height: 52px; max-width: 100%; object-fit: contain;') {
+    if (!isValidSig(sigUrl)) return '';
+    return `<img src="${sigUrl.trim()}" style="${styleAttr}">`;
+  }
+  window.renderSafeTtdImageTag = renderSafeTtdImageTag;
 
   // 1. Check exact user match by username / ID / FullName
   if (uname) {
@@ -9027,9 +9114,16 @@ function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', 
     if (dmUser && isValidSig(mergedMap[dmUser.username])) return mergedMap[dmUser.username];
   } else if (role === 'GBJ') {
     if (isValidSig(mergedMap['GBJ'])) return mergedMap['GBJ'];
-    const gbjUser = allUsers.find(u => u && u.category === 'GBJ' && (isValidSig(u.ttd) || isValidSig(mergedMap[u.id]) || isValidSig(mergedMap[u.username])));
-    if (gbjUser && isValidSig(gbjUser.ttd)) return gbjUser.ttd;
-    if (gbjUser && isValidSig(mergedMap[gbjUser.id])) return mergedMap[gbjUser.id];
+    const gbjUser = allUsers.find(u => u && (
+      u.category === 'GBJ' ||
+      String(u.username || '').toUpperCase().includes('GBJ') ||
+      String(u.fullName || '').toUpperCase().includes('GBJ')
+    ) && (isValidSig(u.ttd) || isValidSig(mergedMap[u.id]) || isValidSig(mergedMap[u.username])));
+    if (gbjUser) {
+      if (isValidSig(gbjUser.ttd)) return gbjUser.ttd;
+      if (gbjUser.id && isValidSig(mergedMap[gbjUser.id])) return mergedMap[gbjUser.id];
+      if (gbjUser.username && isValidSig(mergedMap[gbjUser.username])) return mergedMap[gbjUser.username];
+    }
   }
 
   // Check currentUser fallback if matching role
@@ -9496,8 +9590,16 @@ function bukaPdfModal(noSurat, includePhotos = null) {
   }
 
   let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
-  if (!pemohonTTD && req.createdBy) {
-    pemohonTTD = ttdMap[req.createdBy] || ttdMap[req.toko] || '';
+  if (!isValidSig(pemohonTTD) && req.createdBy) {
+    pemohonTTD = getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy) ||
+                 getUserRealSignature('TOKO', req.area, req.createdBy, req.toko) ||
+                 ttdMap[req.createdBy] || ttdMap[req.toko] || '';
+  }
+  if (!isValidSig(pemohonTTD)) {
+    pemohonTTD = getUserRealSignature('GBJ') || ttdMap['GBJ'] || '';
+  }
+  if (!isValidSig(pemohonTTD)) {
+    pemohonTTD = '';
   }
 
   const nowPrint = new Date();
@@ -9640,7 +9742,7 @@ function bukaPdfModal(noSurat, includePhotos = null) {
           <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
             <div style="font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">PEMOHON</div>
             <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${pemohonTTD ? `<img src="${pemohonTTD}" style="max-height: 52px; max-width: 100%; object-fit: contain;">` : ''}
+              ${renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
             </div>
             <div>
               <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${req.toko || req.createdBy || 'PEMOHON'}</div>
@@ -9651,7 +9753,7 @@ function bukaPdfModal(noSurat, includePhotos = null) {
           <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
             <div style="font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DIPERIKSA</div>
             <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${serviceTTD ? `<img src="${serviceTTD}" style="max-height: 52px; max-width: 100%; object-fit: contain;">` : ''}
+              ${renderSafeTtdImageTag(serviceTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
             </div>
             <div>
               <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
@@ -9662,7 +9764,7 @@ function bukaPdfModal(noSurat, includePhotos = null) {
           <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
             <div style="font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DISETUJUI</div>
             <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${dmTTD ? `<img src="${dmTTD}" style="max-height: 52px; max-width: 100%; object-fit: contain;">` : ''}
+              ${renderSafeTtdImageTag(dmTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
             </div>
             <div>
               <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${dmName}</div>
@@ -10018,19 +10120,24 @@ async function prosesFotoKeTTD(event) {
         const imgData = tCtx.getImageData(0, 0, cWidth, cHeight);
         const data = imgData.data;
 
-        let totalBrightness = 0;
-        const totalPixels = cWidth * cHeight;
-
+        // ALGORITMA ADAPTIF PEMBERSIH BAYANGAN/WARNA KERTAS KAMERA HP (ANTI COKLAT/KUNING)
+        const lums = [];
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i];
           const g = data[i + 1];
           const b = data[i + 2];
           const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-          totalBrightness += lum;
+          lums.push(lum);
         }
 
-        const avgBrightness = totalBrightness / totalPixels;
-        const threshold = Math.min(195, Math.max(110, avgBrightness - 15));
+        // Sampling kecerahan kertas (ambil persentil ke-85 sebagai patokan latar kertas kamera)
+        lums.sort((a, b) => a - b);
+        const p85Idx = Math.floor(lums.length * 0.85);
+        const paperLuminance = lums[p85Idx] || 220;
+
+        // Threshold adaptif: Apapun yang mendekati warna kertas akan dibuat 100% transparan
+        const paperCutoff = Math.max(100, paperLuminance - 28);
+        const inkCutoff = Math.max(60, paperCutoff - 20);
 
         const outputImgData = ctxTTD.createImageData(cWidth, cHeight);
         const outData = outputImgData.data;
@@ -10041,17 +10148,23 @@ async function prosesFotoKeTTD(event) {
           const b = data[i + 2];
           const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-          if (lum < threshold) {
+          if (lum < paperCutoff) {
             outData[i] = 15;      // R (dark navy ink)
             outData[i + 1] = 23;  // G
             outData[i + 2] = 42;  // B
-            const alpha = Math.min(255, Math.max(170, Math.round(((threshold - lum) / threshold) * 255 * 1.6)));
-            outData[i + 3] = alpha;
+
+            if (lum <= inkCutoff) {
+              outData[i + 3] = 255; // Tinta pekat
+            } else {
+              // Smooth anti-aliasing edge
+              const norm = (paperCutoff - lum) / (paperCutoff - inkCutoff);
+              outData[i + 3] = Math.min(255, Math.max(140, Math.round(norm * 255)));
+            }
           } else {
             outData[i] = 0;
             outData[i + 1] = 0;
             outData[i + 2] = 0;
-            outData[i + 3] = 0; // Transparent paper background
+            outData[i + 3] = 0; // Transparan sempurna (bayangan kertas kuning/coklat dibuang)
           }
         }
 
@@ -12650,7 +12763,7 @@ function downloadMasterExcel() {
     return;
   }
 
-  showLoading('MENGUNDUH');
+  showLoading('MEMBUAT FILE EXCEL (.XLSX) MASTER LENGKAP...');
   setTimeout(() => {
     hideLoading();
     const rows = [];
@@ -12809,6 +12922,7 @@ function prosesUploadExcelLookup(event) {
             console.warn('[RTDB LOOKUP SYNC]:', e);
           }
         }
+        // Master lookup type barang FULL 100% dikelola via Firebase
 
         hideLoading();
         showNotif(`BERHASIL! ${count} MASTER TYPE / KODE UNIT TERSIMPAN DI FIREBASE & TERKIRIM KE SEMUA PERANGKAT!`, 'info');
@@ -13865,7 +13979,7 @@ function downloadExcel() {
     return;
   }
 
-  showLoading('MENGUNDUH');
+  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
   setTimeout(() => {
     hideLoading();
     const rows = [];
@@ -16569,7 +16683,7 @@ function downloadSingleDetailExcel(noSurat) {
     return;
   }
 
-  showLoading('MENGUNDUH');
+  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
   setTimeout(() => {
     hideLoading();
     const rows = [];

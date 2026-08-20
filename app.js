@@ -3088,6 +3088,75 @@ async function syncSupabaseRequestsToLocalCache() {
   }
 }
 
+async function syncFirebaseSignaturesToLocalCache() {
+  try {
+    const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
+    if (rtdb) {
+      const snap = await rtdb.ref('user_signatures').once('value');
+      if (snap && snap.exists() && snap.val()) {
+        const sigs = snap.val();
+        const ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
+        let changed = false;
+        Object.keys(sigs).forEach(k => {
+          if (k && sigs[k] && typeof sigs[k] === 'string' && !sigs[k].startsWith('blob:')) {
+            if (!ttdMap[k]) { ttdMap[k] = sigs[k]; changed = true; }
+          }
+        });
+        if (changed) {
+          appStorage.setItem(TTD_DB_KEY, JSON.stringify(ttdMap));
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(TTD_DB_KEY, JSON.stringify(ttdMap));
+            localStorage.setItem('APP_USER_TTD_MAP', JSON.stringify(ttdMap));
+          }
+        }
+      }
+    }
+  } catch(e) {}
+}
+window.syncFirebaseSignaturesToLocalCache = syncFirebaseSignaturesToLocalCache;
+
+function rebuildTtdMapFromUsers() {
+  try {
+    const allUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+    const ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
+    let changed = false;
+
+    allUsers.forEach(u => {
+      if (!u || !u.ttd || typeof u.ttd !== 'string') return;
+      const sig = u.ttd.trim();
+      if (!sig || sig.startsWith('blob:')) return;
+
+      if (u.id && !ttdMap[u.id]) { ttdMap[u.id] = sig; changed = true; }
+      if (u.username && !ttdMap[u.username]) { ttdMap[u.username] = sig; changed = true; }
+      if (u.fullName && !ttdMap[u.fullName]) { ttdMap[u.fullName] = sig; changed = true; }
+
+      const cat = String(u.category || '').toUpperCase();
+      const area = String(u.area || '').toUpperCase();
+
+      if (cat === 'SERVICE') {
+        if (area && !ttdMap[`SERVICE_${area}`]) { ttdMap[`SERVICE_${area}`] = sig; changed = true; }
+        if (!ttdMap['SERVICE']) { ttdMap['SERVICE'] = sig; changed = true; }
+        if (!ttdMap['HODS']) { ttdMap['HODS'] = sig; changed = true; }
+      } else if (cat === 'DM') {
+        if (!ttdMap['DM']) { ttdMap['DM'] = sig; changed = true; }
+      } else if (cat === 'GBJ') {
+        if (!ttdMap['GBJ']) { ttdMap['GBJ'] = sig; changed = true; }
+      }
+    });
+
+    if (changed) {
+      appStorage.setItem(TTD_DB_KEY, JSON.stringify(ttdMap));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(TTD_DB_KEY, JSON.stringify(ttdMap));
+        localStorage.setItem('APP_USER_TTD_MAP', JSON.stringify(ttdMap));
+      }
+    }
+  } catch(e) {
+    console.warn('[REBUILD TTD MAP NOTICE]:', e);
+  }
+}
+window.rebuildTtdMapFromUsers = rebuildTtdMapFromUsers;
+
 async function syncSupabaseUsersToLocalCache() {
   if (typeof supabase === 'undefined' || !supabase) return;
   try {
@@ -3140,6 +3209,8 @@ async function syncSupabaseUsersToLocalCache() {
         }
       }
 
+      if (typeof rebuildTtdMapFromUsers === 'function') rebuildTtdMapFromUsers();
+      if (typeof syncFirebaseSignaturesToLocalCache === 'function') syncFirebaseSignaturesToLocalCache().catch(() => {});
       if (typeof renderUsersManagementTable === 'function') renderUsersManagementTable();
       if (typeof loadUsersManagement === 'function') loadUsersManagement();
     }
@@ -3166,6 +3237,7 @@ async function simpanUserKeSupabase(userObj) {
       phone: String(userObj.phone || '-').trim(),
       category: String(userObj.category || 'TOKO').trim().toUpperCase(),
       area: String(userObj.area || 'BDG').trim().toUpperCase(),
+      ttd: userObj.ttd || '',
       created_at: userObj.createdAt || userObj.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -3174,7 +3246,11 @@ async function simpanUserKeSupabase(userObj) {
     if (err1) {
       const { error: err2 } = await client.from('users').upsert(payload, { onConflict: 'username' });
       if (err2) {
-        console.warn('[SUPABASE USER UPSERT]:', err2.message || err1.message);
+        // Fallback: Jika kolom 'ttd' belum ada di tabel users Supabase, hapus ttd & coba lagi tanpa error
+        delete payload.ttd;
+        await client.from('users').upsert(payload, { onConflict: 'id' }).catch(() => {
+          client.from('users').upsert(payload, { onConflict: 'username' }).catch(() => {});
+        });
       }
     }
   } catch (e) {
@@ -9031,6 +9107,22 @@ function closeDetail() {
   }, 100);
 }
 
+function isValidSig(s) {
+  if (!s || typeof s !== 'string') return false;
+  const trimmed = s.trim();
+  if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return false;
+  if (trimmed.startsWith('blob:')) return false; // BLOB URLs are local to device browser and fail on other devices
+  if (trimmed.includes('DIGITALLY VERIFIED') || trimmed.includes('OfficialDigitalSignatureStamp') || trimmed.includes('rect x="1.5"') || trimmed.includes('<svg') || trimmed.includes('APPROVED')) return false;
+  return trimmed.startsWith('data:image/') || trimmed.startsWith('http://') || trimmed.startsWith('https://');
+}
+window.isValidSig = isValidSig;
+
+function renderSafeTtdImageTag(sigUrl, styleAttr = 'max-height: 52px; max-width: 100%; object-fit: contain;') {
+  if (!isValidSig(sigUrl)) return '';
+  return `<img src="${sigUrl.trim()}" style="${styleAttr}">`;
+}
+window.renderSafeTtdImageTag = renderSafeTtdImageTag;
+
 function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', targetFullName = '') {
   let ttdMap = {};
   try {
@@ -9050,88 +9142,73 @@ function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', 
   const uname = String(targetUsername || '').toUpperCase();
   const fname = String(targetFullName || '').toUpperCase();
 
-  const isValidSig = (s) => {
-    if (!s || typeof s !== 'string') return false;
-    const trimmed = s.trim();
-    if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return false;
-    if (trimmed.startsWith('blob:')) return false; // BLOB URLs are local to device browser and fail on other devices
-    if (trimmed.includes('DIGITALLY VERIFIED') || trimmed.includes('OfficialDigitalSignatureStamp') || trimmed.includes('rect x="1.5"') || trimmed.includes('<svg') || trimmed.includes('APPROVED')) return false;
-    return trimmed.startsWith('data:image/') || trimmed.startsWith('http://') || trimmed.startsWith('https://');
-  };
-
-  function renderSafeTtdImageTag(sigUrl, styleAttr = 'max-height: 52px; max-width: 100%; object-fit: contain;') {
-    if (!isValidSig(sigUrl)) return '';
-    return `<img src="${sigUrl.trim()}" style="${styleAttr}">`;
-  }
-  window.renderSafeTtdImageTag = renderSafeTtdImageTag;
-
-  // 1. Check exact user match by username / ID / FullName
+  // 1. PENCARIAN PRESISI: Jika dicari berdasarkan Username / ID / FullName Spesifik
   if (uname) {
     if (isValidSig(mergedMap[uname])) return mergedMap[uname];
     try {
       const loc = localStorage.getItem(`LOCAL_TTD_${uname}`);
       if (isValidSig(loc)) return loc;
     } catch(e) {}
-    const u = allUsers.find(x => x && String(x.username || '').toUpperCase() === uname);
-    if (u && isValidSig(u.ttd)) return u.ttd;
-    if (u && isValidSig(mergedMap[u.id])) return mergedMap[u.id];
+    const u = allUsers.find(x => x && (
+      String(x.username || '').toUpperCase() === uname ||
+      String(x.id || '').toUpperCase() === uname
+    ));
+    if (u) {
+      if (isValidSig(u.ttd)) return u.ttd;
+      if (isValidSig(mergedMap[u.id])) return mergedMap[u.id];
+      if (isValidSig(mergedMap[u.username])) return mergedMap[u.username];
+      // PENTING: Jika user spesifik tidak punya TTD, kembalikan KOSONG! Jangan ambil TTD user lain!
+      return '';
+    }
   }
+
   if (fname) {
     if (isValidSig(mergedMap[fname])) return mergedMap[fname];
-    const u = allUsers.find(x => x && String(x.fullName || '').toUpperCase() === fname);
-    if (u && isValidSig(u.ttd)) return u.ttd;
+    const u = allUsers.find(x => x && (
+      String(x.fullName || '').toUpperCase() === fname ||
+      String(x.full_name || '').toUpperCase() === fname
+    ));
+    if (u) {
+      if (isValidSig(u.ttd)) return u.ttd;
+      if (isValidSig(mergedMap[u.id])) return mergedMap[u.id];
+      if (isValidSig(mergedMap[u.username])) return mergedMap[u.username];
+      // PENTING: Jika nama user spesifik tidak punya TTD, kembalikan KOSONG! Jangan ambil TTD user lain!
+      return '';
+    }
   }
 
-  // 2. Check by Role & Area
+  // 2. Pencarian berdasarkan Role & Area (Hanya jika TIDAK ada username/fullname spesifik yang dicari)
   if (role === 'SERVICE' || role === 'HODS') {
-    if (area && isValidSig(mergedMap[`SERVICE_${area}`])) return mergedMap[`SERVICE_${area}`];
-    if (isValidSig(mergedMap['SERVICE_TSM'])) return mergedMap['SERVICE_TSM'];
-    if (isValidSig(mergedMap['SERVICE_BDG'])) return mergedMap['SERVICE_BDG'];
-    if (isValidSig(mergedMap['SERVICE_CRB'])) return mergedMap['SERVICE_CRB'];
-    if (isValidSig(mergedMap['SERVICE_KNG'])) return mergedMap['SERVICE_KNG'];
-    if (isValidSig(mergedMap['SERVICE_ALL'])) return mergedMap['SERVICE_ALL'];
-    if (isValidSig(mergedMap['HODS'])) return mergedMap['HODS'];
-    if (isValidSig(mergedMap['SERVICE'])) return mergedMap['SERVICE'];
-
-    const srvUser = allUsers.find(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && (
-      (area && isAreaMatch(u.area, area)) || isValidSig(u.ttd) || isValidSig(mergedMap[u.id]) || isValidSig(mergedMap[u.username])
-    ));
-    if (srvUser && isValidSig(srvUser.ttd)) return srvUser.ttd;
-    if (srvUser && isValidSig(mergedMap[srvUser.id])) return mergedMap[srvUser.id];
-    if (srvUser && isValidSig(mergedMap[srvUser.username])) return mergedMap[srvUser.username];
-
-    const anySrv = allUsers.find(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && isValidSig(u.ttd));
-    if (anySrv && isValidSig(anySrv.ttd)) return anySrv.ttd;
+    if (area) {
+      const srvAreaUsers = allUsers.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && isAreaMatch(u.area, area));
+      for (let srv of srvAreaUsers) {
+        if (isValidSig(srv.ttd)) return srv.ttd;
+        if (isValidSig(mergedMap[srv.id])) return mergedMap[srv.id];
+        if (isValidSig(mergedMap[srv.username])) return mergedMap[srv.username];
+      }
+    }
+    // Jika tidak ditemukan TTD di area tersebut, KEMBALIKAN KOSONG (JANGAN AMBIL TTD RANDOMLY DARI USER LAIN)
+    return '';
   } else if (role === 'DM' || role === 'DISTRICT_MANAGER') {
-    if (isValidSig(mergedMap['DM'])) return mergedMap['DM'];
-    if (isValidSig(mergedMap['DISTRICT_MANAGER'])) return mergedMap['DISTRICT_MANAGER'];
-    if (isValidSig(mergedMap['ADMIN'])) return mergedMap['ADMIN'];
-    if (isValidSig(mergedMap['SUPER_ADMIN'])) return mergedMap['SUPER_ADMIN'];
-
-    const dmUser = allUsers.find(u => u && (u.category === 'DM' || u.category === 'ADMIN') && (isValidSig(u.ttd) || isValidSig(mergedMap[u.id]) || isValidSig(mergedMap[u.username])));
-    if (dmUser && isValidSig(dmUser.ttd)) return dmUser.ttd;
-    if (dmUser && isValidSig(mergedMap[dmUser.id])) return mergedMap[dmUser.id];
-    if (dmUser && isValidSig(mergedMap[dmUser.username])) return mergedMap[dmUser.username];
+    const dmUser = allUsers.find(u => u && (u.category === 'DM' || u.category === 'ADMIN'));
+    if (dmUser) {
+      if (isValidSig(dmUser.ttd)) return dmUser.ttd;
+      if (isValidSig(mergedMap[dmUser.id])) return mergedMap[dmUser.id];
+      if (isValidSig(mergedMap[dmUser.username])) return mergedMap[dmUser.username];
+    }
+    return '';
   } else if (role === 'GBJ') {
-    if (isValidSig(mergedMap['GBJ'])) return mergedMap['GBJ'];
     const gbjUser = allUsers.find(u => u && (
       u.category === 'GBJ' ||
       String(u.username || '').toUpperCase().includes('GBJ') ||
       String(u.fullName || '').toUpperCase().includes('GBJ')
-    ) && (isValidSig(u.ttd) || isValidSig(mergedMap[u.id]) || isValidSig(mergedMap[u.username])));
+    ));
     if (gbjUser) {
       if (isValidSig(gbjUser.ttd)) return gbjUser.ttd;
       if (gbjUser.id && isValidSig(mergedMap[gbjUser.id])) return mergedMap[gbjUser.id];
       if (gbjUser.username && isValidSig(mergedMap[gbjUser.username])) return mergedMap[gbjUser.username];
     }
-  }
-
-  // Check currentUser fallback if matching role
-  if (currentUser && isValidSig(currentUser.ttd)) {
-    const curCat = String(currentUser.category || '').toUpperCase();
-    if (role === curCat || (role === 'SERVICE' && curCat === 'HODS') || (role === 'DM' && curCat === 'ADMIN')) {
-      return currentUser.ttd;
-    }
+    return '';
   }
 
   return '';
@@ -9333,8 +9410,8 @@ function renderFullPdfPreviewDocument(modelId) {
           <div style="font-weight: 800; color: #0f172a; text-transform: uppercase;">PEMOHON</div>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 48px;">
             ${(() => {
-              const gbjSig = getUserRealSignature('GBJ');
-              return gbjSig ? `<img src="${gbjSig}" style="max-height: 46px; max-width: 90%; object-fit: contain;">` : '';
+              const tokoSig = (currentUser && currentUser.category === 'TOKO' && isValidSig(currentUser.ttd)) ? currentUser.ttd : getUserRealSignature('TOKO');
+              return renderSafeTtdImageTag(tokoSig, 'max-height: 46px; max-width: 90%; object-fit: contain;');
             })()}
           </div>
           <div>
@@ -9574,30 +9651,44 @@ function bukaPdfModal(noSurat, includePhotos = null) {
 
   const ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
   let serviceTTD = req.serviceTTD || '';
-  if (!serviceTTD && serviceUser) {
-    serviceTTD = ttdMap[serviceUser.id] || ttdMap[serviceUser.username] || ttdMap[serviceUser.fullName] || '';
+  const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
+
+  // Verifikasi TTD Service presisi berdasarkan nama yang menyetujui
+  if (reqSrvName) {
+    const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
+    serviceTTD = exactSig;
+  } else if (!isValidSig(serviceTTD) && serviceUser) {
+    serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
   }
-  if (!serviceTTD) {
-    serviceTTD = ttdMap['SERVICE_' + req.area] || ttdMap['SERVICE'] || ttdMap['HODS'] || '';
+
+  if (!isValidSig(serviceTTD)) {
+    serviceTTD = ''; // KOSONGKAN TOTAL JIKA USER SERVICE BERANGKUTAN BELUM PUNYA TTD
   }
 
   let dmTTD = req.dmTTD || '';
-  if (!dmTTD && dmUser) {
-    dmTTD = ttdMap[dmUser.id] || ttdMap[dmUser.username] || ttdMap[dmUser.fullName] || '';
+  if (!isValidSig(dmTTD) && dmUser) {
+    dmTTD = dmUser.ttd || ttdMap[dmUser.id] || ttdMap[dmUser.username] || ttdMap[dmUser.fullName] || '';
   }
-  if (!dmTTD) {
-    dmTTD = ttdMap['DM'] || ttdMap['DM'] || '';
+  if (!isValidSig(dmTTD)) {
+    dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD
   }
 
+  const isReqFromGBJ = (
+    (req.createdBy && String(req.createdBy).toUpperCase().includes('GBJ')) ||
+    (req.toko && String(req.toko).toUpperCase().includes('GBJ')) ||
+    req.isGBJ === true
+  );
+
   let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
-  if (!isValidSig(pemohonTTD) && req.createdBy) {
-    pemohonTTD = getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy) ||
-                 getUserRealSignature('TOKO', req.area, req.createdBy, req.toko) ||
-                 ttdMap[req.createdBy] || ttdMap[req.toko] || '';
-  }
+
   if (!isValidSig(pemohonTTD)) {
-    pemohonTTD = getUserRealSignature('GBJ') || ttdMap['GBJ'] || '';
+    if (isReqFromGBJ) {
+      pemohonTTD = getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy) || ttdMap['GBJ'] || '';
+    } else {
+      pemohonTTD = ttdMap[req.createdBy] || ttdMap[req.toko] || getUserRealSignature('TOKO', req.area, req.createdBy, req.toko) || '';
+    }
   }
+
   if (!isValidSig(pemohonTTD)) {
     pemohonTTD = '';
   }
@@ -10320,6 +10411,24 @@ function simpanTTD() {
             allUsers[uIdx].ttd = ttdUrl;
             saveUsersToDB(allUsers);
           }
+          if (typeof simpanUserKeSupabase === 'function' && currentUser) {
+            simpanUserKeSupabase({ ...currentUser, ttd: ttdUrl }).catch(() => {});
+          }
+          try {
+            const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
+            if (rtdb && currentUser) {
+              const keyUser = String(currentUser.username || currentUser.id).replace(/[\/\.#$\[\]]/g, '_');
+              rtdb.ref(`user_signatures/${keyUser}`).set(ttdUrl).catch(() => {});
+              rtdb.ref(`app_settings/ttdMap/${keyUser}`).set(ttdUrl).catch(() => {});
+            }
+            const fs = typeof getDbFirestore === 'function' ? getDbFirestore() : null;
+            if (fs && currentUser) {
+              const keyUser = String(currentUser.username || currentUser.id).replace(/[\/\.#$\[\]]/g, '_');
+              fs.collection('user_signatures').doc(keyUser).set({ ttd: ttdUrl, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+            }
+          } catch(e) {}
+          if (typeof rebuildTtdMapFromUsers === 'function') rebuildTtdMapFromUsers();
+      if (typeof syncFirebaseSignaturesToLocalCache === 'function') syncFirebaseSignaturesToLocalCache().catch(() => {});
         } catch(uErr) {}
 
         try {

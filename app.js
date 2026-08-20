@@ -12650,7 +12650,7 @@ function downloadMasterExcel() {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX) MASTER LENGKAP...');
+  showLoading('MENGUNDUH');
   setTimeout(() => {
     hideLoading();
     const rows = [];
@@ -13865,7 +13865,7 @@ function downloadExcel() {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
+  showLoading('MENGUNDUH');
   setTimeout(() => {
     hideLoading();
     const rows = [];
@@ -16569,7 +16569,7 @@ function downloadSingleDetailExcel(noSurat) {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
+  showLoading('MENGUNDUH');
   setTimeout(() => {
     hideLoading();
     const rows = [];

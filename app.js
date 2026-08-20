@@ -545,12 +545,12 @@ function gantiBackgroundApp() {
     nextBg = 'bg-scenery.jpg';
     nextName = 'Danau & Pegunungan';
   } else if (currentBg === 'bg-scenery.jpg') {
-    nextBg = 'bg-scenery-3.jpg';        // <-- FOTO BARU 1 (PNG)
+    nextBg = 'bg-scenery-3.png';        // <-- FOTO BARU 1 (PNG)
     nextName = 'Pemandangan 3';
-  } else if (currentBg === 'bg-scenery-3.jpg') {
-    nextBg = 'bg-scenery-4.jpg';        // <-- FOTO BARU 2 (PNG)
+  } else if (currentBg === 'bg-scenery-3.png') {
+    nextBg = 'bg-scenery-4.png';        // <-- FOTO BARU 2 (PNG)
     nextName = 'Pemandangan 4';
-  } else if (currentBg === 'bg-scenery-4.jpg') {
+  } else if (currentBg === 'bg-scenery-4.png') {
     nextBg = 'bg-scenery-5.jpg';        // <-- FOTO BARU 3 (JPG)
     nextName = 'Pemandangan 5';
   } else if (currentBg === 'bg-scenery-5.jpg') {
@@ -6816,11 +6816,9 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       updated_at: new Date().toISOString()
     };
 
-    if (typeof supabase !== 'undefined' && supabase) {
-      safeSupabaseUpsertPermintaan(supaNewRow).then(({ error }) => {
-        if (error) console.warn('[SUPABASE SAVE NOTICE]:', error.message);
-      }).catch(e => console.warn(e));
-    }
+    const docId = String(noSurat).replace(/[\/\.]/g, '_');
+    
+    // 1. SIMPAN KE FIRESTORE & REALTIME DB
     if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
       dbFirestore.collection('requests').doc(docId).set(newRecord).catch(e => console.warn('[FIRESTORE SAVE NOTICE]:', e));
     }
@@ -6828,29 +6826,54 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       dbRealtime.ref(`requests/${docId}`).set(newRecord).catch(e => console.warn('[REALTIME SAVE NOTICE]:', e));
     }
 
+    // In-App Notification
     if (isDMUser) {
       tambahNotifikasiSistem(['DM'], currentUser.area, `PERMINTAAN BARU #${noSurat} DARI DM (${currentUser.fullName}). SILAKAN MEMPROSES APPROVAL DM.`, noSurat);
     } else {
       tambahNotifikasiSistem(['SERVICE'], currentUser.area, `PERMINTAAN BARU #${noSurat} DARI TOKO ${toko}. MOHON APPROVAL SERVICE.`, noSurat);
     }
 
-    const allUsers = getUsersFromDB();
-    const serviceUsers = allUsers.filter(u => u.category === 'SERVICE' && (u.area === currentUser.area || u.area === 'ALL'));
-    serviceUsers.forEach(srv => {
-      if (srv.phone && srv.phone !== '-') {
-        const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
-        kirimNotifikasiWA(srv.phone,
-          `Yth. Bapak/Ibu ${srvName},\n\n` +
-          `Pemberitahuan Sistem Permintaan Barang:\n` +
-          `Telah dibuat pengajuan permintaan barang baru dengan rincian berikut:\n` +
-          `• Nomor Dokumen : #${noSurat}\n` +
-          `• Toko / Pemohon : ${toko} (${currentUser.area})\n` +
-          `• Waktu Pengajuan : ${newRecord.createdAt}\n` +
-          `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
-          `Mohon dapat segera diperiksa pada aplikasi. Terima kasih.`
-        );
-      }
-    });
+    // Fungsi Pengiriman WhatsApp (HANYA DIEKSEKUSI SETELAH DATA DIPASTIKAN TERKIRIM KE SUPABASE & REALTIME KE SEMUA PERANGKAT)
+    const dispatchWhatsAppNotification = () => {
+      const allUsers = getUsersFromDB();
+      const serviceUsers = allUsers.filter(u => u.category === 'SERVICE' && (u.area === currentUser.area || u.area === 'ALL'));
+      serviceUsers.forEach(srv => {
+        if (srv.phone && srv.phone !== '-') {
+          const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
+          kirimNotifikasiWA(srv.phone,
+            `Yth. Bapak/Ibu ${srvName},
+
+` +
+            `Pemberitahuan Sistem Permintaan Barang:
+` +
+            `Telah dibuat pengajuan permintaan barang baru dengan rincian berikut:
+` +
+            `• Nomor Dokumen : #${noSurat}
+` +
+            `• Toko / Pemohon : ${toko} (${currentUser.area})
+` +
+            `• Waktu Pengajuan : ${newRecord.createdAt}
+` +
+            `• Link Detail : ${getAppDirectLink(noSurat)}
+
+` +
+            `Mohon dapat segera diperiksa pada aplikasi. Terima kasih.`
+          );
+        }
+      });
+    };
+
+    // 2. SIMPAN KE SUPABASE DULU -> SETELAH SUKSES & REALTIME TERKIRIM -> BARU KIRIM WA
+    if (typeof safeSupabaseUpsertPermintaan === 'function') {
+      safeSupabaseUpsertPermintaan(supaNewRow).then(() => {
+        setTimeout(dispatchWhatsAppNotification, 300);
+      }).catch(e => {
+        console.warn('[SUPABASE SAVE EXCEPTION]:', e);
+        dispatchWhatsAppNotification();
+      });
+    } else {
+      setTimeout(dispatchWhatsAppNotification, 500);
+    }
   }
 }
 
@@ -7338,18 +7361,8 @@ function approveService(noSurat) {
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
 
-      // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
+      // 2. PROSES SYNC SUPABASE & BROADCAST REALTIME TERLEBIH DAHULU
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
-      if (typeof supabase !== 'undefined' && supabase) {
-        supabase.from('permintaan_toko').update({
-          service_approve: true,
-          service_user_name: requests[idx].serviceUserName,
-          service_ttd: requests[idx].serviceTTD || '',
-          status: requests[idx].status || 'PENDING',
-          log: requests[idx].log,
-          updated_at: new Date().toISOString()
-        }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
-      }
       if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
@@ -7359,22 +7372,45 @@ function approveService(noSurat) {
 
       tambahNotifikasiSistem(['DM'], 'ALL', `PERMINTAAN #${noSurat} DISETUJUI SERVICE (${currentUser.fullName || currentUser.username}). MOHON APPROVAL DM.`, noSurat);
 
-      const users = getUsersFromDB();
-      const dmUsers = users.filter(u => u.category === 'DM');
-      dmUsers.forEach(dm => {
-        if (dm.phone && dm.phone !== '-') {
-          const dmName = dm.fullName || dm.username || 'Bapak/Ibu DM';
-          kirimNotifikasiWA(dm.phone,
-            `Yth. Bapak/Ibu ${dmName},\n\n` +
-            `Pemberitahuan Sistem Permintaan Barang:\n` +
-            `Pengajuan permintaan barang berikut telah DISETUJUI oleh Service (${currentUser.fullName || currentUser.username}):\n` +
-            `• Nomor Dokumen : #${noSurat}\n` +
-            `• Toko / Pemohon : ${requests[idx].toko} (${requests[idx].area})\n` +
-            `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
-            `Mohon berkenan untuk melakukan peninjauan dan persetujuan (approval) tingkat DM melalui sistem aplikasi. Terima kasih.`
-          );
-        }
-      });
+      // Fungsi Pengiriman WhatsApp (HANYA DIEKSEKUSI SETELAH DATA DIPASTIKAN TERKIRIM KE SUPABASE & SEMUA PERANGKAT)
+      const dispatchApprovalWADestination = () => {
+        const users = getUsersFromDB();
+        const dmUsers = users.filter(u => u.category === 'DM');
+        dmUsers.forEach(dm => {
+          if (dm.phone && dm.phone !== '-') {
+            const dmName = dm.fullName || dm.username || 'Bapak/Ibu DM';
+            kirimNotifikasiWA(dm.phone,
+              `Yth. Bapak/Ibu ${dmName},
+
+` +
+              `Pemberitahuan Sistem Permintaan Barang:
+` +
+              `Pengajuan permintaan barang berikut telah DISETUJUI oleh Service (${currentUser.fullName || currentUser.username}):
+` +
+              `• Nomor Dokumen : #${noSurat}
+` +
+              `• Toko / Pemohon : ${requests[idx].toko} (${requests[idx].area})
+` +
+              `• Link Detail : ${getAppDirectLink(noSurat)}
+
+` +
+              `Mohon berkenan untuk melakukan peninjauan dan persetujuan (approval) tingkat DM melalui sistem aplikasi. Terima kasih.`
+            );
+          }
+        });
+      };
+
+      // PASTIKAN DATA TERSIMPAN DAN TER-BROADCAST DI SUPABASE BARU KIRIM WA
+      if (typeof safeSupabaseUpsertPermintaan === 'function') {
+        safeSupabaseUpsertPermintaan(requests[idx]).then(() => {
+          setTimeout(dispatchApprovalWADestination, 300);
+        }).catch(e => {
+          console.warn('[SUPABASE APPROVE EXCEPTION]:', e);
+          dispatchApprovalWADestination();
+        });
+      } else {
+        setTimeout(dispatchApprovalWADestination, 500);
+      }
     }
   });
 }
@@ -7420,17 +7456,8 @@ function approveDM(noSurat) {
     if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
       if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
 
-      // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
+      // 2. PROSES SYNC SUPABASE & BROADCAST REALTIME TERLEBIH DAHULU
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
-      if (typeof supabase !== 'undefined' && supabase) {
-        supabase.from('permintaan_toko').update({
-          status: 'APPROVE',
-          dm_user_name: requests[idx].dmUserName,
-          dm_ttd: requests[idx].dmTTD || '',
-          log: requests[idx].log,
-          updated_at: new Date().toISOString()
-        }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
-      }
       if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
       }
@@ -7439,23 +7466,48 @@ function approveDM(noSurat) {
       }
 
       tambahNotifikasiSistem(['SERVICE', 'TOKO', 'SALES'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} TELAH DISETUJUI DM. SILAKAN DIPROSES.`, noSurat);
-      const users = getUsersFromDB();
-      const serviceUsers = users.filter(u => u.category === 'SERVICE' && (u.area === requests[idx].area || u.area === 'ALL'));
-      serviceUsers.forEach(srv => {
-        if (srv.phone && srv.phone !== '-') {
-          const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
-          kirimNotifikasiWA(srv.phone,
-            `Yth. Bapak/Ibu ${srvName},\n\n` +
-            `Pemberitahuan Sistem Permintaan Barang:\n` +
-            `Pengajuan permintaan barang berikut telah DISETUJUI OLEH DM:\n` +
-            `• Nomor Dokumen : #${noSurat}\n` +
-            `• Toko / Pemohon : ${requests[idx].toko} (${requests[idx].area})\n` +
-            `• Status : DISETUJUI (APPROVE)\n` +
-            `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
-            `Dokumen saat ini siap diproses oleh Tim Service. Terima kasih atas kerja samanya.`
-          );
-        }
-      });
+
+      // Fungsi Pengiriman WhatsApp (HANYA DIEKSEKUSI SETELAH DATA DIPASTIKAN TERKIRIM KE SUPABASE & SEMUA PERANGKAT)
+      const dispatchDMApprovalWADestination = () => {
+        const users = getUsersFromDB();
+        const serviceUsers = users.filter(u => u.category === 'SERVICE' && (u.area === requests[idx].area || u.area === 'ALL'));
+        serviceUsers.forEach(srv => {
+          if (srv.phone && srv.phone !== '-') {
+            const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
+            kirimNotifikasiWA(srv.phone,
+              `Yth. Bapak/Ibu ${srvName},
+
+` +
+              `Pemberitahuan Sistem Permintaan Barang:
+` +
+              `Pengajuan permintaan barang berikut telah DISETUJUI OLEH DM:
+` +
+              `• Nomor Dokumen : #${noSurat}
+` +
+              `• Toko / Pemohon : ${requests[idx].toko} (${requests[idx].area})
+` +
+              `• Status : DISETUJUI (APPROVE)
+` +
+              `• Link Detail : ${getAppDirectLink(noSurat)}
+
+` +
+              `Dokumen saat ini siap diproses oleh Tim Service. Terima kasih atas kerja samanya.`
+            );
+          }
+        });
+      };
+
+      // PASTIKAN DATA TERSIMPAN DAN TER-BROADCAST DI SUPABASE BARU KIRIM WA
+      if (typeof safeSupabaseUpsertPermintaan === 'function') {
+        safeSupabaseUpsertPermintaan(requests[idx]).then(() => {
+          setTimeout(dispatchDMApprovalWADestination, 300);
+        }).catch(e => {
+          console.warn('[SUPABASE DM APPROVE EXCEPTION]:', e);
+          dispatchDMApprovalWADestination();
+        });
+      } else {
+        setTimeout(dispatchDMApprovalWADestination, 500);
+      }
     }
   });
 }
@@ -7693,34 +7745,20 @@ function prosesSimpanDoneDenganBuktiArtemis() {
           if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
         }
 
-        // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG (ISOLATED NON-BLOCKING)
-        try {
-          const docId = String(noSurat).replace(/[\/\.]/g, '_');
-          if (typeof supabase !== 'undefined' && supabase) {
-            supabase.from('permintaan_toko').update({
-              status: 'DONE',
-              items: requests[idx].items,
-              photos: requests[idx].photos,
-              artemis_photos: requests[idx].artemisPhotos,
-              log: requests[idx].log,
-              updated_at: new Date().toISOString()
-            }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE DONE UPDATE NOTICE]:', e));
-          }
-          if (typeof dbFirestore !== 'undefined' && dbFirestore) {
-            dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
-          }
-          if (typeof dbRealtime !== 'undefined' && dbRealtime) {
-            dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
-          }
-        } catch(sbErr) {
-          console.warn('[BACKGROUND SYNC NOTICE]:', sbErr);
+        // 2. PROSES SYNC SUPABASE & BROADCAST REALTIME TERLEBIH DAHULU
+        const docId = String(noSurat).replace(/[\/\.]/g, '_');
+        if (typeof safeSupabaseUpsertPermintaan === 'function') {
+          safeSupabaseUpsertPermintaan(requests[idx]);
         }
-      } else {
-        showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+        if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
+          dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
+        }
+        if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
+          dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
+        }
       }
-    } catch (err) {
-      console.error('[PROSES DONE ERROR]:', err);
-      showNotif('GAGAL MENYIMPAN STATUS DONE: ' + (err.message || err), 'danger');
+    } catch(err) {
+      console.warn('Error prosesSimpanDoneDenganBuktiArtemis:', err);
     }
   });
 }
@@ -7729,8 +7767,9 @@ window.prosesSimpanDoneDenganBuktiArtemis = prosesSimpanDoneDenganBuktiArtemis;
 function batalApproveService(noSurat) {
   if (!noSurat) return;
   const isAdminUser = currentUser && (currentUser.category === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
-  if (!isAdminUser) {
-    showNotif('FUNGSI BATAL APPROVAL SERVICE HANYA DAPAT DILAKUKAN OLEH AKUN ADMIN!', 'warning');
+  const isServiceUser = currentUser && (currentUser.category === 'SERVICE' || currentUser.category === 'HODS');
+  if (!isAdminUser && !isServiceUser) {
+    showNotif('HANYA ROLE SERVICE / ADMIN YANG DAPAT MEMBATALKAN APPROVAL SERVICE!', 'warning');
     return;
   }
 
@@ -7746,27 +7785,20 @@ function batalApproveService(noSurat) {
       if (!requests[idx].log) requests[idx].log = [];
       requests[idx].log.push({
         action: 'BATAL_APPROVE_SERVICE',
-        user: currentUser ? currentUser.fullName : 'ADMIN',
-        notes: 'BATAL APPROVAL SERVICE',
+        user: currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE',
+        notes: 'PEMBATALAN APPROVAL SERVICE',
         time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
       });
 
-      saveRequestsToDB(requests);
-      showNotif(`BERHASIL MEMBATALKAN APPROVAL SERVICE #${noSurat}!`, 'info');
+      saveRequestsToDB(requests, requests[idx], 'UPDATE');
+      showNotif(`APPROVAL SERVICE #${noSurat} TELAH DIBATALKAN`, 'info');
       loadRiwayat();
       loadDashboard();
-      if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
+      if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
 
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
-      if (typeof supabase !== 'undefined' && supabase) {
-        supabase.from('permintaan_toko').update({
-          service_approve: false,
-          service_user_name: '',
-          service_ttd: '',
-          status: 'PENDING',
-          log: requests[idx].log,
-          updated_at: new Date().toISOString()
-        }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
+      if (typeof safeSupabaseUpsertPermintaan === 'function') {
+        safeSupabaseUpsertPermintaan(requests[idx]);
       }
       if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
@@ -7777,13 +7809,13 @@ function batalApproveService(noSurat) {
     }
   });
 }
-window.batalApproveService = batalApproveService;
 
 function batalApproveDM(noSurat) {
   if (!noSurat) return;
   const isAdminUser = currentUser && (currentUser.category === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
-  if (!isAdminUser) {
-    showNotif('FUNGSI BATAL APPROVAL DM HANYA DAPAT DILAKUKAN OLEH AKUN ADMIN!', 'warning');
+  const isDMUser = currentUser && currentUser.category === 'DM';
+  if (!isAdminUser && !isDMUser) {
+    showNotif('HANYA ROLE DM / ADMIN YANG DAPAT MEMBATALKAN APPROVAL DM!', 'warning');
     return;
   }
 
@@ -7791,34 +7823,27 @@ function batalApproveDM(noSurat) {
     const requests = getRequestsFromDB();
     const idx = requests.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
     if (idx !== -1) {
-      requests[idx].dmApprove = false;
+      requests[idx].status = 'PENDING';
       requests[idx].dmUserName = '';
       requests[idx].dmTTD = '';
-      requests[idx].status = 'PENDING';
 
       if (!requests[idx].log) requests[idx].log = [];
       requests[idx].log.push({
         action: 'BATAL_APPROVE_DM',
-        user: currentUser ? currentUser.fullName : 'ADMIN',
-        notes: 'BATAL APPROVAL DM',
+        user: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
+        notes: 'PEMBATALAN APPROVAL DM',
         time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
       });
 
-      saveRequestsToDB(requests);
-      showNotif(`BERHASIL MEMBATALKAN APPROVAL DM #${noSurat}!`, 'info');
+      saveRequestsToDB(requests, requests[idx], 'UPDATE');
+      showNotif(`APPROVAL DM #${noSurat} TELAH DIBATALKAN`, 'info');
       loadRiwayat();
       loadDashboard();
-      if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
+      if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
 
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
-      if (typeof supabase !== 'undefined' && supabase) {
-        supabase.from('permintaan_toko').update({
-          status: 'PENDING',
-          dm_user_name: '',
-          dm_ttd: '',
-          log: requests[idx].log,
-          updated_at: new Date().toISOString()
-        }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
+      if (typeof safeSupabaseUpsertPermintaan === 'function') {
+        safeSupabaseUpsertPermintaan(requests[idx]);
       }
       if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
         dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
@@ -7829,40 +7854,20 @@ function batalApproveDM(noSurat) {
     }
   });
 }
-window.batalApproveDM = batalApproveDM;
 
-function tolakServiceModal(noSurat, roleType) {
+function prosesReject(roleType) {
   const elNo = document.getElementById('rejectNoSurat');
-  const elRole = document.getElementById('rejectRoleType');
-  const elReason = document.getElementById('rejectReason');
-  const elTitle = document.getElementById('rejectTitle');
-
-  if (elNo) elNo.value = noSurat;
-  if (elRole) elRole.value = roleType;
-  if (elReason) elReason.value = '';
-  if (elTitle) elTitle.textContent = `TOLAK PERMINTAAN`;
-  
-  const modal = document.getElementById('rejectOverlay');
-  if (modal) modal.style.display = 'flex';
-  pushPopupHistoryState();
-}
-
-function closeReject() {
-  const modal = document.getElementById('rejectOverlay');
-  if (modal) modal.style.display = 'none';
-}
-
-function kirimReject() {
-  const noSurat = document.getElementById('rejectNoSurat').value;
-  const roleType = document.getElementById('rejectRoleType').value;
-  const alasan = document.getElementById('rejectReason').value.trim().toUpperCase();
+  const elAlasan = document.getElementById('rejectAlasan');
+  const noSurat = elNo ? elNo.value.trim() : '';
+  const alasan = elAlasan ? elAlasan.value.trim() : '';
 
   if (!alasan) {
-    showNotif('MASUKKAN ALASAN PENOLAKAN!', 'warning');
+    showNotif('ALASAN PENOLAKAN WAJIB DIISI!', 'warning');
     return;
   }
 
-  closeReject();
+  tutupRejectModal();
+
   const requests = getRequestsFromDB();
   const idx = requests.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
   if (idx !== -1) {
@@ -7883,16 +7888,8 @@ function kirimReject() {
     loadDashboard();
     if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
 
-    // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
+    // 2. PROSES SYNC SUPABASE & BROADCAST REALTIME TERLEBIH DAHULU
     const docId = String(noSurat).replace(/[\/\.]/g, '_');
-    if (typeof supabase !== 'undefined' && supabase) {
-      supabase.from('permintaan_toko').update({
-        status: 'REJECT',
-        catatan: requests[idx].catatan,
-        log: requests[idx].log,
-        updated_at: new Date().toISOString()
-      }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
-    }
     if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
       dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
     }
@@ -7903,56 +7900,70 @@ function kirimReject() {
     const users = getUsersFromDB();
     const creator = users.find(u => u && (u.id === requests[idx].userId || u.fullName === requests[idx].createdBy));
 
-    if (roleType === 'SERVICE') {
-      tambahNotifikasiSistem(['TOKO', 'SALES'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} DITOLAK SERVICE. ALASAN: ${alasan}`, noSurat);
-      if (creator && creator.phone && creator.phone !== '-') {
-        const creatorName = creator.fullName || creator.username || 'Bapak/Ibu Pembuat Permintaan';
-        kirimNotifikasiWA(creator.phone,
-          `Yth. Bapak/Ibu *${creatorName}*,\n\n` +
-          `❌ *PEMBERITAHUAN PENOLAKAN PERMINTAAN*\n` +
-          `Pengajuan permintaan barang Anda telah *DITOLAK* oleh Tim Service:\n` +
-          `• Nomor Dokumen : *#${noSurat}*\n` +
-          `• Toko / Pemohon : *${requests[idx].toko}* (${requests[idx].area || '-'})\n` +
-          `• Catatan / Alasan : *${alasan}*\n` +
-          `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
-          `Silakan periksa kembali rincian dokumen pada sistem aplikasi. Terima kasih.`
-        );
-      }
-    } else if (roleType === 'DM') {
-      // 1. IN-APP NOTIFIKASI UNTUK SERVICE, TOKO & SALES
-      tambahNotifikasiSistem(['SERVICE', 'TOKO', 'SALES'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} DITOLAK DM. ALASAN: ${alasan}`, noSurat);
+    const dispatchRejectWADestination = () => {
+      if (roleType === 'SERVICE') {
+        tambahNotifikasiSistem(['TOKO', 'SALES'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} DITOLAK SERVICE. ALASAN: ${alasan}`, noSurat);
+        if (creator && creator.phone && creator.phone !== '-') {
+          const creatorName = creator.fullName || creator.username || 'Bapak/Ibu Pembuat Permintaan';
+          kirimNotifikasiWA(creator.phone,
+            `Yth. Bapak/Ibu *${creatorName}*\n\n` +
+            `❌ *PEMBERITAHUAN PENOLAKAN PERMINTAAN*\n` +
+            `Pengajuan permintaan barang Anda telah *DITOLAK* oleh Tim Service:\n` +
+            `• Nomor Dokumen : *#${noSurat}*\n` +
+            `• Toko / Pemohon : *${requests[idx].toko}* (${requests[idx].area || '-'})
+` +
+            `• Catatan / Alasan : *${alasan}*\n` +
+            `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
+            `Silakan periksa kembali rincian dokumen pada sistem aplikasi. Terima kasih.`
+          );
+        }
+      } else if (roleType === 'DM') {
+        tambahNotifikasiSistem(['SERVICE', 'TOKO', 'SALES'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} DITOLAK DM. ALASAN: ${alasan}`, noSurat);
 
-      // 2. WHATSAPP KE PEMBUAT (USER / TOKO)
-      if (creator && creator.phone && creator.phone !== '-') {
-        const creatorName = creator.fullName || creator.username || 'Bapak/Ibu Pembuat Permintaan';
-        kirimNotifikasiWA(creator.phone,
-          `Yth. Bapak/Ibu *${creatorName}*,\n\n` +
-          `❌ *PEMBERITAHUAN PENOLAKAN PERMINTAAN OLEH DM*\n` +
-          `Pengajuan permintaan barang berikut telah *DITOLAK oleh DM Pusat*:\n` +
-          `• Nomor Dokumen : *#${noSurat}*\n` +
-          `• Toko / Pemohon : *${requests[idx].toko}* (${requests[idx].area || '-'})\n` +
-          `• Catatan / Alasan Penolakan : *${alasan}*\n` +
-          `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
-          `Silakan periksa kembali rincian dokumen pada sistem aplikasi. Terima kasih.`
-        );
-      }
+        if (creator && creator.phone && creator.phone !== '-') {
+          const creatorName = creator.fullName || creator.username || 'Bapak/Ibu Pembuat Permintaan';
+          kirimNotifikasiWA(creator.phone,
+            `Yth. Bapak/Ibu *${creatorName}*\n\n` +
+            `❌ *PEMBERITAHUAN PENOLAKAN PERMINTAAN OLEH DM*\n` +
+            `Pengajuan permintaan barang berikut telah *DITOLAK oleh DM Pusat*:\n` +
+            `• Nomor Dokumen : *#${noSurat}*\n` +
+            `• Toko / Pemohon : *${requests[idx].toko}* (${requests[idx].area || '-'})
+` +
+            `• Catatan / Alasan Penolakan : *${alasan}*\n` +
+            `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
+            `Silakan periksa kembali rincian dokumen pada sistem aplikasi. Terima kasih.`
+          );
+        }
 
-      // 3. WHATSAPP KE TIM SERVICE (SEMUA USER SERVICE DI AREA TERSEBUT & ALL)
-      const serviceUsers = users.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && (u.area === requests[idx].area || u.area === 'ALL' || !u.area) && u.phone && u.phone !== '-');
-      serviceUsers.forEach(srv => {
-        const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
-        kirimNotifikasiWA(srv.phone,
-          `Yth. Bapak/Ibu *${srvName}*,\n\n` +
-          `⚠️ *PEMBERITAHUAN PENOLAKAN DM UNTUK TIM SERVICE*\n` +
-          `Pengajuan permintaan barang yang telah di-approve Service berikut telah *DITOLAK oleh DM Pusat*:\n` +
-          `• Nomor Dokumen : *#${noSurat}*\n` +
-          `• Toko / Pemohon : *${requests[idx].toko}* (${requests[idx].area || '-'})\n` +
-          `• Pembuat Permintaan : *${requests[idx].createdBy || '-'}*\n` +
-          `• Catatan / Alasan Penolakan : *${alasan}*\n` +
-          `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
-          `Silakan buka sistem aplikasi untuk melihat rincian catatan penolakan. Terima kasih.`
-        );
+        const serviceUsers = users.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && (u.area === requests[idx].area || u.area === 'ALL' || !u.area) && u.phone && u.phone !== '-');
+        serviceUsers.forEach(srv => {
+          const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
+          kirimNotifikasiWA(srv.phone,
+            `Yth. Bapak/Ibu *${srvName}*\n\n` +
+            `⚠️ *PEMBERITAHUAN PENOLAKAN DM UNTUK TIM SERVICE*\n` +
+            `Pengajuan permintaan barang yang telah di-approve Service berikut telah *DITOLAK oleh DM Pusat*:\n` +
+            `• Nomor Dokumen : *#${noSurat}*\n` +
+            `• Toko / Pemohon : *${requests[idx].toko}* (${requests[idx].area || '-'})
+` +
+            `• Pembuat Permintaan : *${requests[idx].createdBy || '-'}*\n` +
+            `• Catatan / Alasan Penolakan : *${alasan}*\n` +
+            `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
+            `Silakan buka sistem aplikasi untuk melihat rincian catatan penolakan. Terima kasih.`
+          );
+        });
+      }
+    };
+
+    // PASTIKAN DATA TERSIMPAN DAN TER-BROADCAST DI SUPABASE BARU KIRIM WA
+    if (typeof safeSupabaseUpsertPermintaan === 'function') {
+      safeSupabaseUpsertPermintaan(requests[idx]).then(() => {
+        setTimeout(dispatchRejectWADestination, 300);
+      }).catch(e => {
+        console.warn('[SUPABASE REJECT EXCEPTION]:', e);
+        dispatchRejectWADestination();
       });
+    } else {
+      setTimeout(dispatchRejectWADestination, 500);
     }
   }
 }
@@ -8062,14 +8073,17 @@ function hapusData(noSurat) {
 
         // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
         const docId = String(noSurat).replace(/[\/\.]/g, '_');
-        if (typeof supabase !== 'undefined' && supabase) {
-          supabase.from('permintaan_toko').update({
-            status: 'BATAL',
-            items: currentReqs[idx].items,
-            log: currentReqs[idx].log,
-            updated_at: new Date().toISOString()
-          }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
-        }
+        if (typeof safeSupabaseUpsertPermintaan === 'function') {
+        safeSupabaseUpsertPermintaan(currentReqs[idx]);
+      } else if (typeof supabase !== 'undefined' && supabase) {
+        supabase.from('permintaan_toko').upsert({
+          no_surat: noSurat,
+          status: 'BATAL',
+          items: currentReqs[idx].items,
+          log: currentReqs[idx].log,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'no_surat' }).then(() => {}, (e) => console.warn(e));
+      }
         if (typeof dbFirestore !== 'undefined' && dbFirestore) {
           dbFirestore.collection('requests').doc(docId).set(currentReqs[idx], { merge: true }).catch(e => console.warn(e));
         }
@@ -9847,43 +9861,68 @@ function tutupTTD() {
   }
 }
 
+let ttdDPR = 1;
+let ttdDisplayW = 500;
+let ttdDisplayH = 220;
+let ttdStrokePoints = [];
+
 function initCanvasTTD() {
   canvasTTD = document.getElementById('canvasTTD');
   if (!canvasTTD) return;
 
   const rect = canvasTTD.getBoundingClientRect();
-  const targetW = Math.round(rect.width) || canvasTTD.offsetWidth || 500;
-  const targetH = Math.round(rect.height) || canvasTTD.offsetHeight || 220;
+  ttdDisplayW = Math.round(rect.width) || canvasTTD.offsetWidth || 500;
+  ttdDisplayH = Math.round(rect.height) || canvasTTD.offsetHeight || 220;
 
-  canvasTTD.width = targetW;
-  canvasTTD.height = targetH;
+  // GUNAKAN RESOLUSI HIGH-DPI RETINA (MINIMAL 2X / 3X) AGAR HASIL TTD SUPER TAJAM & TIDAK PECAH
+  ttdDPR = Math.max(window.devicePixelRatio || 1, 2);
 
-  ctxTTD = canvasTTD.getContext('2d');
+  canvasTTD.width = Math.round(ttdDisplayW * ttdDPR);
+  canvasTTD.height = Math.round(ttdDisplayH * ttdDPR);
+  canvasTTD.style.width = ttdDisplayW + 'px';
+  canvasTTD.style.height = ttdDisplayH + 'px';
+
+  ctxTTD = canvasTTD.getContext('2d', { willReadFrequently: true });
+  ctxTTD.setTransform(1, 0, 0, 1, 0, 0);
+  ctxTTD.scale(ttdDPR, ttdDPR);
+
+  ctxTTD.imageSmoothingEnabled = true;
+  ctxTTD.imageSmoothingQuality = 'high';
   ctxTTD.lineWidth = 2.8;
   ctxTTD.lineCap = 'round';
   ctxTTD.lineJoin = 'round';
-  ctxTTD.strokeStyle = '#000000';
+  ctxTTD.strokeStyle = '#0f172a';
 
-  ctxTTD.clearRect(0, 0, canvasTTD.width, canvasTTD.height);
+  ctxTTD.clearRect(0, 0, ttdDisplayW, ttdDisplayH);
 
+  // RESET SEMUA LISTENER SEBELUMNYA
   canvasTTD.onmousedown = null;
   canvasTTD.onmousemove = null;
   canvasTTD.onmouseup = null;
   canvasTTD.onmouseleave = null;
 
-  canvasTTD.onmousedown = startDraw;
-  canvasTTD.onmousemove = draw;
-  canvasTTD.onmouseup = stopDraw;
-  canvasTTD.onmouseleave = stopDraw;
+  // UNIFIED POINTER EVENTS (TOUCH, MOUSE, STYLUS DENGAN SUB-PIXEL PRECISION)
+  if (window.PointerEvent) {
+    canvasTTD.onpointerdown = handlePointerDownTTD;
+    canvasTTD.onpointermove = handlePointerMoveTTD;
+    canvasTTD.onpointerup = handlePointerUpTTD;
+    canvasTTD.onpointercancel = handlePointerUpTTD;
+    canvasTTD.onpointerleave = handlePointerUpTTD;
+  } else {
+    canvasTTD.onmousedown = handleMouseDownTTD;
+    canvasTTD.onmousemove = handleMouseMoveTTD;
+    canvasTTD.onmouseup = handlePointerUpTTD;
+    canvasTTD.onmouseleave = handlePointerUpTTD;
 
-  canvasTTD.addEventListener('touchstart', startDrawTouch, { passive: false });
-  canvasTTD.addEventListener('touchmove', drawTouch, { passive: false });
-  canvasTTD.addEventListener('touchend', stopDraw);
+    canvasTTD.addEventListener('touchstart', handleTouchStartTTD, { passive: false });
+    canvasTTD.addEventListener('touchmove', handleTouchMoveTTD, { passive: false });
+    canvasTTD.addEventListener('touchend', handlePointerUpTTD);
+    canvasTTD.addEventListener('touchcancel', handlePointerUpTTD);
+  }
 }
 
 function getCanvasPointFromEvent(e) {
   if (!canvasTTD) return { x: 0, y: 0 };
-
   const rect = canvasTTD.getBoundingClientRect();
   let clientX, clientY;
 
@@ -9901,53 +9940,91 @@ function getCanvasPointFromEvent(e) {
   };
 }
 
-function startDrawTouch(e) {
+function handlePointerDownTTD(e) {
   if (e.cancelable) e.preventDefault();
   isDrawing = true;
-  const point = getCanvasPointFromEvent(e);
-  lastX = point.x;
-  lastY = point.y;
+  ttdStrokePoints = [];
+
+  try {
+    if (e.pointerId && canvasTTD.setPointerCapture) {
+      canvasTTD.setPointerCapture(e.pointerId);
+    }
+  } catch(err) {}
+
+  const pt = getCanvasPointFromEvent(e);
+  lastX = pt.x;
+  lastY = pt.y;
+  ttdStrokePoints.push({ x: pt.x, y: pt.y });
+
   ctxTTD.beginPath();
-  ctxTTD.moveTo(lastX, lastY);
+  ctxTTD.arc(pt.x, pt.y, (ctxTTD.lineWidth || 2.8) / 2, 0, Math.PI * 2);
+  ctxTTD.fillStyle = ctxTTD.strokeStyle || '#0f172a';
+  ctxTTD.fill();
 }
 
-function drawTouch(e) {
+function handlePointerMoveTTD(e) {
+  if (!isDrawing) return;
   if (e.cancelable) e.preventDefault();
+
+  const pt = getCanvasPointFromEvent(e);
+  ttdStrokePoints.push({ x: pt.x, y: pt.y });
+
+  if (ttdStrokePoints.length >= 3) {
+    const p0 = ttdStrokePoints[ttdStrokePoints.length - 3];
+    const p1 = ttdStrokePoints[ttdStrokePoints.length - 2];
+    const p2 = ttdStrokePoints[ttdStrokePoints.length - 1];
+
+    const mid1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+    const mid2 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+    ctxTTD.beginPath();
+    ctxTTD.moveTo(mid1.x, mid1.y);
+    ctxTTD.quadraticCurveTo(p1.x, p1.y, mid2.x, mid2.y);
+    ctxTTD.stroke();
+  } else if (ttdStrokePoints.length === 2) {
+    const p0 = ttdStrokePoints[0];
+    const p1 = ttdStrokePoints[1];
+    ctxTTD.beginPath();
+    ctxTTD.moveTo(p0.x, p0.y);
+    ctxTTD.lineTo(p1.x, p1.y);
+    ctxTTD.stroke();
+  }
+
+  lastX = pt.x;
+  lastY = pt.y;
+}
+
+function handlePointerUpTTD(e) {
   if (!isDrawing) return;
-  const point = getCanvasPointFromEvent(e);
-  const x = point.x;
-  const y = point.y;
-  const mx = (lastX + x) / 2;
-  const my = (lastY + y) / 2;
-  ctxTTD.quadraticCurveTo(lastX, lastY, mx, my);
-  ctxTTD.stroke();
-  lastX = x;
-  lastY = y;
+  isDrawing = false;
+  ttdStrokePoints = [];
+  try {
+    if (e && e.pointerId && canvasTTD.releasePointerCapture) {
+      canvasTTD.releasePointerCapture(e.pointerId);
+    }
+  } catch(err) {}
 }
 
-function startDraw(e) {
-  isDrawing = true;
-  const point = getCanvasPointFromEvent(e);
-  lastX = point.x;
-  lastY = point.y;
-  ctxTTD.beginPath();
-  ctxTTD.moveTo(lastX, lastY);
+function handleMouseDownTTD(e) {
+  handlePointerDownTTD(e);
 }
 
-function draw(e) {
-  if (!isDrawing) return;
-  const point = getCanvasPointFromEvent(e);
-  const x = point.x;
-  const y = point.y;
-  const mx = (lastX + x) / 2;
-  const my = (lastY + y) / 2;
-  ctxTTD.quadraticCurveTo(lastX, lastY, mx, my);
-  ctxTTD.stroke();
-  lastX = x;
-  lastY = y;
+function handleMouseMoveTTD(e) {
+  handlePointerMoveTTD(e);
 }
 
-function stopDraw() { isDrawing = false; }
+function handleTouchStartTTD(e) {
+  handlePointerDownTTD(e);
+}
+
+function handleTouchMoveTTD(e) {
+  handlePointerMoveTTD(e);
+}
+
+function stopDraw() {
+  isDrawing = false;
+  ttdStrokePoints = [];
+}
 
 function pilihFotoTTD() {
   const input = document.getElementById('fotoTTDInput');
@@ -9971,8 +10048,8 @@ async function prosesFotoKeTTD(event) {
           return;
         }
 
-        const cWidth = canvasTTD.width || 600;
-        const cHeight = canvasTTD.height || 300;
+        const cWidth = canvasTTD.width || Math.round(ttdDisplayW * ttdDPR);
+        const cHeight = canvasTTD.height || Math.round(ttdDisplayH * ttdDPR);
 
         const tempCanvas = document.createElement('canvas');
         const tCtx = tempCanvas.getContext('2d');
@@ -9991,6 +10068,8 @@ async function prosesFotoKeTTD(event) {
 
         tCtx.fillStyle = '#ffffff';
         tCtx.fillRect(0, 0, cWidth, cHeight);
+        tCtx.imageSmoothingEnabled = true;
+        tCtx.imageSmoothingQuality = 'high';
         tCtx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
 
         const imgData = tCtx.getImageData(0, 0, cWidth, cHeight);
@@ -10033,8 +10112,11 @@ async function prosesFotoKeTTD(event) {
           }
         }
 
+        ctxTTD.save();
+        ctxTTD.setTransform(1, 0, 0, 1, 0, 0);
         ctxTTD.clearRect(0, 0, cWidth, cHeight);
         ctxTTD.putImageData(outputImgData, 0, 0);
+        ctxTTD.restore();
 
         if (typeof hideLoading === 'function') hideLoading();
         showNotif('BERHASIL MENGONVERSI FOTO MENJADI TTD DIGITAL TRANSPARAN!', 'success');
@@ -10060,7 +10142,13 @@ async function prosesFotoKeTTD(event) {
 window.prosesFotoKeTTD = prosesFotoKeTTD;
 
 function hapusTTD() {
-  if (ctxTTD && canvasTTD) ctxTTD.clearRect(0, 0, canvasTTD.width, canvasTTD.height);
+  if (ctxTTD && canvasTTD) {
+    ctxTTD.save();
+    ctxTTD.setTransform(1, 0, 0, 1, 0, 0);
+    ctxTTD.clearRect(0, 0, canvasTTD.width, canvasTTD.height);
+    ctxTTD.restore();
+  }
+  _currentLoadedTtdOriginal = '';
 }
 
 let _currentLoadedTtdOriginal = '';
@@ -10110,7 +10198,7 @@ function cropAndCenterCanvasSignature(srcCanvas) {
 
     const strokeW = maxX - minX + 1;
     const strokeH = maxY - minY + 1;
-    const pad = 12;
+    const pad = Math.round(16 * (ttdDPR || 2));
 
     const cropX = Math.max(0, minX - pad);
     const cropY = Math.max(0, minY - pad);
@@ -10122,6 +10210,8 @@ function cropAndCenterCanvasSignature(srcCanvas) {
     targetCanvas.height = cropH;
     const targetCtx = targetCanvas.getContext('2d');
 
+    targetCtx.imageSmoothingEnabled = true;
+    targetCtx.imageSmoothingQuality = 'high';
     targetCtx.drawImage(
       srcCanvas,
       cropX, cropY, cropW, cropH,
@@ -10284,8 +10374,15 @@ async function loadTTD() {
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         if (ctxTTD && canvasTTD) {
+          ctxTTD.save();
+          ctxTTD.setTransform(1, 0, 0, 1, 0, 0);
           ctxTTD.clearRect(0, 0, canvasTTD.width, canvasTTD.height);
-          ctxTTD.drawImage(img, 0, 0, canvasTTD.width, canvasTTD.height);
+          ctxTTD.restore();
+          ctxTTD.imageSmoothingEnabled = true;
+          ctxTTD.imageSmoothingQuality = 'high';
+          const dispW = ttdDisplayW || 500;
+          const dispH = ttdDisplayH || 220;
+          ctxTTD.drawImage(img, 0, 0, dispW, dispH);
         }
       };
       img.src = finalSrc;

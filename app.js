@@ -545,12 +545,12 @@ function gantiBackgroundApp() {
     nextBg = 'bg-scenery.jpg';
     nextName = 'Danau & Pegunungan';
   } else if (currentBg === 'bg-scenery.jpg') {
-    nextBg = 'bg-scenery-3.jpg';        // <-- FOTO BARU 1 (PNG)
+    nextBg = 'bg-scenery-3.png';        // <-- FOTO BARU 1 (PNG)
     nextName = 'Pemandangan 3';
-  } else if (currentBg === 'bg-scenery-3.jpg') {
-    nextBg = 'bg-scenery-4.jpg';        // <-- FOTO BARU 2 (PNG)
+  } else if (currentBg === 'bg-scenery-3.png') {
+    nextBg = 'bg-scenery-4.png';        // <-- FOTO BARU 2 (PNG)
     nextName = 'Pemandangan 4';
-  } else if (currentBg === 'bg-scenery-4.jpg') {
+  } else if (currentBg === 'bg-scenery-4.png') {
     nextBg = 'bg-scenery-5.jpg';        // <-- FOTO BARU 3 (JPG)
     nextName = 'Pemandangan 5';
   } else if (currentBg === 'bg-scenery-5.jpg') {
@@ -6815,8 +6815,6 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       log: newRecord.log || [],
       updated_at: new Date().toISOString()
     };
-
-    const docId = String(noSurat).replace(/[\/\.]/g, '_');
     
     // 1. SIMPAN KE FIRESTORE & REALTIME DB
     if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {

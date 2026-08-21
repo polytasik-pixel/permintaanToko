@@ -1289,51 +1289,51 @@
 
   <!-- POPUP EDIT KETERANGAN PART PER BARIS (FREE TEXT KHUSUS SERVICE / ADMIN) -->
   <div id="popupEditKeteranganPartSingle" class="popupOverlay" style="z-index: 500000; display: none;" onclick="if(event.target === this) tutupModalEditKetPartSingle();">
-    <div class="popupBox" style="width: 480px !important; max-width: 94vw !important; margin: auto !important; border-radius: 5px !important; overflow: hidden !important; background: var(--bg-box) !important; border: 1px solid var(--border-color) !important; box-shadow: 0 20px 50px rgba(0,0,0,0.45) !important;">
-      <div class="popupHeader" style="background: var(--primary) !important; background-color: var(--primary) !important; background-image: none !important; color: #ffffff !important; padding: 14px 18px !important; display: flex !important; align-items: center !important; justify-content: space-between !important;">
-        <span style="display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 800; color: #ffffff;">
-          <span class="material-symbols-rounded" style="font-size: 22px;">edit_note</span>
+    <div class="popupBox" style="width: 480px !important; max-width: calc(100vw - 2mm) !important; padding: 2mm !important; border-radius: 6px !important; overflow: hidden !important; background: var(--bg-box) !important; border: 1px solid var(--border-color) !important; box-shadow: 0 20px 50px rgba(0,0,0,0.45) !important; box-sizing: border-box !important;">
+      <div class="popupHeader" style="background: var(--primary) !important; background-color: var(--primary) !important; color: #ffffff !important; padding: 10px 12px !important; margin-bottom: 2mm !important; border-radius: 4px !important; display: flex !important; align-items: center !important; justify-content: space-between !important; box-sizing: border-box !important;">
+        <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; color: #ffffff;">
+          <span class="material-symbols-rounded" style="font-size: 20px;">edit_note</span>
           <span id="editKetPartSingleTitle"></span>
         </span>
-        <button type="button" onclick="tutupModalEditKetPartSingle()" style="background: none; border: none; color: #ffffff; font-size: 26px; font-weight: 800; cursor: pointer; line-height: 1;">&times;</button>
+        <button type="button" onclick="tutupModalEditKetPartSingle()" style="background: none; border: none; color: #ffffff; font-size: 24px; font-weight: 800; cursor: pointer; line-height: 1;">&times;</button>
       </div>
-      <div class="popupContent" style="padding: 18px 18px 3mm 18px;">
+      <div class="popupContent" style="padding: 0 !important; margin: 0 !important; box-sizing: border-box !important;">
         <input type="hidden" id="editKetPartSingleNoSurat">
         <input type="hidden" id="editKetPartSingleItemIndex">
         <input type="hidden" id="editKetPartSingleFotoUrl">
         <input type="file" id="editKetPartSingleFileInput" accept="image/*" style="display: none;" onchange="prosesPilihFotoBuktiPart(event)">
         
-        <div id="editKetPartSingleItemInfo" style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 5px; padding-top: 10px; padding-bottom: 10px; padding-left: 2mm; padding-right: 2mm; margin-bottom: 14px; font-size: 12.5px; font-weight: 700; color: var(--primary); box-sizing: border-box;">
+        <div id="editKetPartSingleItemInfo" style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 4px; padding: 2mm; margin-bottom: 2mm; font-size: 12px; font-weight: 700; color: var(--primary); box-sizing: border-box;">
           <!-- Dynamic item details -->
         </div>
 
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
-          <label style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); margin: 0;">KETERANGAN / STATUS PART (MANUAL FREE TEXT):</label>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2mm; flex-wrap: wrap; gap: 2mm;">
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin: 0;">KETERANGAN / STATUS PART (MANUAL FREE TEXT):</label>
           <div style="display: flex; align-items: center; gap: 6px;">
             <!-- Tombol Quick Centang SUDAH DISERAHKAN -->
-            <button type="button" id="btnQuickSudahDiserahkan" onclick="isiQuickSudahDiserahkan()" title="Isi 'SUDAH DISERAHKAN DD/MM/YYYY'" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 5px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981; font-size: 11px; font-weight: 800; cursor: pointer;">
+            <button type="button" id="btnQuickSudahDiserahkan" onclick="isiQuickSudahDiserahkan()" title="Isi 'SUDAH DISERAHKAN DD/MM/YYYY'" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981; font-size: 11px; font-weight: 800; cursor: pointer;">
               <span class="material-symbols-rounded" style="font-size: 16px;">check_circle</span>
               <span>SERAHKAN</span>
             </button>
             
             <!-- Tombol Foto Bukti (Photo Camera jika belum ada, Image jika sudah ada foto) -->
-            <button type="button" id="btnFotoBuktiPart" onclick="handleKlikFotoBuktiPart()" title="Upload / Lihat Foto Bukti" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 5px; background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid #0284c7; font-size: 11px; font-weight: 800; cursor: pointer;">
+            <button type="button" id="btnFotoBuktiPart" onclick="handleKlikFotoBuktiPart()" title="Upload / Lihat Foto Bukti" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid #0284c7; font-size: 11px; font-weight: 800; cursor: pointer;">
               <span class="material-symbols-rounded" id="iconFotoBuktiPart" style="font-size: 16px;">photo_camera</span>
               <span id="textFotoBuktiPart">FOTO BUKTI</span>
             </button>
 
             <!-- Tombol Hapus Foto Bukti (Hanya Tampil Jika Foto Sudah Ada) -->
-            <button type="button" id="btnHapusFotoBuktiPart" onclick="hapusFotoBuktiPartSingle()" title="Hapus Foto Bukti Penyerahan Part" style="display: none; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 5px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444; cursor: pointer;">
+            <button type="button" id="btnHapusFotoBuktiPart" onclick="hapusFotoBuktiPartSingle()" title="Hapus Foto Bukti Penyerahan Part" style="display: none; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444; cursor: pointer;">
               <span class="material-symbols-rounded" style="font-size: 16px;">delete</span>
             </button>
           </div>
         </div>
 
-        <textarea id="editKetPartSingleInput" rows="3" placeholder="" style="width: 100%; padding-top: 10px; padding-bottom: 10px; padding-left: 2mm; padding-right: 2mm; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-box); color: var(--text-main); font-size: 13px; font-weight: 600; box-sizing: border-box; resize: vertical; margin-bottom: 16px; outline: none;"></textarea>
+        <textarea id="editKetPartSingleInput" rows="3" placeholder="" style="width: 100%; padding: 2mm; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-box); color: var(--text-main); font-size: 12.5px; font-weight: 600; box-sizing: border-box; resize: vertical; margin-bottom: 2mm; outline: none;"></textarea>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; padding-left: 2mm; padding-right: 2mm; margin-bottom: 3mm;">
-          <button type="button" class="btnBatal" onclick="tutupModalEditKetPartSingle()" style="width: 100%; height: 40px; padding-left: 2mm; padding-right: 2mm; border-radius: 5px; font-weight: 700; border: none; cursor: pointer; background: #ef4444 !important; color: #ffffff !important; font-size: 12.5px; text-transform: uppercase;">BATAL</button>
-          <button type="button" class="btnOkNotif" onclick="simpanKeteranganPartSingle()" style="width: 100%; height: 40px; padding-left: 2mm; padding-right: 2mm; border-radius: 5px; background: #0284c7 !important; color: #ffffff !important; font-weight: 700; border: none; cursor: pointer; font-size: 12.5px; text-transform: uppercase;">SIMPAN KETERANGAN</button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2mm; padding: 0; margin-bottom: 0;">
+          <button type="button" class="btnBatal" onclick="tutupModalEditKetPartSingle()" style="width: 100%; height: 38px; padding: 0 4px; border-radius: 4px; font-weight: 700; border: none; cursor: pointer; background: #ef4444 !important; color: #ffffff !important; font-size: 11.5px; text-transform: uppercase;">BATAL</button>
+          <button type="button" class="btnOkNotif" onclick="simpanKeteranganPartSingle()" style="width: 100%; height: 38px; padding: 0 4px; border-radius: 4px; background: #0284c7 !important; color: #ffffff !important; font-weight: 700; border: none; cursor: pointer; font-size: 11.5px; text-transform: uppercase;">SIMPAN KETERANGAN</button>
         </div>
       </div>
     </div>

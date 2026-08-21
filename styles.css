@@ -8268,8 +8268,6 @@ html body #rejectOverlay .rejectHeaderPopup .popupClose,
   color: #ffffff !important;
 }
 
-}
-
 /* =============================================================================
    MODAL POPUP GEMINI API KEY - RESPONSIVE HP DENGAN JARAK 2MM KE LAYAR
    ============================================================================= */
@@ -9202,6 +9200,97 @@ html body #pdfModal .pdf-paper {
   max-height: calc(100vh - 2mm) !important;
 }
 
+/* =============================================================================
+   POPUP EDIT KETERANGAN PART SINGLE (#popupEditKeteranganPartSingle)
+   ============================================================================= */
+#popupEditKeteranganPartSingle,
+html body #popupEditKeteranganPartSingle {
+  display: none;
+  z-index: 500000 !important;
+  box-sizing: border-box !important;
+}
+
+#popupEditKeteranganPartSingle[style*="display: none"],
+html body #popupEditKeteranganPartSingle[style*="display: none"] {
+  display: none !important;
+}
+
+/* LAPTOP VIEW (MIN-WIDTH: 769PX): POPUP CENTER DI TENGAH-TENGAH LAYAR SAAT BUKA */
+@media (min-width: 769px) {
+  #popupEditKeteranganPartSingle.show,
+  html body #popupEditKeteranganPartSingle.show,
+  html body #popupEditKeteranganPartSingle[style*="display: flex"],
+  html body #popupEditKeteranganPartSingle[style*="display:flex"] {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 16px !important;
+  }
+
+  #popupEditKeteranganPartSingle .popupBox,
+  html body #popupEditKeteranganPartSingle .popupBox {
+    width: 500px !important;
+    max-width: 90vw !important;
+    margin: auto !important;
+    padding: 2mm !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* MOBILE / HP VIEW (MAX-WIDTH: 768PX): JARAK LAYAR ATAS, KANAN, KIRI = 1MM, BAWAH MENYESUAIKAN SAAT BUKA */
+@media (max-width: 768px) {
+  #popupEditKeteranganPartSingle.show,
+  html body #popupEditKeteranganPartSingle.show,
+  html body #popupEditKeteranganPartSingle[style*="display: flex"],
+  html body #popupEditKeteranganPartSingle[style*="display:flex"] {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    padding: 1mm 1mm 0 1mm !important;
+    box-sizing: border-box !important;
+  }
+
+  #popupEditKeteranganPartSingle .popupBox,
+  html body #popupEditKeteranganPartSingle .popupBox {
+    width: calc(100vw - 2mm) !important;
+    max-width: calc(100vw - 2mm) !important;
+    margin-top: 1mm !important;
+    margin-left: 1mm !important;
+    margin-right: 1mm !important;
+    margin-bottom: auto !important;
+    padding: 2mm !important;
+    border-radius: 6px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* ELEMEN DALAM POPUP EDIT KETERANGAN PART SINGLE: PADDING & SPACING 2MM PRESISI */
+#popupEditKeteranganPartSingle .popupHeader,
+html body #popupEditKeteranganPartSingle .popupHeader {
+  padding: 10px 14px !important;
+  margin-bottom: 2mm !important;
+  border-radius: 5px !important;
+}
+
+#popupEditKeteranganPartSingle .popupContent,
+html body #popupEditKeteranganPartSingle .popupContent {
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#popupEditKeteranganPartSingle #editKetPartSingleItemInfo {
+  padding: 2mm !important;
+  margin-bottom: 2mm !important;
+  box-sizing: border-box !important;
+}
+
+#popupEditKeteranganPartSingle #editKetPartSingleInput {
+  padding: 2mm !important;
+  margin-bottom: 2mm !important;
+  box-sizing: border-box !important;
+}
+
 /* POPUP FORM USER (#popupUserForm) */
 #popupUserForm {
   padding-top: 1mm !important;
@@ -9338,7 +9427,7 @@ html body #popupPdfModelsModal.popupOverlay {
 html body #pdfModal .popupBox,
 #popupPdfModelsModal .popupBox,
 html body #popupPdfModelsModal .popupBox {
-  width: 780px !important;
+  width: calc(100vw - 2mm) !important;
   max-width: calc(100vw - 2mm) !important;
   height: calc(100vh - 2mm) !important;
   height: calc(100dvh - 2mm) !important;
@@ -9362,12 +9451,21 @@ html body #popupPdfModelsModal .popupBox {
 
 #pdfDocumentContent,
 html body #pdfDocumentContent {
+  width: 100% !important;
+  height: 100% !important;
   flex: 1 1 auto !important;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch !important;
-  padding: 1mm 10px !important;
+  padding: 1mm !important;
+  margin: 0 !important;
   background: #f8fafc !important;
   box-sizing: border-box !important;
+}
+
+.pdf-paper img,
+#pdfDocumentContent img {
+  object-fit: contain !important;
+  max-width: 100% !important;
 }
 
 /* ==========================================================================

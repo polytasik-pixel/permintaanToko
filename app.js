@@ -10180,9 +10180,9 @@ function bukaPdfModal(noSurat, includePhotos = null) {
         </div>
         <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
           ${validPhotos.map((p, pIdx) => `
-            <div style="aspect-ratio: 1/1; border: 1px solid #94a3b8; border-radius: 4px; overflow: hidden; background: #0f172a; position: relative; display: flex; align-items: center; justify-content: center;">
-              <img src="${p}" style="width: 100%; height: 100%; object-fit: cover;">
-              <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.65); color: #ffffff; font-size: 8px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
+            <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
+              <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
+              <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
             </div>
           `).join('')}
         </div>
@@ -10649,41 +10649,47 @@ async function prosesFotoKeTTD(event) {
   if (typeof showLoading === 'function') showLoading('MEMPROSES FOTO MENJADI TTD DIGITAL TRANSPARAN...');
 
   try {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        if (!canvasTTD || !ctxTTD) {
-          if (typeof hideLoading === 'function') hideLoading();
-          return;
-        }
+    let img;
+    if (typeof createImageBitmap === 'function') {
+      try {
+        img = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      } catch(e) { img = null; }
+    }
+    if (!img) {
+      const dataUrl = await new Promise(r => {
+        const reader = new FileReader();
+        reader.onload = ev => r(ev.target.result);
+        reader.onerror = () => r('');
+        reader.readAsDataURL(file);
+      });
+      if (!dataUrl) {
+        if (typeof hideLoading === 'function') hideLoading();
+        showNotif('GAGAL MEMBACA FOTO TTD!', 'error');
+        event.target.value = '';
+        return;
+      }
+      img = new Image();
+      img.src = dataUrl;
+      await new Promise(r => { img.onload = r; img.onerror = r; });
+    }
 
-        const cWidth = canvasTTD.width || Math.round(ttdDisplayW * ttdDPR);
-        const cHeight = canvasTTD.height || Math.round(ttdDisplayH * ttdDPR);
+    if (!canvasTTD || !ctxTTD) {
+      if (typeof hideLoading === 'function') hideLoading();
+      event.target.value = '';
+      return;
+    }
 
-        // 1. OTOMATIS KOREKSI ORIENTASI (FOTO HP PORTRAIT -> LANDSCAPE LANDING TEGAP)
-        let sourceElement = img;
-        let sWidth = img.width;
-        let sHeight = img.height;
+    const cWidth = canvasTTD.width || Math.round(ttdDisplayW * ttdDPR);
+    const cHeight = canvasTTD.height || Math.round(ttdDisplayH * ttdDPR);
 
-        // Jika foto berdiri tegak (portrait, height > width) dari kamera HP, putar -90 derajat agar TTD posisi tidur sejajar kanvas
-        if (img.height > img.width) {
-          const rotateCanvas = document.createElement('canvas');
-          const rCtx = rotateCanvas.getContext('2d');
-          rotateCanvas.width = img.height;
-          rotateCanvas.height = img.width;
-          rCtx.translate(0, img.width);
-          rCtx.rotate(-90 * Math.PI / 180);
-          rCtx.drawImage(img, 0, 0);
-          sourceElement = rotateCanvas;
-          sWidth = img.height;
-          sHeight = img.width;
-        }
+    let sourceElement = img;
+    let sWidth = img.width;
+    let sHeight = img.height;
 
-        const tempCanvas = document.createElement('canvas');
-        const tCtx = tempCanvas.getContext('2d');
-        tempCanvas.width = cWidth;
-        tempCanvas.height = cHeight;
+    const tempCanvas = document.createElement('canvas');
+    const tCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = cWidth;
+    tempCanvas.height = cHeight;
 
         let drawWidth = sWidth;
         let drawHeight = sHeight;
@@ -10809,17 +10815,6 @@ async function prosesFotoKeTTD(event) {
         ctxTTD.restore();
 
         if (typeof hideLoading === 'function') hideLoading();
-      };
-
-      img.onerror = () => {
-        if (typeof hideLoading === 'function') hideLoading();
-        showNotif('GAGAL MEMBACA BERKAS FOTO TTD!', 'error');
-      };
-
-      img.src = e.target.result;
-    };
-
-    reader.readAsDataURL(file);
   } catch (err) {
     if (typeof hideLoading === 'function') hideLoading();
     console.error('Proses foto TTD error:', err);

@@ -2606,6 +2606,29 @@ function handleRealtimePermintaanToko(payload) {
       return;
     }
 
+    if (rawNoSurat === '__SYSTEM_NAMA_DM__') {
+      try {
+        let valStr = '';
+        if (payload.new && payload.new.catatan) {
+          try {
+            const parsed = JSON.parse(payload.new.catatan);
+            if (parsed.namaDM !== undefined) valStr = String(parsed.namaDM);
+          } catch(e) {
+            valStr = String(payload.new.catatan);
+          }
+        }
+        if (valStr) {
+          const dmKey = 'NAMA_DM_SUPABASE';
+          appStorage.setItem(dmKey, valStr);
+          try { localStorage.setItem(dmKey, valStr); } catch(e) {}
+          if (typeof loadNamaDM === 'function') loadNamaDM();
+        }
+      } catch(e) {
+        console.warn('[REALTIME NAMA DM ERROR]:', e);
+      }
+      return;
+    }
+
     if (rawNoSurat === '__SYSTEM_REMINDER_SETTINGS__') {
       try {
         if (payload.new && payload.new.catatan) {
@@ -4369,6 +4392,101 @@ window.simpanFonteToken = simpanFonteToken;
 window.loadFonteToken = loadFonteToken;
 window.tesKoneksiFonteToken = tesKoneksiFonteToken;
 
+const NAMA_DM_KEY = 'NAMA_DM_SUPABASE';
+
+function getNamaDM() {
+  let nama = appStorage.getItem(NAMA_DM_KEY);
+  if (!nama) {
+    try { nama = localStorage.getItem(NAMA_DM_KEY); } catch(e) {}
+  }
+  return (nama || '').trim() || 'FERRY EDIYANTO';
+}
+
+async function simpanNamaDM() {
+  const input = document.getElementById('inputNamaDM');
+  const nama = input ? input.value.trim().toUpperCase() : '';
+  if (!nama) {
+    showNotif('MASUKKAN NAMA DISTRICT MANAGER (DM) TERLEBIH DAHULU!', 'warning');
+    return;
+  }
+
+  appStorage.setItem(NAMA_DM_KEY, nama);
+  try { localStorage.setItem(NAMA_DM_KEY, nama); } catch(e) {}
+
+  // 1. SIMPAN KE SUPABASE (LOOKUP & SYSTEM ROW)
+  if (typeof supabase !== 'undefined' && supabase) {
+    try {
+      await supabase.from('lookup').upsert({
+        key: 'namaDM',
+        value: nama,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'key' });
+
+      const systemDmRow = {
+        id: '__SYSTEM_NAMA_DM__',
+        no_surat: '__SYSTEM_NAMA_DM__',
+        tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
+        toko: 'SYSTEM',
+        area: 'ALL',
+        jenis: 'SYSTEM',
+        catatan: JSON.stringify({ namaDM: nama, time: Date.now(), by: (currentUser && currentUser.username ? currentUser.username : 'ADMIN') }),
+        items: [],
+        photos: [],
+        status: 'DONE',
+        service_approve: true,
+        created_by: (currentUser && currentUser.fullName ? currentUser.fullName : 'ADMIN'),
+        created_at: new Date().toISOString()
+      };
+      if (typeof safeSupabaseUpsertPermintaan === 'function') {
+        await safeSupabaseUpsertPermintaan(systemDmRow);
+      }
+    } catch (err) {
+      console.warn('[SUPABASE SIMPAN NAMA DM ERROR]:', err);
+    }
+  }
+
+  // 2. SIMPAN KE FIRESTORE
+  if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+    try {
+      await dbFirestore.collection('app_settings').doc('config').set({
+        namaDM: nama,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch(e) {}
+  }
+
+  // 3. SIMPAN KE FIREBASE REALTIME DB
+  if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+    try {
+      await dbRealtime.ref('settings/namaDM').set(nama);
+    } catch(e) {}
+  }
+
+  // 4. BROADCAST SIGNAL
+  if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+    try {
+      supabaseRealtimeChannel.send({
+        type: 'broadcast',
+        event: 'data_changed',
+        payload: { action: 'UPDATE_SETTINGS', namaDM: nama, timestamp: Date.now() }
+      });
+    } catch(e) {}
+  }
+
+  showNotif('NAMA DISTRICT MANAGER (DM) BERHASIL DISIMPAN & DISINKRONKAN!', 'success');
+}
+
+function loadNamaDM() {
+  const input = document.getElementById('inputNamaDM');
+  if (input) {
+    input.value = getNamaDM();
+  }
+}
+
+window.getNamaDM = getNamaDM;
+window.simpanNamaDM = simpanNamaDM;
+window.loadNamaDM = loadNamaDM;
+
 function getAppDirectLink(noSurat) {
   if (!noSurat) return '';
   try {
@@ -5368,17 +5486,24 @@ window.isFormDirtyOrFilled = isFormDirtyOrFilled;
 function showPage(pageId) {
   const currentActivePage = typeof getCurrentActivePageId === 'function' ? getCurrentActivePageId() : '';
 
-  if (currentActivePage === 'inputPage' && pageId !== 'inputPage' && isFormDirtyOrFilled()) {
-    const confirmMsg = modeEdit ? 'KELUAR DARI MENU EDIT?' : 'KELUAR DARI FORM PERMINTAAN? (DATA YANG DIISI AKAN HILANG)';
-    showConfirm(confirmMsg, () => {
-      bersihkanForm();
-      closeAllPopups();
-      pindahHalaman(pageId);
-      aturTampilanLonceng(pageId);
-    });
-    return;
+  if (currentActivePage === 'inputPage' && pageId !== 'inputPage') {
+    const isDirty = (typeof modeEdit !== 'undefined' && modeEdit) || (typeof isFormDirtyOrFilled === 'function' && isFormDirtyOrFilled());
+    
+    if (isDirty) {
+      const confirmMsg = (typeof modeEdit !== 'undefined' && modeEdit) ? 'KELUAR DARI MENU EDIT?' : 'KELUAR DARI FORM PERMINTAAN? (DATA YANG DIISI AKAN HILANG)';
+      showConfirm(confirmMsg, () => {
+        if (typeof bersihkanForm === 'function') bersihkanForm();
+        closeAllPopups();
+        pindahHalaman(pageId);
+        aturTampilanLonceng(pageId);
+      });
+      return;
+    } else {
+      // Unfilled form / empty extra rows -> silently reset to 1 row without popup
+      if (typeof bersihkanForm === 'function') bersihkanForm();
+    }
   }
-  
+
   closeAllPopups();
   pindahHalaman(pageId);
   aturTampilanLonceng(pageId);
@@ -5419,8 +5544,7 @@ function aturTampilanLonceng(pageId) {
 
   if (dotEl) {
     if (isDashboard) {
-      dotEl.style.setProperty('display', 'block', 'important');
-      dotEl.style.setProperty('pointer-events', 'auto', 'important');
+      dotEl.style.setProperty('display', 'inline-block', 'important');
     } else {
       dotEl.style.setProperty('display', 'none', 'important');
     }
@@ -5697,6 +5821,7 @@ function pindahHalaman(pageId, pushHistory = true) {
     if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
   } else if (pageId === 'userManagementPage') {
     if (typeof loadUsersManagement === 'function') loadUsersManagement();
+    if (typeof loadNamaDM === 'function') loadNamaDM();
   }
 
   if (pageId === 'loginPage' || (typeof currentUser === 'undefined' || !currentUser)) {
@@ -9774,7 +9899,7 @@ function renderFullPdfPreviewDocument(modelId) {
             })()}
           </div>
           <div>
-            <div style="font-weight: 800; color: #0f172a; font-size: 11px;">FERRY EDIYANTO</div>
+            <div style="font-weight: 800; color: #0f172a; font-size: 11px;">${typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO'}</div>
             <div style="font-size: 9.5px; color: #475569; margin-top: 1px; text-transform: uppercase;">DISTRICT MANAGER</div>
           </div>
         </div>
@@ -9978,7 +10103,7 @@ function bukaPdfModal(noSurat, includePhotos = null) {
   const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
   const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
   const serviceName = req.serviceUserName || (serviceUser ? serviceUser.fullName : 'SERVICE SUPERVISOR');
-  const dmName = 'FERRY EDIYANTO';
+  const dmName = typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO';
 
   let serviceTTD = req.serviceTTD || '';
   const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
@@ -9997,7 +10122,7 @@ function bukaPdfModal(noSurat, includePhotos = null) {
 
   let dmTTD = req.dmTTD || '';
   if (!isValidSig(dmTTD)) {
-    dmTTD = getUserRealSignature('DM', '', '', 'FERRY EDIYANTO') || (dmUser ? dmUser.ttd : '');
+    dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
   }
   if (!isValidSig(dmTTD)) {
     dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD

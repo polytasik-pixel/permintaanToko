@@ -113,21 +113,22 @@
       if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
 
       var isDesktop = window.innerWidth > 768;
-      var alignStyle = isDesktop ? 'align-items: center !important; padding: 12px !important;' : 'align-items: flex-start !important; padding-top: 1mm !important; padding-bottom: 2mm !important; padding-left: 2mm !important; padding-right: 2mm !important;';
+      var alignStyle = isDesktop ? 'align-items: center !important; padding: 12px !important;' : 'align-items: flex-start !important; padding-top: 1mm !important; padding-bottom: 2mm !important; padding-left: 1mm !important; padding-right: 1mm !important;';
       var marginStyle = isDesktop ? 'margin: auto !important;' : 'margin: 0 auto !important;';
+      var widthStyle = isDesktop ? 'max-width: 480px !important;' : 'width: calc(100vw - 2mm) !important; max-width: calc(100vw - 2mm) !important;';
 
       modal.style.cssText = 'display: flex !important; position: fixed !important; top: 0px !important; left: 0px !important; right: 0px !important; bottom: 0px !important; width: 100vw !important; height: 100vh !important; background: rgba(0, 0, 0, 0.85) !important; z-index: 1000000000 !important; justify-content: center !important; ' + alignStyle + ' box-sizing: border-box !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; backdrop-filter: blur(4px) !important; -webkit-backdrop-filter: blur(4px) !important;';
 
       modal.innerHTML = `
-        <div onclick="event.stopPropagation()" style="background: #ffffff !important; color: #0f172a !important; border-radius: 4px !important; width: 100% !important; max-width: 480px !important; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important; border: 2.5px solid #f59e0b !important; overflow: hidden !important; box-sizing: border-box !important; ` + marginStyle + ` font-family: system-ui, -apple-system, sans-serif !important;">
-          <div style="background: linear-gradient(135deg, #f59e0b, #d97706) !important; padding: 14px 18px !important; color: #ffffff !important; display: flex !important; justify-content: space-between !important; align-items: center !important;">
+        <div class="modalKeyBox" onclick="event.stopPropagation()" style="background: #ffffff !important; color: #0f172a !important; border-radius: 4px !important; width: 100% !important; ` + widthStyle + ` box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important; border: 2.5px solid #f59e0b !important; overflow: hidden !important; box-sizing: border-box !important; ` + marginStyle + ` font-family: system-ui, -apple-system, sans-serif !important;">
+          <div class="modalKeyHeader" style="background: linear-gradient(135deg, #f59e0b, #d97706) !important; padding: 10px 12px !important; color: #ffffff !important; display: flex !important; justify-content: space-between !important; align-items: center !important;">
             <div style="display: flex !important; align-items: center !important; gap: 8px !important; font-weight: 800 !important; font-size: 14px !important; letter-spacing: 0.5px !important;">
               <span class="material-symbols-rounded" style="font-size: 22px !important; color: #ffffff !important;">key</span>
               <span>PENGATURAN / UBAH GEMINI API KEY</span>
             </div>
             <button type="button" onclick="tutupModalGeminiApiKey()" style="color: #ffffff !important; font-weight: 900 !important; font-size: 28px !important; background: transparent !important; border: none !important; cursor: pointer !important; line-height: 1 !important; padding: 0 4px !important;" title="TUTUP">&times;</button>
           </div>
-          <div style="padding: 18px !important; display: flex !important; flex-direction: column !important; gap: 14px !important; box-sizing: border-box !important; background: #ffffff !important;">
+          <div class="modalKeyBody" style="padding: 2mm !important; display: flex !important; flex-direction: column !important; gap: 10px !important; box-sizing: border-box !important; background: #ffffff !important;">
             <p style="margin: 0 !important; font-size: 12px !important; color: #475569 !important; line-height: 1.5 !important;">
               Masukan KEY AI. Buat key gratis di <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" style="color: #d97706 !important; font-weight: 700 !important; text-decoration: underline !important;">https://aistudio.google.com/</a>
             </p>
@@ -441,34 +442,34 @@
          3. INPUT FORM PAGE (FULL SCREEN LAYOUT WITH MARGIN)
          ========================================================================== -->
     <section id="inputPage" class="page">
-      <div class="box">
-        <div class="inputPageHeader" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-          <h3 style="margin: 0;">FORM PERMINTAAN TOKO</h3>
-          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-            <button type="button" onclick="triggerUploadPdfAutoFill()" title="INPUT PDF AUTO-FILL" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; border: 1.5px solid #047857; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(16, 185, 129, 0.25); transition: transform 0.15s ease;">
-              <span class="material-symbols-rounded" style="font-size: 18px; line-height: 1;">picture_as_pdf</span>
-            </button>
-            <button type="button" onclick="triggerUploadGambarAutoFill()" title="INPUT GAMBAR AUTO-FILL" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: linear-gradient(135deg, #7c3aed, #9333ea); color: #ffffff; border: 1.5px solid #6d28d9; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(147, 51, 234, 0.25); transition: transform 0.15s ease;">
-              <span class="material-symbols-rounded" style="font-size: 18px; line-height: 1;">image</span>
-            </button>
-            <button type="button" onclick="triggerUploadExcelAutoFill()" title="INPUT EXCEL AUTO-FILL" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: linear-gradient(135deg, #107c41, #0f7b40); color: #ffffff; border: 1.5px solid #0b592e; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(16, 124, 65, 0.3); transition: transform 0.15s ease;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block;">
-                <path d="M14 2H20C21.1 2 22 2.9 22 4V20C22 21.1 21.1 22 20 22H14V2Z" fill="#185C37"/>
-                <path d="M15 6H20V8.5H15V6Z" fill="#33C481"/>
-                <path d="M15 10.75H20V13.25H15V10.75Z" fill="#33C481"/>
-                <path d="M15 15.5H20V18H15V15.5Z" fill="#33C481"/>
-                <path d="M2 3.5C2 2.67 2.67 2 3.5 2H14V22H3.5C2.67 22 2 21.33 2 20.5V3.5Z" fill="#107C41"/>
-                <path d="M5 6.5L7.5 12L5 17.5H7.2L8.6 14.1L10 17.5H12.2L9.7 12L12.2 6.5H10L8.6 9.9L7.2 6.5H5Z" fill="#FFFFFF"/>
-              </svg>
-            </button>
-            <button type="button" onclick="downloadTemplateExcelPermintaan()" title="Download Format Template Excel" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: rgba(16, 124, 65, 0.14); color: #107c41; border: 1.5px solid #107c41; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(16, 124, 65, 0.15); transition: transform 0.15s ease;">
-              <span class="material-symbols-rounded" style="font-size: 19px; line-height: 1; color: #107c41;">download_for_offline</span>
-            </button>
-          </div>
-          <input type="file" id="inputPdfAutoFill" accept="application/pdf,.pdf" style="display: none;" onchange="prosesPdfAutoFillGemini(event)">
-          <input type="file" id="inputGambarAutoFill" accept="image/*,.jpg,.jpeg,.png,.webp,.heic" style="display: none;" onchange="prosesGambarAutoFillGemini(event)">
-          <input type="file" id="inputExcelAutoFill" accept=".xlsx,.xls,.csv" style="display: none;" onchange="prosesExcelAutoFill(event)">
+      <div class="inputPageHeader" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding: 10px 14px; flex-wrap: wrap; gap: 8px;">
+        <h3 style="margin: 0;">FORM PERMINTAAN TOKO</h3>
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <button type="button" onclick="triggerUploadPdfAutoFill()" title="INPUT PDF AUTO-FILL" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; border: 1.5px solid #047857; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(16, 185, 129, 0.25); transition: transform 0.15s ease;">
+            <span class="material-symbols-rounded" style="font-size: 18px; line-height: 1;">picture_as_pdf</span>
+          </button>
+          <button type="button" onclick="triggerUploadGambarAutoFill()" title="INPUT GAMBAR AUTO-FILL" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: linear-gradient(135deg, #7c3aed, #9333ea); color: #ffffff; border: 1.5px solid #6d28d9; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(147, 51, 234, 0.25); transition: transform 0.15s ease;">
+            <span class="material-symbols-rounded" style="font-size: 18px; line-height: 1;">image</span>
+          </button>
+          <button type="button" onclick="triggerUploadExcelAutoFill()" title="INPUT EXCEL AUTO-FILL" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: linear-gradient(135deg, #107c41, #0f7b40); color: #ffffff; border: 1.5px solid #0b592e; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(16, 124, 65, 0.3); transition: transform 0.15s ease;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block;">
+              <path d="M14 2H20C21.1 2 22 2.9 22 4V20C22 21.1 21.1 22 20 22H14V2Z" fill="#185C37"/>
+              <path d="M15 6H20V8.5H15V6Z" fill="#33C481"/>
+              <path d="M15 10.75H20V13.25H15V10.75Z" fill="#33C481"/>
+              <path d="M15 15.5H20V18H15V15.5Z" fill="#33C481"/>
+              <path d="M2 3.5C2 2.67 2.67 2 3.5 2H14V22H3.5C2.67 22 2 21.33 2 20.5V3.5Z" fill="#107C41"/>
+              <path d="M5 6.5L7.5 12L5 17.5H7.2L8.6 14.1L10 17.5H12.2L9.7 12L12.2 6.5H10L8.6 9.9L7.2 6.5H5Z" fill="#FFFFFF"/>
+            </svg>
+          </button>
+          <button type="button" onclick="downloadTemplateExcelPermintaan()" title="Download Format Template Excel" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: rgba(16, 124, 65, 0.14); color: #107c41; border: 1.5px solid #107c41; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(16, 124, 65, 0.15); transition: transform 0.15s ease;">
+            <span class="material-symbols-rounded" style="font-size: 19px; line-height: 1; color: #107c41;">download_for_offline</span>
+          </button>
         </div>
+        <input type="file" id="inputPdfAutoFill" accept="application/pdf,.pdf" style="display: none;" onchange="prosesPdfAutoFillGemini(event)">
+        <input type="file" id="inputGambarAutoFill" accept="image/*,.jpg,.jpeg,.png,.webp,.heic" style="display: none;" onchange="prosesGambarAutoFillGemini(event)">
+        <input type="file" id="inputExcelAutoFill" accept=".xlsx,.xls,.csv" style="display: none;" onchange="prosesExcelAutoFill(event)">
+      </div>
+      <div class="box" style="margin-top: 10px;">
 
         <label>TANGGAL</label>
         <input id="tanggal" readonly>
@@ -620,7 +621,7 @@
          ========================================================================== -->
     <section id="userManagementPage" class="page">
       <!-- FONTE WHATSAPP AUTOMATION TOKEN -->
-      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 1mm !important; background: var(--bg-card);">
         <h3 style="color: #16a34a; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
           <span class="material-symbols-rounded">chat</span> PENGATURAN AUTOMATION WHATSAPP (FONTE)
         </h3>
@@ -639,8 +640,25 @@
         </div>
       </div>
 
+      <!-- PENGATURAN DISTRICT MANAGER (DM) FOR PDF STAMPING -->
+      <div class="box" style="border-left: 4px solid #0284c7; margin-bottom: 1mm !important; background: var(--bg-card);">
+        <h3 style="color: #0284c7; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+          <span class="material-symbols-rounded">badge</span> PENGATURAN NAMA DISTRICT MANAGER (DM)
+        </h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          MASUKKAN NAMA DISTRICT MANAGER (DM) YANG AKAN DISIMPAN DI SUPABASE & DITEMPELKAN PADA CETAKAN DOKUMEN PDF/SPBAS.
+        </p>
+
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <input type="text" id="inputNamaDM" placeholder="MASUKKAN NAMA DISTRICT MANAGER (DM)..." style="flex: 1; min-width: 280px; padding: 12px; font-size: 12.5px; font-weight: 700; text-transform: uppercase;">
+          <button type="button" class="btnDownload" style="background: #0284c7; height: 44px; font-weight: 700;" onclick="simpanNamaDM()">
+            <span class="material-symbols-rounded">save</span> SIMPAN NAMA DM
+          </button>
+        </div>
+      </div>
+
       <!-- ADMIN CONTROL: HAPUS GAMBAR / FOTO SUPABASE -->
-      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 1mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
           <div>
             <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -657,7 +675,7 @@
       </div>
 
       <!-- ADMIN CONTROL: PENGATURAN UPLOAD FOTO (GLOBAL ON / OFF) -->
-      <div id="adminPhotoControlContainer" class="box" style="border-left: 4px solid #10b981; margin-bottom: 2mm !important; background: var(--bg-card); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div id="adminPhotoControlContainer" class="box" style="border-left: 4px solid #10b981; margin-bottom: 1mm !important; background: var(--bg-card); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="color: #10b981; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
             <span class="material-symbols-rounded">add_a_photo</span> PENGATURAN UPLOAD FOTO BUKTI (GLOBAL ON / OFF)
@@ -675,7 +693,7 @@
       </div>
 
       <!-- ADMIN CONTROL: HAPUS SEMUA CHAT DI FIREBASE & LOKAL -->
-      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 1mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -692,7 +710,7 @@
       </div>
 
       <!-- ADMIN CONTROL: HAPUS SEMUA NOTIFIKASI DI FIREBASE & LOKAL -->
-      <div class="box" style="border-left: 4px solid #dc2626; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #dc2626; margin-bottom: 1mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #dc2626; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -709,7 +727,7 @@
       </div>
 
       <!-- ADMIN CONTROL: HAPUS PENYIMPANAN LOKAL / CACHE -->
-      <div id="containerHapusPenyimpananLokalAdmin" class="box" style="border-left: 4px solid #ef4444; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div id="containerHapusPenyimpananLokalAdmin" class="box" style="border-left: 4px solid #ef4444; margin-bottom: 1mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -726,7 +744,7 @@
       </div>
 
       <!-- UPLOAD MASTER LOOKUP KODE UNIT (FILE EXCEL .XLSX: A=KODE, B=TYPE) -->
-      <div class="box" style="border-left: 4px solid #0284c7; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #0284c7; margin-bottom: 1mm !important; background: var(--bg-card);">
         <h3 style="color: #0284c7; display: flex; align-items: center; gap: 8px;">
           <span class="material-symbols-rounded">upload_file</span> UPLOAD MASTER LOOKUP KODE UNIT (FILE EXCEL .XLSX)
         </h3>
@@ -744,7 +762,7 @@
       </div>
 
       <!-- BOX UPLOAD MASTER DAFTAR TOKO SEKALIGUS (FILE EXCEL 2 KOLOM: A=NAMA TOKO, B=AREA) -->
-      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 1mm !important; background: var(--bg-card);">
         <h3 style="color: #16a34a; display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
           <span class="material-symbols-rounded">file_upload</span> UPLOAD DAFTAR TOKO SEKALIGUS (EXCEL / CSV - 2 KOLOM)
         </h3>
@@ -760,7 +778,7 @@
       </div>
 
       <!-- PENGATURAN MODEL TEMPLATE PDF SURAT PERMINTAAN (5 MODEL WITH LARGE POPUP MODAL) -->
-      <div class="box" style="border-left: 4px solid #7c3aed; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #7c3aed; margin-bottom: 1mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #7c3aed; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 900;">
@@ -780,7 +798,7 @@
       </div>
 
       <!-- KONTROL ADMIN: KELOLA AKUN USER & HAK AKSES (POPUP TABEL USER) -->
-      <div class="box" style="border-left: 4px solid #0f766e; margin-bottom: 2mm !important; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #0f766e; margin-bottom: 1mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
           <div>
             <h3 style="color: #0f766e; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -838,9 +856,8 @@
        MODALS & POPUPS
        ========================================================================== -->
 
-  <!-- 1. POPUP AKUN & PROFILE MODAL (ULTRA COMPACT & ZERO SCROLLING) -->
   <div id="popupAkun" class="popupAkun" onclick="if(event.target === this || event.target.id === 'popupAkun') tutupAkun();" style="display: none; box-sizing: border-box !important;">
-    <div class="akunBox" style="position: relative; width: 450px !important; max-width: 94vw !important; height: auto !important; max-height: calc(100vh - 2mm) !important; max-height: calc(100dvh - 2mm) !important; margin: 0 auto !important; overflow-y: auto !important; border-radius: 6px !important; padding: 16px 16px 14px 16px !important; -webkit-clip-path: inset(0 round 6px) !important; clip-path: inset(0 round 6px) !important;">
+    <div class="akunBox" style="position: relative; width: 450px !important; max-width: calc(100vw - 2mm) !important; height: auto !important; max-height: calc(100vh - 2mm) !important; max-height: calc(100dvh - 2mm) !important; margin: 0 auto !important; overflow-y: auto !important; border-radius: 6px !important; padding: 2mm !important; -webkit-clip-path: inset(0 round 6px) !important; clip-path: inset(0 round 6px) !important;">
             <button type="button" class="popupClose" onclick="tutupAkun()" style="position: absolute !important; top: 10px !important; right: 12px !important; font-size: 24px !important; font-weight: 900 !important; color: var(--primary) !important; background: transparent !important; border: none !important; border-radius: 0 !important; width: auto !important; height: auto !important; padding: 0 4px !important; cursor: pointer !important; z-index: 10 !important;" title="TUTUP PROFIL AKUN">&times;</button>
       <h2 style="margin-top: 0; margin-bottom: 8px; font-size: 15px; font-weight: 900; text-align: center; color: var(--primary);">PROFIL AKUN</h2>
       

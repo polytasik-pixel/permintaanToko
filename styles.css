@@ -9273,20 +9273,20 @@ html body #popupTTD.popupOverlay,
     justify-content: center !important;
     padding-top: 1mm !important;
     padding-bottom: 2mm !important;
-    padding-left: 4px !important;
-    padding-right: 4px !important;
+    padding-left: 1mm !important;
+    padding-right: 1mm !important;
   }
   html body #popupAkun .akunBox {
-  width: 450px !important;
-  max-width: 94vw !important;
-  height: auto !important;
-  max-height: 94vh !important;
-  overflow: visible !important;
-  padding: 16px 16px 14px 16px !important;
-  border-radius: 6px !important;
-  box-sizing: border-box !important;
-  margin: auto !important;
-}
+    width: calc(100vw - 2mm) !important;
+    max-width: calc(100vw - 2mm) !important;
+    height: auto !important;
+    max-height: 94vh !important;
+    overflow-y: auto !important;
+    padding: 2mm !important;
+    border-radius: 6px !important;
+    box-sizing: border-box !important;
+    margin: auto !important;
+  }
 
   html body #modalGeminiApiKey.modalBackdrop,
   html body #modalGeminiApiKey {
@@ -9578,13 +9578,14 @@ html body .login-card input {
   padding-top: 1mm !important;
 }
 
-/* 2. FORM INPUTS & INPUT PAGE TOP PADDING 1MM */
+/* 2. FORM INPUTS & INPUT PAGE TOP PADDING 0 (ZERO TOP GAP) */
 #inputPage,
 #inputPage.active,
 .page#inputPage,
 html body #inputPage,
 html body #inputPage.active {
-  padding-top: 1mm !important;
+  padding-top: 0 !important;
+  margin-top: 0 !important;
 }
 
 #inputPage input,
@@ -9614,13 +9615,13 @@ html body #inputPage .inputPageHeader {
   top: 0 !important;
   z-index: 100 !important;
   background: var(--bg-box, #ffffff) !important;
-  margin-top: -18px !important;
+  margin-top: 0 !important;
   margin-left: -14px !important;
   margin-right: -14px !important;
   width: calc(100% + 28px) !important;
   max-width: calc(100% + 28px) !important;
-  padding-top: 12px !important;
-  padding-bottom: 12px !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
   padding-left: 14px !important;
   padding-right: 14px !important;
   border-bottom: 1px solid var(--border-color, #cbd5e1) !important;
@@ -9699,7 +9700,7 @@ html body section#userManagementPage.active {
 html body #userManagementPage .box,
 html body #userManagementPage .boxCard,
 html body #userManagementPage div.box {
-  margin-bottom: 2mm !important;
+  margin-bottom: 1mm !important;
   padding-top: 10px !important;
   padding-bottom: 10px !important;
 }
@@ -9826,4 +9827,98 @@ html body #popupBantuan #adminRoomsContainer {
   width: 100% !important;
   margin-bottom: 2mm !important;
   box-sizing: border-box !important;
+}
+
+/* 9. MOBILE HP VIEW (MAX-WIDTH: 768PX): ACCOUNT POPUP (#popupAkun .akunBox) 1MM SCREEN MARGIN & 2MM INNER CONTENT PADDING */
+@media (max-width: 768px) {
+  #popupAkun,
+  #popupAkun.popupAkun,
+  #popupAkun.popupOverlay,
+  html body #popupAkun,
+  html body #popupAkun.popupAkun,
+  html body #popupAkun.popupOverlay {
+    padding-top: 1mm !important;
+    padding-left: 1mm !important;
+    padding-right: 1mm !important;
+    padding-bottom: 2mm !important;
+    box-sizing: border-box !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+  }
+
+  #popupAkun .akunBox,
+  .popupAkun .akunBox,
+  html body #popupAkun .akunBox,
+  html body .popupAkun .akunBox {
+    width: calc(100vw - 2mm) !important;
+    max-width: calc(100vw - 2mm) !important;
+    padding: 2mm !important;
+    box-sizing: border-box !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* 10. MOBILE HP VIEW (MAX-WIDTH: 768PX): GEMINI API KEY MODAL (#modalGeminiApiKey) 1MM SCREEN MARGIN & 2MM INNER CONTENT PADDING */
+@media (max-width: 768px) {
+  #modalGeminiApiKey,
+  #modalGeminiApiKey.modalBackdrop,
+  html body #modalGeminiApiKey,
+  html body #modalGeminiApiKey.modalBackdrop {
+    padding-top: 1mm !important;
+    padding-left: 1mm !important;
+    padding-right: 1mm !important;
+    padding-bottom: 2mm !important;
+    box-sizing: border-box !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+  }
+
+  #modalGeminiApiKey .modalKeyBox,
+  html body #modalGeminiApiKey .modalKeyBox {
+    width: calc(100vw - 2mm) !important;
+    max-width: calc(100vw - 2mm) !important;
+    box-sizing: border-box !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  #modalGeminiApiKey .modalKeyBody,
+  html body #modalGeminiApiKey .modalKeyBody {
+    padding: 2mm !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* 11. INPUT PAGE ZERO TOP GAP (HEADER ATTACHED 100% STATIONARY FLUSH TO TOP OF SCREEN) */
+#inputPage,
+#inputPage.active,
+.page#inputPage,
+html body #inputPage,
+html body #inputPage.active {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+.inputPageHeader,
+#inputPage .inputPageHeader,
+html body #inputPage .inputPageHeader {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
+  background: var(--bg-box, #ffffff) !important;
+  margin-top: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+  border-bottom: 1px solid var(--border-color, #cbd5e1) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+  box-sizing: border-box !important;
+  transform: translateZ(0) !important;
+  -webkit-transform: translateZ(0) !important;
 }

@@ -9291,6 +9291,121 @@ html body #popupEditKeteranganPartSingle .popupContent {
   box-sizing: border-box !important;
 }
 
+/* =============================================================================
+   POPUP MODAL STACKING ORDER & Z-INDEX HIERARCHY
+   ============================================================================= */
+#popupDetailBarangV2,
+#popupDetail {
+  z-index: 99999 !important;
+}
+
+#popupEditStatusPart,
+#popupEditKeteranganPartSingle,
+#rejectOverlay {
+  z-index: 500000 !important;
+}
+
+#artemisOverlay {
+  z-index: 600000 !important;
+}
+
+#popupPdfModelsModal,
+#pdfModal {
+  z-index: 700000 !important;
+}
+
+#imageViewer {
+  z-index: 2147483646 !important;
+}
+
+/* POPUP UPLOAD ARTEMIS (#artemisOverlay) */
+#artemisOverlay,
+html body #artemisOverlay {
+  display: none;
+  z-index: 600000 !important;
+  box-sizing: border-box !important;
+}
+
+#artemisOverlay[style*="display: none"],
+html body #artemisOverlay[style*="display: none"] {
+  display: none !important;
+}
+
+/* LAPTOP VIEW (MIN-WIDTH: 769PX): POPUP CENTER DI TENGAH-TENGAH LAYAR SAAT BUKA */
+@media (min-width: 769px) {
+  #artemisOverlay.show,
+  html body #artemisOverlay.show,
+  html body #artemisOverlay[style*="display: flex"],
+  html body #artemisOverlay[style*="display:flex"] {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 16px !important;
+  }
+
+  #artemisOverlay .artemisBoxPopup,
+  html body #artemisOverlay .artemisBoxPopup {
+    width: 480px !important;
+    max-width: 90vw !important;
+    margin: auto !important;
+    padding: 2mm !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* MOBILE / HP VIEW (MAX-WIDTH: 768PX): JARAK LAYAR ATAS, KANAN, KIRI = 1MM, BAWAH MENYESUAIKAN SAAT BUKA */
+@media (max-width: 768px) {
+  #artemisOverlay.show,
+  html body #artemisOverlay.show,
+  html body #artemisOverlay[style*="display: flex"],
+  html body #artemisOverlay[style*="display:flex"] {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    padding: 1mm 1mm 0 1mm !important;
+    box-sizing: border-box !important;
+  }
+
+  #artemisOverlay .artemisBoxPopup,
+  html body #artemisOverlay .artemisBoxPopup {
+    width: calc(100vw - 2mm) !important;
+    max-width: calc(100vw - 2mm) !important;
+    margin-top: 1mm !important;
+    margin-left: 1mm !important;
+    margin-right: 1mm !important;
+    margin-bottom: auto !important;
+    padding: 2mm !important;
+    border-radius: 6px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* ELEMEN DALAM POPUP ARTEMIS: PADDING & SPACING 2MM PRESISI */
+#artemisOverlay .artemisHeaderPopup,
+html body #artemisOverlay .artemisHeaderPopup {
+  padding: 10px 14px !important;
+  margin-bottom: 2mm !important;
+  border-radius: 4px !important;
+}
+
+#artemisOverlay .artemisBodyPopup,
+html body #artemisOverlay .artemisBodyPopup {
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#artemisOverlay #artemisPasteBox {
+  margin: 0 0 2mm 0 !important;
+  padding: 2mm !important;
+}
+
+#artemisOverlay #inputKetPartArtemis {
+  padding: 2mm !important;
+  margin-bottom: 2mm !important;
+  box-sizing: border-box !important;
+}
+
 /* POPUP FORM USER (#popupUserForm) */
 #popupUserForm {
   padding-top: 1mm !important;

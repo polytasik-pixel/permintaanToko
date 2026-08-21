@@ -5606,50 +5606,70 @@ function initMobileBackButtonEngine() {
       }
     }
 
-    const openModals = [
-      document.getElementById('popupUserManagementModal'),
-      document.getElementById('artemisOverlay'),
-      document.getElementById('popupDetail'),
-      document.getElementById('popupDetailBarangV2'),
-      document.getElementById('popupEditStatusPart'),
-      document.getElementById('popupEditKeteranganPartSingle'),
-      document.getElementById('popupNotifList'),
-      document.getElementById('popupBantuan'),
-      document.getElementById('popupUserForm'),
-      document.getElementById('pdfModal'),
-      document.getElementById('rejectOverlay'),
-      document.getElementById('popupTambahToko'),
-      document.getElementById('popupPdfModelsModal'),
-      document.getElementById('confirmOverlay'),
-      document.getElementById('imageViewer'),
-      document.getElementById('scannerModal'),
-      document.getElementById('modalGeminiApiKey'),
-      document.getElementById('excelTemplateOverlay')
+    // 1. IMAGE VIEWER (HANYA TUTUP IMAGE VIEWER, MODAL DETAIL / KETERANGAN DI BELAKANGNYA TETAP TERBUKA)
+    const imgViewer = document.getElementById('imageViewer');
+    const isImgViewerOpen = imgViewer && (imgViewer.classList.contains('show') || imgViewer.style.display === 'flex' || imgViewer.style.display === 'block');
+    if (isImgViewerOpen) {
+      if (typeof tutupImageViewer === 'function') tutupImageViewer();
+      return;
+    }
+
+    // 2. PDF PREVIEW MODALS
+    const pdfMod = document.getElementById('pdfModal');
+    const isPdfOpen = pdfMod && (pdfMod.classList.contains('show') || pdfMod.style.display === 'flex' || pdfMod.style.display === 'block');
+    if (isPdfOpen) {
+      if (typeof tutupPdfModal === 'function') tutupPdfModal();
+      return;
+    }
+
+    const pdfModelsMod = document.getElementById('popupPdfModelsModal');
+    const isPdfModelsOpen = pdfModelsMod && (pdfModelsMod.classList.contains('show') || pdfModelsMod.style.display === 'flex' || pdfModelsMod.style.display === 'block');
+    if (isPdfModelsOpen) {
+      if (typeof tutupModalPdfModels === 'function') tutupModalPdfModels();
+      return;
+    }
+
+    // 3. EDIT KETERANGAN & STATUS PART MODALS
+    const popEditKet = document.getElementById('popupEditKeteranganPartSingle');
+    const isEditKetOpen = popEditKet && (popEditKet.classList.contains('show') || popEditKet.style.display === 'flex' || popEditKet.style.display === 'block');
+    if (isEditKetOpen) {
+      if (typeof tutupModalEditKetPartSingle === 'function') tutupModalEditKetPartSingle();
+      return;
+    }
+
+    const popEditStat = document.getElementById('popupEditStatusPart');
+    const isEditStatOpen = popEditStat && (popEditStat.classList.contains('show') || popEditStat.style.display === 'flex' || popEditStat.style.display === 'block');
+    if (isEditStatOpen) {
+      if (typeof tutupModalEditStatusPart === 'function') tutupModalEditStatusPart();
+      return;
+    }
+
+    // 4. MODAL UTAMA LAINNYA (DITUTUP SATU PER SATU DARI LAPISAN PALING ATAS)
+    const modalPriorityStack = [
+      { id: 'rejectOverlay', closeFn: () => { const el = document.getElementById('rejectOverlay'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'confirmOverlay', closeFn: () => { const el = document.getElementById('confirmOverlay'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupDetail', closeFn: () => { if (typeof closeDetail === 'function') closeDetail(); } },
+      { id: 'popupDetailBarangV2', closeFn: () => { if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(); } },
+      { id: 'artemisOverlay', closeFn: () => { if (typeof closeArtemisModal === 'function') closeArtemisModal(); } },
+      { id: 'popupUserForm', closeFn: () => { const el = document.getElementById('popupUserForm'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupUserManagementModal', closeFn: () => { const el = document.getElementById('popupUserManagementModal'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupNotifList', closeFn: () => { const el = document.getElementById('popupNotifList'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupBantuan', closeFn: () => { const el = document.getElementById('popupBantuan'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupTambahToko', closeFn: () => { const el = document.getElementById('popupTambahToko'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'scannerModal', closeFn: () => { if (typeof tutupScanner === 'function') tutupScanner(); } },
+      { id: 'excelTemplateOverlay', closeFn: () => { if (typeof closeExcelTemplateModal === 'function') closeExcelTemplateModal(); } }
     ];
 
-    let closedAnyModal = false;
-    openModals.forEach(m => {
-      if (m && (m.classList.contains('show') || m.style.display === 'flex' || m.style.display === 'block')) {
-        m.classList.remove('show');
-        m.style.setProperty('display', 'none', 'important');
-        closedAnyModal = true;
+    for (let mItem of modalPriorityStack) {
+      const el = document.getElementById(mItem.id);
+      if (el && (el.classList.contains('show') || el.style.display === 'flex' || el.style.display === 'block')) {
+        mItem.closeFn();
+        const activePage = getCurrentActivePageId();
+        if (typeof aturTampilanLonceng === 'function') {
+          aturTampilanLonceng(activePage);
+        }
+        return;
       }
-    });
-
-    if (closedAnyModal) {
-      if (typeof closeArtemisModal === 'function') closeArtemisModal();
-      if (typeof tutupModalEditStatusPart === 'function') tutupModalEditStatusPart();
-      if (typeof tutupModalEditKetPartSingle === 'function') tutupModalEditKetPartSingle();
-      if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2();
-      if (typeof tutupScanner === 'function') tutupScanner();
-      if (typeof tutupImageViewer === 'function') tutupImageViewer();
-      if (typeof closeExcelTemplateModal === 'function') closeExcelTemplateModal();
-      
-      const activePage = getCurrentActivePageId();
-      if (typeof aturTampilanLonceng === 'function') {
-        aturTampilanLonceng(activePage);
-      }
-      return;
     }
 
     const currentActivePage = getCurrentActivePageId();
@@ -7812,6 +7832,19 @@ function closeArtemisModal() {
     overlay.style.setProperty('display', 'none', 'important');
     overlay.classList.remove('show');
   }
+
+  // SANGAT PENTING: Hanya jika Popup Detail sebelumnya memang aktif/terbuka, pastikan tetap tampil!
+  const popupDetailV2 = document.getElementById('popupDetailBarangV2');
+  if (popupDetailV2 && popupDetailV2.dataset.active === "true" && popupDetailV2.style.display !== 'none') {
+    popupDetailV2.style.setProperty('display', 'flex', 'important');
+    popupDetailV2.classList.add('show');
+  }
+
+  const popupDetail = document.getElementById('popupDetail');
+  if (popupDetail && popupDetail.dataset.active === "true" && popupDetail.style.display !== 'none') {
+    popupDetail.style.setProperty('display', 'flex', 'important');
+    popupDetail.classList.add('show');
+  }
 }
 window.closeArtemisModal = closeArtemisModal;
 
@@ -8115,6 +8148,30 @@ function batalApproveDM(noSurat) {
   });
 }
 
+function tutupRejectModal() {
+  const overlay = document.getElementById('rejectOverlay');
+  if (overlay) {
+    overlay.style.setProperty('display', 'none', 'important');
+    overlay.classList.remove('show');
+  }
+
+  // SANGAT PENTING: Hanya jika Popup Detail sebelumnya memang aktif/terbuka, pastikan tetap tampil!
+  const popupDetailV2 = document.getElementById('popupDetailBarangV2');
+  if (popupDetailV2 && popupDetailV2.dataset.active === "true" && popupDetailV2.style.display !== 'none') {
+    popupDetailV2.style.setProperty('display', 'flex', 'important');
+    popupDetailV2.classList.add('show');
+  }
+
+  const popupDetail = document.getElementById('popupDetail');
+  if (popupDetail && popupDetail.dataset.active === "true" && popupDetail.style.display !== 'none') {
+    popupDetail.style.setProperty('display', 'flex', 'important');
+    popupDetail.classList.add('show');
+  }
+}
+window.tutupRejectModal = tutupRejectModal;
+window.closeReject = tutupRejectModal;
+window.closeRejectModal = tutupRejectModal;
+
 function prosesReject(roleType) {
   const elNo = document.getElementById('rejectNoSurat');
   const elAlasan = document.getElementById('rejectAlasan');
@@ -8364,6 +8421,14 @@ function tutupDetailBarangV2() {
   if (detailModal) {
     detailModal.style.display = 'none';
     detailModal.classList.remove('show');
+    detailModal.dataset.active = "false";
+  }
+
+  const oldDetailModal = document.getElementById('popupDetail');
+  if (oldDetailModal) {
+    oldDetailModal.style.display = 'none';
+    oldDetailModal.classList.remove('show');
+    oldDetailModal.dataset.active = "false";
   }
 
   setTimeout(() => {
@@ -8789,7 +8854,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
             </button>
           `);
           actionButtons.push(`
-            <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tutupDetailBarangV2(); tolakServiceModal('${req.noSurat}', 'SERVICE');">
+            <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tolakServiceModal('${req.noSurat}', 'SERVICE');">
               <span class="material-symbols-rounded">cancel</span>
             </button>
           `);
@@ -8800,7 +8865,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
             </button>
           `);
           actionButtons.push(`
-            <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tutupDetailBarangV2(); tolakServiceModal('${req.noSurat}', 'DM');">
+            <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tolakServiceModal('${req.noSurat}', 'DM');">
               <span class="material-symbols-rounded">cancel</span>
             </button>
           `);
@@ -8814,7 +8879,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
           </button>
         `);
         actionButtons.push(`
-          <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tutupDetailBarangV2(); tolakServiceModal('${req.noSurat}', 'DM');">
+          <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tolakServiceModal('${req.noSurat}', 'DM');">
             <span class="material-symbols-rounded">cancel</span>
           </button>
         `);
@@ -8824,7 +8889,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     const isPdfVisible = isPdfButtonAllowed(req);
     if (isPdfVisible) {
       actionButtons.push(`
-        <button type="button" class="btnIcon btnPdf btnIconOnly" title="CETAK PDF" onclick="tutupDetailBarangV2(); tampilkanPilihanCetakPdf('${req.noSurat}');">
+        <button type="button" class="btnIcon btnPdf btnIconOnly" title="CETAK PDF" onclick="tampilkanPilihanCetakPdf('${req.noSurat}');">
           <span class="material-symbols-rounded">picture_as_pdf</span>
         </button>
       `);
@@ -8832,7 +8897,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
 
     if (req.status === 'APPROVE' && (role === 'SERVICE' || isAdminUser)) {
       actionButtons.push(`
-        <button type="button" class="btnIcon btnDone btnIconOnly" title="SET DONE" onclick="tutupDetailBarangV2(); doneService('${req.noSurat}');">
+        <button type="button" class="btnIcon btnDone btnIconOnly" title="SET DONE" onclick="doneService('${req.noSurat}');">
           <span class="material-symbols-rounded">task_alt</span>
         </button>
       `);
@@ -8891,7 +8956,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   if (allReqPhotos.length > 0) {
     const isDoneState = req.status === 'DONE';
     actionButtons.push(`
-      <button type="button" class="btnIcon btnPhotoView btnIconOnly" title="${isDoneState ? 'LIHAT BUKTI PROSES ARTEMIS / DONE' : 'LIHAT FOTO BUKTI BARANG'} (${allReqPhotos.length})" onclick="tutupDetailBarangV2(); lihatFotoByNoSurat('${req.noSurat || req.id}');" style="${isDoneState ? 'background: linear-gradient(135deg, #059669, #10b981) !important; color: #ffffff !important;' : ''}">
+      <button type="button" class="btnIcon btnPhotoView btnIconOnly" title="${isDoneState ? 'LIHAT BUKTI PROSES ARTEMIS / DONE' : 'LIHAT FOTO BUKTI BARANG'} (${allReqPhotos.length})" onclick="lihatFotoByNoSurat('${req.noSurat || req.id}');" style="${isDoneState ? 'background: linear-gradient(135deg, #059669, #10b981) !important; color: #ffffff !important;' : ''}">
         <span class="material-symbols-rounded">image</span>
       </button>
     `);
@@ -8955,7 +9020,11 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   `;
 
   const popupDetailV2 = document.getElementById('popupDetailBarangV2');
-  if (popupDetailV2) popupDetailV2.style.display = 'flex';
+  if (popupDetailV2) {
+    popupDetailV2.style.display = 'flex';
+    popupDetailV2.classList.add('show');
+    popupDetailV2.dataset.active = "true";
+  }
 
   try {
     history.pushState({ popupDetailOpen: true }, '');
@@ -10364,7 +10433,21 @@ function tutupPdfModal() {
     pdfModal.style.setProperty('display', 'none', 'important');
     pdfModal.classList.remove('show');
   }
+
+  // SANGAT PENTING: Hanya jika Popup Detail sebelumnya memang aktif/terbuka, pastikan tetap tampil!
+  const popupDetailV2 = document.getElementById('popupDetailBarangV2');
+  if (popupDetailV2 && popupDetailV2.dataset.active === "true" && popupDetailV2.style.display !== 'none') {
+    popupDetailV2.style.setProperty('display', 'flex', 'important');
+    popupDetailV2.classList.add('show');
+  }
+
+  const popupDetail = document.getElementById('popupDetail');
+  if (popupDetail && popupDetail.dataset.active === "true" && popupDetail.style.display !== 'none') {
+    popupDetail.style.setProperty('display', 'flex', 'important');
+    popupDetail.classList.add('show');
+  }
 }
+window.tutupPdfModal = tutupPdfModal;
 
 function cetakDokumenPdf() {
   const content = document.getElementById('pdfDocumentContent');
@@ -15212,11 +15295,29 @@ window.bukaViewerFoto = bukaViewGambar;
 window.showImageViewer = bukaViewGambar;
 window.viewFotoUrl = bukaViewGambar;
 
-function tutupImageViewer() {
+function tutupImageViewer(fromHistory = false) {
   const modal = document.getElementById('imageViewer');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.style.setProperty('display', 'none', 'important');
+    modal.classList.remove('show');
+  }
   resetZoom();
+
+  // SANGAT PENTING: Hanya jika Popup Detail sebelumnya memang aktif/terbuka, pastikan tetap tampil!
+  const popupDetailV2 = document.getElementById('popupDetailBarangV2');
+  if (popupDetailV2 && popupDetailV2.dataset.active === "true" && popupDetailV2.style.display !== 'none') {
+    popupDetailV2.style.setProperty('display', 'flex', 'important');
+    popupDetailV2.classList.add('show');
+  }
+
+  const popupDetail = document.getElementById('popupDetail');
+  if (popupDetail && popupDetail.dataset.active === "true" && popupDetail.style.display !== 'none') {
+    popupDetail.style.setProperty('display', 'flex', 'important');
+    popupDetail.classList.add('show');
+  }
 }
+window.tutupImageViewer = tutupImageViewer;
+window.tutupFotoViewer = tutupImageViewer;
 
 function zoomImage(step) {
   currentZoom += step;

@@ -1546,11 +1546,11 @@ const SEED_USERS = [
   {
     id: 'USR-ADMIN',
     username: 'ADMIN',
-    password: '0',
+    password: '00',
     fullName: 'SUPER ADMIN',
     phone: '',
     category: 'ADMIN',
-    area: 'TSM',
+    area: 'ALL',
     createdAt: '31/07/2026'
   }
 ];

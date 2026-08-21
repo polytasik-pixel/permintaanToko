@@ -9564,3 +9564,266 @@ html body #loginPage .login-card {
 .login-card button.btn-primary:active {
   transform: translateY(0) !important;
 }
+
+/* ==========================================================================
+   USER CUSTOM STYLING: 1MM TOP PADDING FOR LOGIN INPUTS & FORM INPUTS / INPUT PAGE
+   ========================================================================== */
+
+/* 1. LOGIN INPUTS TOP PADDING 1MM */
+.login-card .input-group input,
+#loginPage .input-group input,
+#loginForm input,
+html body #loginPage input,
+html body .login-card input {
+  padding-top: 1mm !important;
+}
+
+/* 2. FORM INPUTS & INPUT PAGE TOP PADDING 1MM */
+#inputPage,
+#inputPage.active,
+.page#inputPage,
+html body #inputPage,
+html body #inputPage.active {
+  padding-top: 1mm !important;
+}
+
+#inputPage input,
+#inputPage select,
+#inputPage textarea,
+#inputPage .box input,
+#inputPage .box select,
+#inputPage .box textarea,
+html body #inputPage input,
+html body #inputPage select,
+html body #inputPage textarea,
+.input-form input,
+.input-form select,
+.input-form textarea,
+.form-control,
+form input,
+form select,
+form textarea {
+  padding-top: 1mm !important;
+}
+
+/* 3. STICKY FULL-WIDTH TOP HEADER FOR INPUT FORM PAGE (TITLE, PDF/IMAGE/EXCEL ICONS & LINE STAYS PINNED AT TOP FULL-WIDTH) */
+.inputPageHeader,
+#inputPage .inputPageHeader,
+html body #inputPage .inputPageHeader {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  background: var(--bg-box, #ffffff) !important;
+  margin-top: -18px !important;
+  margin-left: -14px !important;
+  margin-right: -14px !important;
+  width: calc(100% + 28px) !important;
+  max-width: calc(100% + 28px) !important;
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+  border-bottom: 1px solid var(--border-color, #cbd5e1) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+  box-sizing: border-box !important;
+}
+
+/* 4. RIWAYAT PAGE TITLE TOP POSITION (PADDING-TOP 1MM & MARGIN-TOP 0) */
+#riwayatPageTitle,
+#riwayatPage h3#riwayatPageTitle,
+#riwayatPage .riwayatContent > h3,
+html body #riwayatPageTitle,
+html body #riwayatPage h3#riwayatPageTitle {
+  margin-top: 0 !important;
+  padding-top: 1mm !important;
+  padding-bottom: 0 !important;
+  margin-bottom: 6px !important;
+  text-align: center !important;
+}
+
+#riwayatPage,
+#riwayatPage.active,
+#riwayatPage .riwayatContent,
+html body #riwayatPage,
+html body #riwayatPage .riwayatContent {
+  padding-top: 1mm !important;
+}
+
+/* 5. EXTEND RIWAYAT TABLE WRAPPER HEIGHT DOWNWARD TO FILL FULL SPACE */
+#riwayatPage .tableWrap,
+#riwayatPage .riwayatContent .tableWrap,
+html body #riwayatPage .tableWrap,
+html body section#riwayatPage .tableWrap {
+  flex: 1 1 100% !important;
+  flex-grow: 1 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#riwayatPage .riwayatContent,
+html body #riwayatPage .riwayatContent {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* 6. USER MANAGEMENT PAGE FIX: SMOOTH SCROLLING & TIGHT BOTTOM CLEARANCE */
+#userManagementPage,
+#userManagementPage.active,
+.page#userManagementPage,
+html body #userManagementPage,
+html body #userManagementPage.active,
+html body section#userManagementPage,
+html body section#userManagementPage.active {
+  display: block !important;
+  height: calc(100vh - 60px) !important;
+  max-height: calc(100vh - 60px) !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+  padding-top: 1mm !important;
+  padding-bottom: calc(58px + 2mm) !important;
+  box-sizing: border-box !important;
+}
+
+#userManagementPage .box,
+#userManagementPage .boxCard,
+#userManagementPage div.box,
+#userManagementPage > div,
+html body #userManagementPage .box,
+html body #userManagementPage .boxCard,
+html body #userManagementPage div.box {
+  margin-bottom: 2mm !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+#userManagementPage .box:last-child,
+#userManagementPage .box:last-of-type,
+html body #userManagementPage .box:last-child,
+html body #userManagementPage .box:last-of-type {
+  margin-bottom: 0 !important;
+}
+
+/* 7. POPUP MODAL PILIHAN 5 MODEL TEMPLATE PDF (#popupPdfModelsModal) FULL SCREEN */
+#popupPdfModelsModal,
+html body #popupPdfModelsModal,
+html body #popupPdfModelsModal.popupOverlay {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#popupPdfModelsModal .popupBox,
+html body #popupPdfModelsModal .popupBox {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  min-height: 100vh !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0px !important;
+  box-shadow: none !important;
+  -webkit-clip-path: none !important;
+  clip-path: none !important;
+  box-sizing: border-box !important;
+}
+
+/* 8. HELP CHAT POPUP (#popupBantuan .chatBox): 2MM PADDING & 100% FLUSH RATA KANAN KIRI ALL ELEMENTS */
+#popupBantuan .chatBox,
+.popupBantuan .chatBox,
+html body #popupBantuan .chatBox {
+  padding: 2mm !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+}
+
+#popupBantuan .chatHeader,
+.popupBantuan .chatHeader,
+html body #popupBantuan .chatHeader {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 10px 14px !important;
+  border-radius: 4px 4px 0 0 !important;
+  box-sizing: border-box !important;
+  align-self: stretch !important;
+  flex-shrink: 0 !important;
+}
+
+#popupBantuan #chatList,
+#popupBantuan #chatUserPicker,
+#popupBantuan .chatBody,
+#popupBantuan .chatFooter,
+html body #popupBantuan #chatList,
+html body #popupBantuan #chatUserPicker,
+html body #popupBantuan .chatBody,
+html body #popupBantuan .chatFooter {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  align-self: stretch !important;
+}
+
+#popupBantuan #chatList,
+#popupBantuan #chatUserPicker {
+  padding: 2mm 0 0 0 !important;
+  box-sizing: border-box !important;
+}
+
+#popupBantuan .chatBody {
+  padding: 2mm !important;
+  box-sizing: border-box !important;
+}
+
+#popupBantuan #chatList > div:first-child {
+  width: 100% !important;
+  gap: 2mm !important;
+  margin-top: 0 !important;
+  margin-bottom: 2mm !important;
+  padding-bottom: 2mm !important;
+  box-sizing: border-box !important;
+}
+
+#popupBantuan #chatList > div:first-child button {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  border-radius: 4px !important;
+}
+
+#popupBantuan #adminRoomsContainer,
+html body #popupBantuan #adminRoomsContainer {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#popupBantuan #adminRoomsContainer > div {
+  width: 100% !important;
+  margin-bottom: 2mm !important;
+  box-sizing: border-box !important;
+}

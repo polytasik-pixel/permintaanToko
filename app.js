@@ -3777,7 +3777,6 @@ function toggleFeaturePhotoAdmin() {
   const current = getFeaturePhotosEnabled();
   const next = !current;
   setFeaturePhotosEnabled(next);
-  showNotif(next ? 'FITUR UPLOAD FOTO DIAKTIFKAN (ON) DI SEMUA PERANGKAT!' : 'FITUR UPLOAD FOTO DINONAKTIFKAN (OFF) DI SEMUA PERANGKAT!', 'info');
 }
 
 function updatePhotoSectionVisibility() {
@@ -10537,14 +10536,33 @@ async function prosesFotoKeTTD(event) {
         const cWidth = canvasTTD.width || Math.round(ttdDisplayW * ttdDPR);
         const cHeight = canvasTTD.height || Math.round(ttdDisplayH * ttdDPR);
 
+        // 1. OTOMATIS KOREKSI ORIENTASI (FOTO HP PORTRAIT -> LANDSCAPE LANDING TEGAP)
+        let sourceElement = img;
+        let sWidth = img.width;
+        let sHeight = img.height;
+
+        // Jika foto berdiri tegak (portrait, height > width) dari kamera HP, putar -90 derajat agar TTD posisi tidur sejajar kanvas
+        if (img.height > img.width) {
+          const rotateCanvas = document.createElement('canvas');
+          const rCtx = rotateCanvas.getContext('2d');
+          rotateCanvas.width = img.height;
+          rotateCanvas.height = img.width;
+          rCtx.translate(0, img.width);
+          rCtx.rotate(-90 * Math.PI / 180);
+          rCtx.drawImage(img, 0, 0);
+          sourceElement = rotateCanvas;
+          sWidth = img.height;
+          sHeight = img.width;
+        }
+
         const tempCanvas = document.createElement('canvas');
         const tCtx = tempCanvas.getContext('2d');
         tempCanvas.width = cWidth;
         tempCanvas.height = cHeight;
 
-        let drawWidth = img.width;
-        let drawHeight = img.height;
-        const scale = Math.min(cWidth / drawWidth, cHeight / drawHeight) * 0.84;
+        let drawWidth = sWidth;
+        let drawHeight = sHeight;
+        const scale = Math.min(cWidth / drawWidth, cHeight / drawHeight) * 0.86;
 
         drawWidth = Math.round(drawWidth * scale);
         drawHeight = Math.round(drawHeight * scale);
@@ -10557,12 +10575,12 @@ async function prosesFotoKeTTD(event) {
         tCtx.fillRect(0, 0, cWidth, cHeight);
         tCtx.imageSmoothingEnabled = true;
         tCtx.imageSmoothingQuality = 'high';
-        tCtx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+        tCtx.drawImage(sourceElement, offsetX, offsetY, drawWidth, drawHeight);
 
         const imgData = tCtx.getImageData(0, 0, cWidth, cHeight);
         const data = imgData.data;
 
-        // Analisis sampel kecerahan kertas (di dalam area foto)
+        // Analisis sampel kecerahan kertas
         const lums = [];
         for (let y = offsetY; y < offsetY + drawHeight; y++) {
           for (let x = offsetX; x < offsetX + drawWidth; x++) {
@@ -10579,54 +10597,78 @@ async function prosesFotoKeTTD(event) {
         const p85Idx = Math.floor(lums.length * 0.85);
         const paperLuminance = lums[p85Idx] || 220;
 
-        // Batas ambang transparansi kertas adaptif (anti bayangan & anti bingkai hitam kamera)
         const paperCutoff = Math.max(120, paperLuminance - 35);
         const inkCutoff = Math.max(50, paperCutoff - 30);
-
-        const outputImgData = ctxTTD.createImageData(cWidth, cHeight);
-        const outData = outputImgData.data;
-
-        // Margin pembersih bingkai luar (8px) untuk membuang garis kotak bingkai kamera HP
         const borderPadding = 8;
+
+        // Map Alpha awal (0-255)
+        const alphaMap = new Uint8Array(cWidth * cHeight);
 
         for (let y = 0; y < cHeight; y++) {
           for (let x = 0; x < cWidth; x++) {
-            const i = (y * cWidth + x) * 4;
-
-            // Jika piksel berada di luar foto atau sangat dekat bingkai foto, buat 100% transparan
             if (
               x < offsetX + borderPadding ||
               x >= offsetX + drawWidth - borderPadding ||
               y < offsetY + borderPadding ||
               y >= offsetY + drawHeight - borderPadding
             ) {
-              outData[i] = 0;
-              outData[i + 1] = 0;
-              outData[i + 2] = 0;
-              outData[i + 3] = 0;
               continue;
             }
 
+            const i = (y * cWidth + x) * 4;
             const r = data[i];
             const g = data[i + 1];
             const b = data[i + 2];
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-            // Cek jika piksel adalah tinta tulisan TTD asli (jauh lebih gelap dibanding kertas)
             if (lum < paperCutoff) {
-              outData[i] = 15;      // R (dark navy ink)
-              outData[i + 1] = 23;  // G
-              outData[i + 2] = 42;  // B
-
               if (lum <= inkCutoff) {
-                outData[i + 3] = 255; // Tinta pekat murni
+                alphaMap[y * cWidth + x] = 255;
               } else {
-                // Smooth anti-aliasing edge
                 const norm = (paperCutoff - lum) / (paperCutoff - inkCutoff);
-                outData[i + 3] = Math.min(255, Math.max(120, Math.round(norm * 255)));
+                alphaMap[y * cWidth + x] = Math.min(255, Math.max(130, Math.round(norm * 255)));
               }
+            }
+          }
+        }
+
+        // 2. PENEBATAN & PELEBARAN GORESAN TTD (DILATION / STROKE BOLDENING)
+        const dilatedMap = new Uint8Array(cWidth * cHeight);
+
+        for (let y = 0; y < cHeight; y++) {
+          for (let x = 0; x < cWidth; x++) {
+            const a = alphaMap[y * cWidth + x];
+            if (a > 0) {
+              // Spreading ke 3x3 piksel tetangga untuk penebalan dan goresan lebih lebar
+              for (let dy = -1; dy <= 1; dy++) {
+                const ny = y + dy;
+                if (ny < 0 || ny >= cHeight) continue;
+                for (let dx = -1; dx <= 1; dx++) {
+                  const nx = x + dx;
+                  if (nx < 0 || nx >= cWidth) continue;
+                  const nIdx = ny * cWidth + nx;
+                  if (a > dilatedMap[nIdx]) {
+                    dilatedMap[nIdx] = a;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        const outputImgData = ctxTTD.createImageData(cWidth, cHeight);
+        const outData = outputImgData.data;
+
+        for (let y = 0; y < cHeight; y++) {
+          for (let x = 0; x < cWidth; x++) {
+            const i = (y * cWidth + x) * 4;
+            const a = dilatedMap[y * cWidth + x];
+            if (a > 0) {
+              outData[i] = 15;     // R (Pekat Navy Tinta)
+              outData[i + 1] = 23; // G
+              outData[i + 2] = 42; // B
+              outData[i + 3] = a;  // Alpha tebal
             } else {
-              // Latar putih/kuning/cokelat kertas & bayangan kamera dibuat 100% transparan
               outData[i] = 0;
               outData[i + 1] = 0;
               outData[i + 2] = 0;
@@ -11136,12 +11178,12 @@ function loadDaftarChatAdmin() {
 
   // 1. Action Toolbar: Mulai Chat Baru & Siarkan Pesan
   const actionToolbar = document.createElement('div');
-  actionToolbar.style.cssText = 'display:flex; flex-direction:column; gap:6px; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border-color);';
+  actionToolbar.style.cssText = 'display:flex; flex-direction:column; gap:2mm; margin-bottom:2mm; padding-bottom:2mm; border-bottom:1px solid var(--border-color); width:100%; box-sizing:border-box;';
   actionToolbar.innerHTML = `
-    <button type="button" onclick="bukaModalPilihUserChat()" style="width:100%; padding:9px 12px; background:linear-gradient(135deg, #0284c7, #0369a1); color:#ffffff; border:none; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; box-shadow:0 2px 5px rgba(2,132,199,0.25);">
+    <button type="button" onclick="bukaModalPilihUserChat()" style="width:100%; padding:9px 12px; background:linear-gradient(135deg, #0284c7, #0369a1); color:#ffffff; border:none; border-radius:4px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; box-shadow:0 2px 5px rgba(2,132,199,0.25); box-sizing:border-box;">
       <span class="material-symbols-rounded" style="font-size:17px;">add_comment</span> + MULAI CHAT KE TOKO / USER
     </button>
-    <button type="button" onclick="bukaModalBroadcastChat()" style="width:100%; padding:7px 12px; background:rgba(245,158,11,0.12); color:#d97706; border:1px dashed #d97706; border-radius:8px; font-weight:700; font-size:11.5px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
+    <button type="button" onclick="bukaModalBroadcastChat()" style="width:100%; padding:7px 12px; background:rgba(245,158,11,0.12); color:#d97706; border:1px dashed #d97706; border-radius:4px; font-weight:700; font-size:11.5px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; box-sizing:border-box;">
       <span class="material-symbols-rounded" style="font-size:17px;">campaign</span> SIARKAN KE SEMUA TOKO
     </button>
   `;
@@ -11157,7 +11199,7 @@ function loadDaftarChatAdmin() {
 
   if (!rooms || rooms.length === 0) {
     roomsContainer.innerHTML = `
-      <div style="padding:24px 16px; text-align:center; color:var(--text-muted); font-size:12px;">
+      <div style="padding:16px 12px; text-align:center; color:var(--text-muted); font-size:12px;">
         <span class="material-symbols-rounded" style="font-size:32px; color:var(--primary); margin-bottom:4px; display:block;">chat_bubble_outline</span>
         BELUM ADA PERCAKAPAN TOKO / SALES.<br>KLIK <b>'+ MULAI CHAT KE TOKO'</b> DI ATAS UNTUK MEMULAI.
       </div>
@@ -11168,7 +11210,7 @@ function loadDaftarChatAdmin() {
 
   rooms.forEach(r => {
     const item = document.createElement('div');
-    item.style.cssText = 'padding:10px 12px; border-bottom:1px solid var(--border-color); cursor:pointer; transition:background 0.2s; display:flex; justify-content:space-between; align-items:center; border-radius:6px; margin-bottom:4px;';
+    item.style.cssText = 'padding:8px 10px; border-bottom:1px solid var(--border-color); cursor:pointer; transition:background 0.2s; display:flex; justify-content:space-between; align-items:center; border-radius:6px; margin-bottom:2mm;';
     item.onmouseover = () => item.style.background = 'rgba(59,130,246,0.06)';
     item.onmouseout = () => item.style.background = 'transparent';
 

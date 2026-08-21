@@ -262,10 +262,10 @@
       </div>
 
       <!-- Admin Conversation Room List -->
-      <div id="chatList" style="display:none; flex:1; overflow-y:auto; padding:10px;"></div>
+      <div id="chatList" style="display:none; flex:1; overflow-y:auto; padding:2mm 0 0 0;"></div>
 
       <!-- Admin User Picker for Starting New Chat -->
-      <div id="chatUserPicker" style="display:none; flex:1; overflow-y:auto; padding:10px; flex-direction:column;">
+      <div id="chatUserPicker" style="display:none; flex:1; overflow-y:auto; padding:2mm 0 0 0; flex-direction:column;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div style="font-weight:700; font-size:13px; color:var(--text-main); display:flex; align-items:center; gap:6px;">
             <span class="material-symbols-rounded" style="color:var(--primary); font-size:18px;">contacts</span> PILIH TOKO / USER
@@ -442,7 +442,7 @@
          ========================================================================== -->
     <section id="inputPage" class="page">
       <div class="box">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+        <div class="inputPageHeader" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; flex-wrap: wrap; gap: 8px;">
           <h3 style="margin: 0;">FORM PERMINTAAN TOKO</h3>
           <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
             <button type="button" onclick="triggerUploadPdfAutoFill()" title="INPUT PDF AUTO-FILL" style="width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; background: linear-gradient(135deg, #059669, #10b981); color: #ffffff; border: 1.5px solid #047857; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(16, 185, 129, 0.25); transition: transform 0.15s ease;">
@@ -537,7 +537,7 @@
          ========================================================================== -->
     <section id="riwayatPage" class="page">
       <div class="riwayatContent">
-        <h3 id="riwayatPageTitle" style="text-align: center !important;">DETAIL DATA PERMINTAAN</h3>
+        <h3 id="riwayatPageTitle" style="text-align: center !important; margin-top: 0 !important; padding-top: 1mm !important; margin-bottom: 6px !important;">DETAIL DATA PERMINTAAN</h3>
 
         <div class="searchToolbar">
           <input type="text" id="searchRiwayat" placeholder="CARI NO SURAT, TOKO, TYPE..." onkeyup="filterRiwayat()">
@@ -620,7 +620,7 @@
          ========================================================================== -->
     <section id="userManagementPage" class="page">
       <!-- FONTE WHATSAPP AUTOMATION TOKEN -->
-      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 20px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 2mm !important; background: var(--bg-card);">
         <h3 style="color: #16a34a; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
           <span class="material-symbols-rounded">chat</span> PENGATURAN AUTOMATION WHATSAPP (FONTE)
         </h3>
@@ -640,7 +640,7 @@
       </div>
 
       <!-- ADMIN CONTROL: HAPUS GAMBAR / FOTO SUPABASE -->
-      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 20px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 2mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
           <div>
             <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -657,7 +657,7 @@
       </div>
 
       <!-- ADMIN CONTROL: PENGATURAN UPLOAD FOTO (GLOBAL ON / OFF) -->
-      <div id="adminPhotoControlContainer" class="box" style="border-left: 4px solid #10b981; margin-bottom: 20px; background: var(--bg-card); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div id="adminPhotoControlContainer" class="box" style="border-left: 4px solid #10b981; margin-bottom: 2mm !important; background: var(--bg-card); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="color: #10b981; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
             <span class="material-symbols-rounded">add_a_photo</span> PENGATURAN UPLOAD FOTO BUKTI (GLOBAL ON / OFF)
@@ -675,7 +675,7 @@
       </div>
 
       <!-- ADMIN CONTROL: HAPUS SEMUA CHAT DI FIREBASE & LOKAL -->
-      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 20px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 2mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -692,7 +692,7 @@
       </div>
 
       <!-- ADMIN CONTROL: HAPUS SEMUA NOTIFIKASI DI FIREBASE & LOKAL -->
-      <div class="box" style="border-left: 4px solid #dc2626; margin-bottom: 20px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #dc2626; margin-bottom: 2mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #dc2626; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -709,7 +709,7 @@
       </div>
 
       <!-- ADMIN CONTROL: HAPUS PENYIMPANAN LOKAL / CACHE -->
-      <div id="containerHapusPenyimpananLokalAdmin" class="box" style="border-left: 4px solid #ef4444; margin-bottom: 20px; background: var(--bg-card);">
+      <div id="containerHapusPenyimpananLokalAdmin" class="box" style="border-left: 4px solid #ef4444; margin-bottom: 2mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -726,7 +726,7 @@
       </div>
 
       <!-- UPLOAD MASTER LOOKUP KODE UNIT (FILE EXCEL .XLSX: A=KODE, B=TYPE) -->
-      <div class="box" style="border-left: 4px solid #0284c7; margin-bottom: 20px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #0284c7; margin-bottom: 2mm !important; background: var(--bg-card);">
         <h3 style="color: #0284c7; display: flex; align-items: center; gap: 8px;">
           <span class="material-symbols-rounded">upload_file</span> UPLOAD MASTER LOOKUP KODE UNIT (FILE EXCEL .XLSX)
         </h3>
@@ -744,7 +744,7 @@
       </div>
 
       <!-- BOX UPLOAD MASTER DAFTAR TOKO SEKALIGUS (FILE EXCEL 2 KOLOM: A=NAMA TOKO, B=AREA) -->
-      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 24px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #16a34a; margin-bottom: 2mm !important; background: var(--bg-card);">
         <h3 style="color: #16a34a; display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
           <span class="material-symbols-rounded">file_upload</span> UPLOAD DAFTAR TOKO SEKALIGUS (EXCEL / CSV - 2 KOLOM)
         </h3>
@@ -760,7 +760,7 @@
       </div>
 
       <!-- PENGATURAN MODEL TEMPLATE PDF SURAT PERMINTAAN (5 MODEL WITH LARGE POPUP MODAL) -->
-      <div class="box" style="border-left: 4px solid #7c3aed; margin-bottom: 28px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #7c3aed; margin-bottom: 2mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
             <h3 style="color: #7c3aed; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 900;">
@@ -780,7 +780,7 @@
       </div>
 
       <!-- KONTROL ADMIN: KELOLA AKUN USER & HAK AKSES (POPUP TABEL USER) -->
-      <div class="box" style="border-left: 4px solid #0f766e; margin-bottom: 20px; background: var(--bg-card);">
+      <div class="box" style="border-left: 4px solid #0f766e; margin-bottom: 2mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
           <div>
             <h3 style="color: #0f766e; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
@@ -1513,8 +1513,8 @@
   </div>
 
   <!-- 9. POPUP MODAL PILIHAN 5 MODEL TEMPLATE PDF (SIMPLE COMPACT 1-5 BUTTONS WITH FULL HEIGHT PREVIEW) -->
-  <div id="popupPdfModelsModal" class="popupOverlay" onclick="if(event.target === this) tutupModalPdfModels();" style="display: none; z-index: 1000000; align-items: center !important; justify-content: center !important; padding: 1cm 4px !important; box-sizing: border-box !important;">
-    <div class="popupBox" style="width: 780px !important; max-width: calc(100vw - 8px) !important; height: calc(100vh - 2cm) !important; max-height: calc(100vh - 2cm) !important; display: flex !important; flex-direction: column !important; padding: 0 !important; border-radius: 0px !important; overflow: hidden !important; position: relative !important; box-shadow: 0 20px 50px rgba(0,0,0,0.35) !important; margin: auto !important; -webkit-clip-path: none !important; clip-path: none !important;">
+  <div id="popupPdfModelsModal" class="popupOverlay" onclick="if(event.target === this) tutupModalPdfModels();" style="display: none; z-index: 1000000; padding: 0 !important; margin: 0 !important; width: 100vw !important; height: 100vh !important; height: 100dvh !important; box-sizing: border-box !important;">
+    <div class="popupBox" style="width: 100vw !important; max-width: 100vw !important; height: 100vh !important; height: 100dvh !important; max-height: 100vh !important; max-height: 100dvh !important; display: flex !important; flex-direction: column !important; padding: 0 !important; margin: 0 !important; border-radius: 0px !important; overflow: hidden !important; position: relative !important; box-shadow: none !important; -webkit-clip-path: none !important; clip-path: none !important;">
       <div class="popupHeader" style="background: var(--primary) !important; background-color: var(--primary) !important; background-image: none !important; padding: 12px 18px; position: relative; justify-content: center !important; border-radius: 0px !important; ">
         <span style="font-size: 15px; font-weight: 900; color: #fff; text-align: center; letter-spacing: 0.5px;">
           <span class="material-symbols-rounded" style="vertical-align: middle; margin-right: 6px; font-size: 20px;">picture_as_pdf</span> PILIH MODEL TEMPLATE SURAT PDF (1 - 5)

@@ -32,7 +32,7 @@
 
   <!-- Master Stylesheet -->
   <link rel="stylesheet" href="styles.css?v=20260820_v10290">
-  <script src="app.js?v=20260820_v10290"></script>
+  <script src="app.js?v=20260820_v10300"></script>
 
   <!-- Global Failsafe Gemini AI Key Handler -->
   <script>
@@ -1283,12 +1283,35 @@
       <div class="popupContent" style="padding: 18px 18px 3mm 18px;">
         <input type="hidden" id="editKetPartSingleNoSurat">
         <input type="hidden" id="editKetPartSingleItemIndex">
+        <input type="hidden" id="editKetPartSingleFotoUrl">
+        <input type="file" id="editKetPartSingleFileInput" accept="image/*" style="display: none;" onchange="prosesPilihFotoBuktiPart(event)">
         
         <div id="editKetPartSingleItemInfo" style="background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 5px; padding-top: 10px; padding-bottom: 10px; padding-left: 2mm; padding-right: 2mm; margin-bottom: 14px; font-size: 12.5px; font-weight: 700; color: var(--primary); box-sizing: border-box;">
           <!-- Dynamic item details -->
         </div>
 
-        <label style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 6px;">KETERANGAN / STATUS PART (MANUAL FREE TEXT):</label>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+          <label style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); margin: 0;">KETERANGAN / STATUS PART (MANUAL FREE TEXT):</label>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <!-- Tombol Quick Centang SUDAH DISERAHKAN -->
+            <button type="button" id="btnQuickSudahDiserahkan" onclick="isiQuickSudahDiserahkan()" title="Isi 'SUDAH DISERAHKAN DD/MM/YYYY'" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 5px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981; font-size: 11px; font-weight: 800; cursor: pointer;">
+              <span class="material-symbols-rounded" style="font-size: 16px;">check_circle</span>
+              <span>SERAHKAN</span>
+            </button>
+            
+            <!-- Tombol Foto Bukti (Photo Camera jika belum ada, Image jika sudah ada foto) -->
+            <button type="button" id="btnFotoBuktiPart" onclick="handleKlikFotoBuktiPart()" title="Upload / Lihat Foto Bukti" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 5px; background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid #0284c7; font-size: 11px; font-weight: 800; cursor: pointer;">
+              <span class="material-symbols-rounded" id="iconFotoBuktiPart" style="font-size: 16px;">photo_camera</span>
+              <span id="textFotoBuktiPart">FOTO BUKTI</span>
+            </button>
+
+            <!-- Tombol Hapus Foto Bukti (Hanya Tampil Jika Foto Sudah Ada) -->
+            <button type="button" id="btnHapusFotoBuktiPart" onclick="hapusFotoBuktiPartSingle()" title="Hapus Foto Bukti Penyerahan Part" style="display: none; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 5px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444; cursor: pointer;">
+              <span class="material-symbols-rounded" style="font-size: 16px;">delete</span>
+            </button>
+          </div>
+        </div>
+
         <textarea id="editKetPartSingleInput" rows="3" placeholder="" style="width: 100%; padding-top: 10px; padding-bottom: 10px; padding-left: 2mm; padding-right: 2mm; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-box); color: var(--text-main); font-size: 13px; font-weight: 600; box-sizing: border-box; resize: vertical; margin-bottom: 16px; outline: none;"></textarea>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; padding-left: 2mm; padding-right: 2mm; margin-bottom: 3mm;">

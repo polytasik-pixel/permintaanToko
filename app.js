@@ -6383,6 +6383,9 @@ async function migrasiTtdBase64KeUrl() {
       }
     }
 
+    // PEMBERSIHAN OTOMATIS TTD BASE64 PADA BARIS __SYSTEM_TTD_MAP__
+    await cleanTtdMapBase64InSupabase();
+
     if (updatedAny) {
       saveRequestsToDB(requests);
       console.log('⚡ [TTD BASE64 TO URL MIGRATION COMPLETE]: Base64 TTDs converted to Supabase Storage URLs!');
@@ -6392,6 +6395,42 @@ async function migrasiTtdBase64KeUrl() {
   }
 }
 window.migrasiTtdBase64KeUrl = migrasiTtdBase64KeUrl;
+
+async function cleanTtdMapBase64InSupabase() {
+  const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : ((typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : null);
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('permintaan_toko').select('*').eq('no_surat', '__SYSTEM_TTD_MAP__').maybeSingle();
+    if (data && data.items) {
+      let ttdMap = {};
+      try {
+        ttdMap = (typeof data.items === 'string') ? JSON.parse(data.items) : data.items;
+      } catch(e) {}
+
+      let updated = false;
+      for (let key in ttdMap) {
+        if (ttdMap[key] && typeof ttdMap[key] === 'string' && (ttdMap[key].startsWith('data:image/') || ttdMap[key].startsWith('blob:'))) {
+          const cleanKey = key.replace(/[^a-zA-Z0-9]/g, '_');
+          const newUrl = await uploadSignatureDataUrlToSupabaseStorage(ttdMap[key], `TTD_MAP_${cleanKey}.png`);
+          if (newUrl && newUrl !== ttdMap[key]) {
+            ttdMap[key] = newUrl;
+            updated = true;
+          }
+        }
+      }
+
+      if (updated) {
+        await sb.from('permintaan_toko').update({
+          items: ttdMap
+        }).eq('no_surat', '__SYSTEM_TTD_MAP__');
+        console.log('⚡ [TTD MAP CLEANUP COMPLETE]: All Base64 signatures in __SYSTEM_TTD_MAP__ converted to Storage URLs!');
+      }
+    }
+  } catch(e) {
+    console.warn('[TTD MAP CLEANUP ERROR]:', e);
+  }
+}
+window.cleanTtdMapBase64InSupabase = cleanTtdMapBase64InSupabase;
 
 async function uploadPhotoToSupabaseStorage(fileOrBlob) {
   if (!fileOrBlob) return '';
@@ -8463,7 +8502,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
 
     let statusPartBadgeHtml = '<span style="color: var(--text-muted); font-size: 11px;">-</span>';
     if (isUnfulfilled) {
-      statusPartBadgeHtml = `<span style="display: inline-block; padding: 2px 7px; border-radius: 6px; font-weight: 700; font-size: 11px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;">TIDAK DIPENUHI</span>`;
+      statusPartBadgeHtml = `<span style="display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 11px; line-height: 1; height: 26px; box-sizing: border-box; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;">TIDAK DIPENUHI</span>`;
     } else if (statusPartVal) {
       const up = statusPartVal.toUpperCase();
       let badgeBg = 'rgba(2, 132, 199, 0.12)';
@@ -8482,42 +8521,91 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
         badgeColor = '#f59e0b';
         badgeBorder = '#f59e0b';
       }
-      statusPartBadgeHtml = `<span style="display: inline-block; padding: 2px 7px; border-radius: 6px; font-weight: 700; font-size: 11.5px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">${statusPartVal}</span>`;
+      statusPartBadgeHtml = `<span style="display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 11px; line-height: 1; height: 26px; box-sizing: border-box; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">${statusPartVal}</span>`;
     }
 
-    let ketPartTdHtml = showKetPartCol ? `<td style="${tdStyleLeft} ${strikeStyle}">${statusPartBadgeHtml}</td>` : '';
+    const isHandedOver = !!(statusPartVal.toUpperCase().includes('SUDAH DISERAHKAN') || i.isHandedOver === true);
+    const isAdmUserRole = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (currentUser && ((currentUser.category || '').toUpperCase() === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN')));
+    const fotoProofUrl = i.fotoBuktiPart || i.fotoPart || '';
+
+    let fotoProofBtnHtml = '';
+    if (fotoProofUrl) {
+      fotoProofBtnHtml = `
+        <button type="button" onclick="event.stopPropagation(); bukaFotoBuktiPartSingleItem('${req.noSurat}', ${idx});" title="Lihat Foto Bukti Part" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid #0284c7; font-size: 11px; font-weight: 800; cursor: pointer; text-transform: uppercase; line-height: 1; height: 26px; box-sizing: border-box;">
+          <span class="material-symbols-rounded" style="font-size: 15px;">image</span>
+          <span>LIHAT FOTO</span>
+        </button>
+      `;
+    }
+
+    let ketPartTdHtml = showKetPartCol ? `
+      <td style="${tdStyleLeft} ${strikeStyle}">
+        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          ${statusPartBadgeHtml}
+          ${fotoProofBtnHtml}
+        </div>
+      </td>
+    ` : '';
 
     let actionTdHtml = '';
     if (canServiceRowActions) {
       let unfulfilledBtn = '';
-      if (isUnfulfilled) {
-        unfulfilledBtn = `
-          <button type="button" class="btnIcon btnUndo" onclick="undoBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="BATALKAN (UNDO)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #f59e0b !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
-            <span class="material-symbols-rounded" style="font-size: 15px !important;">undo</span>
+      let editPartBtn = '';
+      let unlockBtnAdmin = '';
+
+      if (isHandedOver) {
+        if (isAdmUserRole) {
+          // Khusus Admin: Tombol X untuk membuka kunci status serah
+          unlockBtnAdmin = `
+            <button type="button" class="btnIcon btnUnlockHandedOver" onclick="bukaKunciSerahPartAdmin('${req.noSurat}', ${idx})" title="BUKA KUNCI STATUS SERAH (KHUSUS ADMIN)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #dc2626 !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
+              <span class="material-symbols-rounded" style="font-size: 15px !important;">close</span>
+            </button>
+          `;
+          actionTdHtml = `
+            <td style="${tdStyleAutofit}">
+              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                ${unlockBtnAdmin}
+              </div>
+            </td>
+          `;
+        } else {
+          // User Biasa (Non-Admin): Tombol disembunyikan / dikunci
+          actionTdHtml = `
+            <td style="${tdStyleAutofit}">
+              <span style="font-size: 11px; font-weight: 700; color: #10b981;">🔒 SERAH</span>
+            </td>
+          `;
+        }
+      } else {
+        if (isUnfulfilled) {
+          unfulfilledBtn = `
+            <button type="button" class="btnIcon btnUndo" onclick="undoBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="BATALKAN (UNDO)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #f59e0b !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
+              <span class="material-symbols-rounded" style="font-size: 15px !important;">undo</span>
+            </button>
+          `;
+        } else {
+          unfulfilledBtn = `
+            <button type="button" class="btnIcon btnDelete" onclick="hapusBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="TANDAI TIDAK DIPENUHI" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #ef4444 !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
+              <span class="material-symbols-rounded" style="font-size: 15px !important;">cancel</span>
+            </button>
+          `;
+        }
+
+        editPartBtn = `
+          <button type="button" class="btnIcon btnEditPartRow" onclick="bukaModalEditKetPartSingle('${req.noSurat}', ${idx})" title="EDIT KETERANGAN / NO PART (FREE TEXT)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #0284c7 !important; color: #ffffff !important; border: none !important; cursor: pointer !important; margin-left: 4px !important;">
+            <span class="material-symbols-rounded" style="font-size: 15px !important;">edit_note</span>
           </button>
         `;
-      } else {
-        unfulfilledBtn = `
-          <button type="button" class="btnIcon btnDelete" onclick="hapusBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="TANDAI TIDAK DIPENUHI" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #ef4444 !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
-            <span class="material-symbols-rounded" style="font-size: 15px !important;">cancel</span>
-          </button>
+
+        actionTdHtml = `
+          <td style="${tdStyleAutofit}">
+            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+              ${unfulfilledBtn}
+              ${editPartBtn}
+            </div>
+          </td>
         `;
       }
-
-      const editPartBtn = `
-        <button type="button" class="btnIcon btnEditPartRow" onclick="bukaModalEditKetPartSingle('${req.noSurat}', ${idx})" title="EDIT KETERANGAN / NO PART (FREE TEXT)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #0284c7 !important; color: #ffffff !important; border: none !important; cursor: pointer !important; margin-left: 4px !important;">
-          <span class="material-symbols-rounded" style="font-size: 15px !important;">edit_note</span>
-        </button>
-      `;
-
-      actionTdHtml = `
-        <td style="${tdStyleAutofit}">
-          <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-            ${unfulfilledBtn}
-            ${editPartBtn}
-          </div>
-        </td>
-      `;
     }
 
     if (isDus) {
@@ -8923,6 +9011,149 @@ window.simpanStatusPart = simpanStatusPart;
 // ----------------------------------------------------
 // FITUR EDIT KETERANGAN PART PER BARIS (FREE TEXT MANUAL KHUSUS SERVICE / ADMIN)
 // ----------------------------------------------------
+function updateBtnFotoBuktiPartUI(fotoUrl) {
+  const iconEl = document.getElementById('iconFotoBuktiPart');
+  const textEl = document.getElementById('textFotoBuktiPart');
+  const btnEl = document.getElementById('btnFotoBuktiPart');
+  const btnHapusEl = document.getElementById('btnHapusFotoBuktiPart');
+  if (!iconEl || !btnEl) return;
+
+  const validUrl = fotoUrl && typeof fotoUrl === 'string' && fotoUrl.trim() !== '' && (fotoUrl.startsWith('http://') || fotoUrl.startsWith('https://') || fotoUrl.startsWith('data:image/'));
+
+  if (validUrl) {
+    // Foto sudah ada: ICON GAMBAR IMAGE (bukan mata!), warna hijau
+    iconEl.textContent = 'image';
+    if (textEl) textEl.textContent = 'LIHAT FOTO';
+    btnEl.style.background = 'rgba(16, 185, 129, 0.15)';
+    btnEl.style.color = '#10b981';
+    btnEl.style.borderColor = '#10b981';
+    btnEl.title = 'Klik untuk melihat foto bukti penyerahan part';
+    if (btnHapusEl) btnHapusEl.style.display = 'inline-flex';
+  } else {
+    // Foto belum ada: ICON KAMERA
+    iconEl.textContent = 'photo_camera';
+    if (textEl) textEl.textContent = 'FOTO BUKTI';
+    btnEl.style.background = 'rgba(2, 132, 199, 0.15)';
+    btnEl.style.color = '#0284c7';
+    btnEl.style.borderColor = '#0284c7';
+    btnEl.title = 'Upload foto bukti penyerahan part (opsional)';
+    if (btnHapusEl) btnHapusEl.style.display = 'none';
+  }
+}
+window.updateBtnFotoBuktiPartUI = updateBtnFotoBuktiPartUI;
+
+function hapusFotoBuktiPartSingle() {
+  const hiddenInput = document.getElementById('editKetPartSingleFotoUrl');
+  if (hiddenInput) hiddenInput.value = '';
+
+  const fileInput = document.getElementById('editKetPartSingleFileInput');
+  if (fileInput) fileInput.value = '';
+
+  updateBtnFotoBuktiPartUI('');
+  showNotif('FOTO BUKTI TELAH DIHAPUS DARI FORM!', 'info');
+}
+window.hapusFotoBuktiPartSingle = hapusFotoBuktiPartSingle;
+
+function isiQuickSudahDiserahkan() {
+  const el = document.getElementById('editKetPartSingleInput');
+  if (!el) return;
+
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const todayStr = `${dd}/${mm}/${yyyy}`;
+
+  const defaultText = `SUDAH DISERAHKAN ${todayStr}`;
+  
+  if (!el.value || el.value.trim() === '') {
+    el.value = defaultText;
+  } else if (!el.value.toUpperCase().includes('SUDAH DISERAHKAN')) {
+    el.value = `${defaultText} - ${el.value.trim()}`;
+  }
+  el.focus();
+}
+window.isiQuickSudahDiserahkan = isiQuickSudahDiserahkan;
+
+function handleKlikFotoBuktiPart() {
+  const hiddenInput = document.getElementById('editKetPartSingleFotoUrl');
+  const currentUrl = hiddenInput ? hiddenInput.value.trim() : '';
+
+  if (currentUrl && (currentUrl.startsWith('http://') || currentUrl.startsWith('https://') || currentUrl.startsWith('data:image/'))) {
+    // Foto sudah ada: Buka di viewer foto aplikasi resmi (#imageViewer)
+    if (typeof bukaViewGambar === 'function') {
+      bukaViewGambar(currentUrl);
+    } else if (typeof showImageViewer === 'function') {
+      showImageViewer(currentUrl);
+    } else {
+      window.open(currentUrl, '_blank');
+    }
+  } else {
+    // Belum ada foto: Buka file picker
+    const fileInput = document.getElementById('editKetPartSingleFileInput');
+    if (fileInput) fileInput.click();
+  }
+}
+window.handleKlikFotoBuktiPart = handleKlikFotoBuktiPart;
+
+function prosesPilihFotoBuktiPart(event) {
+  const file = event.target.files ? event.target.files[0] : null;
+  if (!file) return;
+
+  if (typeof showLoading === 'function') showLoading('MEMPROSES & MENGKOMPRES FOTO BUKTI PART...');
+
+  try {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        // Kompresi foto canvas max 1024px
+        const maxDim = 1024;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const compressedDataUrl = c.toDataURL('image/jpeg', 0.82);
+
+        const hiddenInput = document.getElementById('editKetPartSingleFotoUrl');
+        if (hiddenInput) hiddenInput.value = compressedDataUrl;
+
+        updateBtnFotoBuktiPartUI(compressedDataUrl);
+
+        if (typeof hideLoading === 'function') hideLoading();
+      };
+      img.onerror = () => {
+        if (typeof hideLoading === 'function') hideLoading();
+        showNotif('GAGAL MEMBACA FOTO BUKTI!', 'error');
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  } catch (err) {
+    if (typeof hideLoading === 'function') hideLoading();
+    console.error('Proses foto bukti error:', err);
+    showNotif('TERJADI KESALAHAN SAAT MEMPROSES FOTO BUKTI!', 'error');
+  }
+
+  event.target.value = '';
+}
+window.prosesPilihFotoBuktiPart = prosesPilihFotoBuktiPart;
+
 function bukaModalEditKetPartSingle(noSurat, itemIndex) {
   if (!noSurat) return;
   const role = currentUser ? (currentUser.category || '').toUpperCase() : '';
@@ -8955,6 +9186,7 @@ function bukaModalEditKetPartSingle(noSurat, itemIndex) {
   const seriVal = item.seri || item.sn || '-';
   const barangVal = item.barang || item.permintaan || '-';
   const currentKet = item.statusPart || item.keteranganPart || item.noPart || '';
+  const existingFoto = item.fotoBuktiPart || item.fotoPart || '';
 
   const titleEl = document.getElementById('editKetPartSingleTitle');
   if (titleEl) titleEl.textContent = `EDIT KETERANGAN PART (BARIS ${itemIndex + 1})`;
@@ -8964,6 +9196,11 @@ function bukaModalEditKetPartSingle(noSurat, itemIndex) {
 
   const idxHidden = document.getElementById('editKetPartSingleItemIndex');
   if (idxHidden) idxHidden.value = itemIndex;
+
+  const fotoHidden = document.getElementById('editKetPartSingleFotoUrl');
+  if (fotoHidden) fotoHidden.value = existingFoto;
+
+  updateBtnFotoBuktiPartUI(existingFoto);
 
   const infoEl = document.getElementById('editKetPartSingleItemInfo');
   if (infoEl) {
@@ -9001,80 +9238,209 @@ function simpanKeteranganPartSingle() {
   const noSuratHidden = document.getElementById('editKetPartSingleNoSurat');
   const idxHidden = document.getElementById('editKetPartSingleItemIndex');
   const inputEl = document.getElementById('editKetPartSingleInput');
+  const fotoHidden = document.getElementById('editKetPartSingleFotoUrl');
 
   const noSurat = noSuratHidden ? noSuratHidden.value.trim() : '';
   const itemIndex = idxHidden ? parseInt(idxHidden.value, 10) : -1;
   const newKet = inputEl ? inputEl.value.trim().toUpperCase() : '';
+  let tempFoto = fotoHidden ? fotoHidden.value.trim() : '';
 
   if (!noSurat || itemIndex < 0) {
     showNotif('DATA TIDAK VALID!', 'warning');
     return;
   }
 
+  showLoading('MENYIMPAN KETERANGAN PART & FOTO BUKTI...');
+
+  var _asyncSave = async function() {
+    try {
+      const requests = getRequestsFromDB();
+      const targetNo = String(noSurat).trim().toUpperCase();
+      const idx = requests.findIndex(r => r && (
+        String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+        String(r.id || '').trim().toUpperCase() === targetNo
+      ));
+
+      if (idx === -1) {
+        hideLoading();
+        showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+        return;
+      }
+
+      const items = Array.isArray(requests[idx].items) ? requests[idx].items : [];
+      if (itemIndex >= items.length) {
+        hideLoading();
+        showNotif('ITEM TIDAK DITEMUKAN!', 'warning');
+        return;
+      }
+
+      // 1. Unggah foto bukti ke Supabase Storage jika baru (format Base64 DataURL)
+      let finalFotoUrl = tempFoto;
+      if (tempFoto && tempFoto.startsWith('data:image/')) {
+        try {
+          const fileName = `PART_PROOF_${noSurat.replace(/[\/\.]/g, '_')}_${itemIndex + 1}_${Date.now()}.jpg`;
+          const uploadRes = await uploadSignatureDataUrlToSupabaseStorage(tempFoto, fileName);
+          if (uploadRes && (uploadRes.startsWith('http://') || uploadRes.startsWith('https://'))) {
+            finalFotoUrl = uploadRes;
+          }
+        } catch(upErr) {
+          console.warn('[UPLOAD FOTO BUKTI PART FALLBACK]:', upErr);
+        }
+      }
+
+      // 2. Simpan keterangan & foto bukti ke item
+      items[itemIndex].statusPart = newKet;
+      items[itemIndex].keteranganPart = newKet;
+      items[itemIndex].fotoBuktiPart = finalFotoUrl || '';
+      items[itemIndex].fotoPart = finalFotoUrl || '';
+
+      if (newKet.includes('SUDAH DISERAHKAN')) {
+        items[itemIndex].isHandedOver = true;
+      }
+
+      requests[idx].items = items;
+
+      const targetItemName = items[itemIndex].barang || items[itemIndex].permintaan || `Baris ${itemIndex + 1}`;
+
+      if (!requests[idx].log) requests[idx].log = [];
+      requests[idx].log.push({
+        action: 'UPDATE_KETERANGAN_PART_BARIS',
+        user: currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE',
+        notes: `Update keterangan part item '${targetItemName}': ${newKet || '(dikosongkan)'}`,
+        time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+      });
+
+      saveRequestsToDB(requests);
+
+      // 2. SINKRONISASI SUPABASE & FIREBASE CLOUD DI LATAR BELAKANG
+      const docId = String(noSurat).replace(/[\/\.]/g, '_');
+      if (typeof supabase !== 'undefined' && supabase) {
+        supabase.from('permintaan_toko').update({
+          items: requests[idx].items,
+          log: requests[idx].log,
+          updated_at: new Date().toISOString()
+        }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE STATUS PART UPDATE NOTICE]:', e));
+      }
+      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
+        dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
+      }
+      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
+        dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
+      }
+
+      if (typeof syncRealtimeToCentral === 'function') {
+        syncRealtimeToCentral(requests[idx]);
+      }
+
+      hideLoading();
+      tutupModalEditKetPartSingle();
+
+      if (typeof lihatDetail === 'function') {
+        lihatDetail(noSurat);
+      }
+      if (typeof renderRequestsTable === 'function') {
+        renderRequestsTable();
+      }
+
+      showNotif(`KETERANGAN PART '${targetItemName}' BERHASIL DISIMPAN!`, 'success');
+    } catch(e) {
+      hideLoading();
+      console.error('Simpan keterangan part error:', e);
+      showNotif('GAGAL MENYIMPAN KETERANGAN PART!', 'error');
+    }
+  };
+
+  _asyncSave();
+}
+window.simpanKeteranganPartSingle = simpanKeteranganPartSingle;
+
+function bukaKunciSerahPartAdmin(noSurat, itemIndex) {
+  if (!noSurat) return;
+  const isAdm = currentUser && ((currentUser.category || '').toUpperCase() === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
+  if (!isAdm) {
+    showNotif('HANYA ADMIN YANG DAPAT MEMBUKA KUNCI STATUS SERAH!', 'warning');
+    return;
+  }
+
+  showConfirm(`ADMIN: BUKA KUNCI STATUS SERAH BARIS ${itemIndex + 1}?`, function() {
+    try {
+      const requests = getRequestsFromDB();
+      const targetNo = String(noSurat).trim().toUpperCase();
+      const idx = requests.findIndex(r => r && (
+        String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+        String(r.id || '').trim().toUpperCase() === targetNo
+      ));
+      if (idx === -1) return;
+
+      const items = Array.isArray(requests[idx].items) ? requests[idx].items : [];
+      if (itemIndex >= items.length) return;
+
+      // Reset status diserahkan & foto bukti
+      items[itemIndex].statusPart = '';
+      items[itemIndex].keteranganPart = '';
+      items[itemIndex].fotoBuktiPart = '';
+      items[itemIndex].fotoPart = '';
+      items[itemIndex].isHandedOver = false;
+
+      requests[idx].items = items;
+
+      if (!requests[idx].log) requests[idx].log = [];
+      requests[idx].log.push({
+        action: 'ADMIN_BUKA_KUNCI_SERAH_PART',
+        user: currentUser ? (currentUser.fullName || currentUser.username) : 'ADMIN',
+        notes: `Admin membuka kunci status serah baris ${itemIndex + 1}`,
+        time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+      });
+
+      saveRequestsToDB(requests);
+      if (typeof syncRealtimeToCentral === 'function') syncRealtimeToCentral(requests[idx]);
+
+      if (typeof lihatDetail === 'function') {
+        lihatDetail(noSurat);
+      }
+      if (typeof renderRequestsTable === 'function') {
+        renderRequestsTable();
+      }
+
+      showNotif(`KUNCI STATUS SERAH BARIS ${itemIndex + 1} BERHASIL DIBUKA OLEH ADMIN!`, 'success');
+    } catch(e) {
+      console.error('Buka kunci serah error:', e);
+    }
+  });
+}
+window.bukaKunciSerahPartAdmin = bukaKunciSerahPartAdmin;
+
+function bukaFotoBuktiPartSingleItem(noSurat, itemIndex) {
+  if (!noSurat) return;
   try {
     const requests = getRequestsFromDB();
     const targetNo = String(noSurat).trim().toUpperCase();
-    const idx = requests.findIndex(r => r && (
+    const req = requests.find(r => r && (
       String(r.noSurat || '').trim().toUpperCase() === targetNo ||
       String(r.id || '').trim().toUpperCase() === targetNo
     ));
 
-    if (idx === -1) {
-      showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+    if (!req || !Array.isArray(req.items) || itemIndex < 0 || itemIndex >= req.items.length) return;
+
+    const item = req.items[itemIndex];
+    const url = item.fotoBuktiPart || item.fotoPart || '';
+    if (!url) {
+      showNotif('FOTO BUKTI TIDAK DITEMUKAN!', 'warning');
       return;
     }
 
-    const items = Array.isArray(requests[idx].items) ? requests[idx].items : [];
-    if (itemIndex >= items.length) {
-      showNotif('ITEM TIDAK DITEMUKAN!', 'warning');
-      return;
+    if (typeof bukaViewGambar === 'function') {
+      bukaViewGambar(url);
+    } else if (typeof showImageViewer === 'function') {
+      showImageViewer(url);
+    } else {
+      window.open(url, '_blank');
     }
-
-    // SIMPAN KE STATUS PART & KETERANGAN PART
-    items[itemIndex].statusPart = newKet;
-    items[itemIndex].keteranganPart = newKet;
-    requests[idx].items = items;
-
-    const targetItemName = items[itemIndex].barang || items[itemIndex].permintaan || `Baris ${itemIndex + 1}`;
-
-    if (!requests[idx].log) requests[idx].log = [];
-    requests[idx].log.push({
-      action: 'UPDATE_KETERANGAN_PART_BARIS',
-      user: currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE',
-      notes: `Update keterangan part item '${targetItemName}': ${newKet || '(dikosongkan)'}`,
-      time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
-    });
-
-    // 1. SIMPAN LOKAL SECARA INSTAN (0 ms)
-    saveRequestsToDB(requests);
-    tutupModalEditKetPartSingle();
-    showNotif(`KETERANGAN PART '${targetItemName}' BERHASIL DISIMPAN!`, 'success');
-
-    if (typeof loadRiwayat === 'function') loadRiwayat();
-    if (typeof loadDashboard === 'function') loadDashboard();
-    if (typeof lihatDetail === 'function') lihatDetail(noSurat);
-
-    // 2. SINKRONISASI SUPABASE CLOUD DI LATAR BELAKANG
-    const docId = String(noSurat).replace(/[\/\.]/g, '_');
-    if (typeof supabase !== 'undefined' && supabase) {
-      supabase.from('permintaan_toko').update({
-        items: requests[idx].items,
-        log: requests[idx].log,
-        updated_at: new Date().toISOString()
-      }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE STATUS PART UPDATE NOTICE]:', e));
-    }
-    if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
-      dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
-    }
-    if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
-      dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
-    }
-  } catch (err) {
-    console.error('[SIMPAN KETERANGAN PART SINGLE ERROR]:', err);
-    showNotif('GAGAL MENYIMPAN KETERANGAN PART: ' + (err.message || err), 'error');
+  } catch(e) {
+    console.error('Lihat foto bukti part error:', e);
   }
 }
-window.simpanKeteranganPartSingle = simpanKeteranganPartSingle;
+window.bukaFotoBuktiPartSingleItem = bukaFotoBuktiPartSingleItem;
 
 // LISTEN FOR MOBILE DEVICE / BROWSER BACK BUTTON TO CLOSE POPUP DETAIL
 window.addEventListener('popstate', (e) => {
@@ -9124,78 +9490,41 @@ function renderSafeTtdImageTag(sigUrl, styleAttr = 'max-height: 52px; max-width:
 window.renderSafeTtdImageTag = renderSafeTtdImageTag;
 
 function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', targetFullName = '') {
-  let ttdMap = {};
-  try {
-    ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
-  } catch(e) {}
-  let localMap = {};
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localMap = JSON.parse(localStorage.getItem('APP_USER_TTD_MAP') || '{}');
-    }
-  } catch(e) {}
-  const mergedMap = { ...ttdMap, ...localMap };
-
   const allUsers = getUsersFromDB();
   const role = String(targetRole || '').toUpperCase();
   const area = String(targetArea || '').toUpperCase();
   const uname = String(targetUsername || '').toUpperCase();
   const fname = String(targetFullName || '').toUpperCase();
 
-  // 1. PENCARIAN PRESISI: Jika dicari berdasarkan Username / ID / FullName Spesifik
+  // 1. PENCARIAN PRESISI LANGSUNG DI USER BERDASARKAN USERNAME / ID / FULLNAME
   if (uname) {
-    if (isValidSig(mergedMap[uname])) return mergedMap[uname];
-    try {
-      const loc = localStorage.getItem(`LOCAL_TTD_${uname}`);
-      if (isValidSig(loc)) return loc;
-    } catch(e) {}
     const u = allUsers.find(x => x && (
       String(x.username || '').toUpperCase() === uname ||
       String(x.id || '').toUpperCase() === uname
     ));
-    if (u) {
-      if (isValidSig(u.ttd)) return u.ttd;
-      if (isValidSig(mergedMap[u.id])) return mergedMap[u.id];
-      if (isValidSig(mergedMap[u.username])) return mergedMap[u.username];
-      // PENTING: Jika user spesifik tidak punya TTD, kembalikan KOSONG! Jangan ambil TTD user lain!
-      return '';
-    }
+    if (u && isValidSig(u.ttd)) return u.ttd;
   }
 
   if (fname) {
-    if (isValidSig(mergedMap[fname])) return mergedMap[fname];
     const u = allUsers.find(x => x && (
       String(x.fullName || '').toUpperCase() === fname ||
       String(x.full_name || '').toUpperCase() === fname
     ));
-    if (u) {
-      if (isValidSig(u.ttd)) return u.ttd;
-      if (isValidSig(mergedMap[u.id])) return mergedMap[u.id];
-      if (isValidSig(mergedMap[u.username])) return mergedMap[u.username];
-      // PENTING: Jika nama user spesifik tidak punya TTD, kembalikan KOSONG! Jangan ambil TTD user lain!
-      return '';
-    }
+    if (u && isValidSig(u.ttd)) return u.ttd;
   }
 
-  // 2. Pencarian berdasarkan Role & Area (Hanya jika TIDAK ada username/fullname spesifik yang dicari)
+  // 2. PENCARIAN LANGSUNG DI AKUN USER BERDASARKAN ROLE & AREA
   if (role === 'SERVICE' || role === 'HODS') {
     if (area) {
       const srvAreaUsers = allUsers.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && isAreaMatch(u.area, area));
       for (let srv of srvAreaUsers) {
         if (isValidSig(srv.ttd)) return srv.ttd;
-        if (isValidSig(mergedMap[srv.id])) return mergedMap[srv.id];
-        if (isValidSig(mergedMap[srv.username])) return mergedMap[srv.username];
       }
     }
-    // Jika tidak ditemukan TTD di area tersebut, KEMBALIKAN KOSONG (JANGAN AMBIL TTD RANDOMLY DARI USER LAIN)
     return '';
   } else if (role === 'DM' || role === 'DISTRICT_MANAGER') {
     const dmUser = allUsers.find(u => u && (u.category === 'DM' || u.category === 'ADMIN'));
-    if (dmUser) {
-      if (isValidSig(dmUser.ttd)) return dmUser.ttd;
-      if (isValidSig(mergedMap[dmUser.id])) return mergedMap[dmUser.id];
-      if (isValidSig(mergedMap[dmUser.username])) return mergedMap[dmUser.username];
-    }
+    if (dmUser && isValidSig(dmUser.ttd)) return dmUser.ttd;
     return '';
   } else if (role === 'GBJ') {
     const gbjUser = allUsers.find(u => u && (
@@ -9203,11 +9532,14 @@ function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', 
       String(u.username || '').toUpperCase().includes('GBJ') ||
       String(u.fullName || '').toUpperCase().includes('GBJ')
     ));
-    if (gbjUser) {
-      if (isValidSig(gbjUser.ttd)) return gbjUser.ttd;
-      if (gbjUser.id && isValidSig(mergedMap[gbjUser.id])) return mergedMap[gbjUser.id];
-      if (gbjUser.username && isValidSig(mergedMap[gbjUser.username])) return mergedMap[gbjUser.username];
-    }
+    if (gbjUser && isValidSig(gbjUser.ttd)) return gbjUser.ttd;
+    return '';
+  } else if (role === 'TOKO') {
+    const tokoUser = allUsers.find(u => u && (
+      String(u.username || '').toUpperCase() === uname ||
+      String(u.fullName || '').toUpperCase() === fname
+    ));
+    if (tokoUser && isValidSig(tokoUser.ttd)) return tokoUser.ttd;
     return '';
   }
 
@@ -9647,13 +9979,12 @@ function bukaPdfModal(noSurat, includePhotos = null) {
   const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
   const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
   const serviceName = req.serviceUserName || (serviceUser ? serviceUser.fullName : 'SERVICE SUPERVISOR');
-  const dmName = req.dmUserName || (dmUser ? dmUser.fullName : 'DISTRICT MANAGER');
+  const dmName = 'FERRY EDIYANTO';
 
-  const ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
   let serviceTTD = req.serviceTTD || '';
   const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
 
-  // Verifikasi TTD Service presisi berdasarkan nama yang menyetujui
+  // Verifikasi TTD Service langsung dari akun User Service terkait
   if (reqSrvName) {
     const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
     serviceTTD = exactSig;
@@ -9662,12 +9993,12 @@ function bukaPdfModal(noSurat, includePhotos = null) {
   }
 
   if (!isValidSig(serviceTTD)) {
-    serviceTTD = ''; // KOSONGKAN TOTAL JIKA USER SERVICE BERANGKUTAN BELUM PUNYA TTD
+    serviceTTD = ''; // KOSONGKAN JIKA USER SERVICE BELUM MEMPUNYAI TTD
   }
 
   let dmTTD = req.dmTTD || '';
-  if (!isValidSig(dmTTD) && dmUser) {
-    dmTTD = dmUser.ttd || ttdMap[dmUser.id] || ttdMap[dmUser.username] || ttdMap[dmUser.fullName] || '';
+  if (!isValidSig(dmTTD)) {
+    dmTTD = getUserRealSignature('DM', '', '', 'FERRY EDIYANTO') || (dmUser ? dmUser.ttd : '');
   }
   if (!isValidSig(dmTTD)) {
     dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD
@@ -9680,12 +10011,26 @@ function bukaPdfModal(noSurat, includePhotos = null) {
   );
 
   let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
+  let pemohonName = req.toko || req.createdBy || 'PEMOHON';
+  let pemohonRoleTitle = 'PEMOHON (TOKO)';
 
-  if (!isValidSig(pemohonTTD)) {
-    if (isReqFromGBJ) {
-      pemohonTTD = getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy) || ttdMap['GBJ'] || '';
-    } else {
-      pemohonTTD = ttdMap[req.createdBy] || ttdMap[req.toko] || getUserRealSignature('TOKO', req.area, req.createdBy, req.toko) || '';
+  if (isReqFromGBJ) {
+    const gbjUser = users.find(u => u && (
+      (u.id && String(u.id).toUpperCase() === String(req.createdBy || '').toUpperCase()) ||
+      (u.username && String(u.username).toUpperCase() === String(req.createdBy || '').toUpperCase()) ||
+      (u.fullName && String(u.fullName).toUpperCase() === String(req.createdBy || '').toUpperCase()) ||
+      u.category === 'GBJ'
+    ));
+
+    pemohonName = (gbjUser ? (gbjUser.fullName || gbjUser.username) : '') || req.createdBy || req.toko || 'GBJ';
+    pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
+
+    if (!isValidSig(pemohonTTD)) {
+      pemohonTTD = (gbjUser && isValidSig(gbjUser.ttd)) ? gbjUser.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
+    }
+  } else {
+    if (!isValidSig(pemohonTTD)) {
+      pemohonTTD = getUserRealSignature('TOKO', req.area, req.createdBy, req.toko);
     }
   }
 
@@ -9733,7 +10078,7 @@ function bukaPdfModal(noSurat, includePhotos = null) {
 
   let tableHeaderBg = '#0284c7';
   let headerTitleHtml = `
-    <div style="text-align: center; font-size: 20px; font-weight: 800; border-bottom: 2.5px solid #0f172a; padding-bottom: 8px; margin-bottom: 36px; letter-spacing: 0.5px; color: #0f172a; text-transform: uppercase;">
+    <div style="text-align: center; font-size: 20px; font-weight: 800; border-bottom: 2.5px solid #0f172a; padding-bottom: 24px; margin-bottom: 20px; letter-spacing: 0.5px; color: #0f172a; text-transform: uppercase;">
       PERMINTAAN TOKO
     </div>
   `;
@@ -9836,8 +10181,8 @@ function bukaPdfModal(noSurat, includePhotos = null) {
               ${renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
             </div>
             <div>
-              <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${req.toko || req.createdBy || 'PEMOHON'}</div>
-              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">PEMOHON (TOKO)</div>
+              <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
+              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
             </div>
           </div>
 
@@ -9904,6 +10249,10 @@ function cetakDokumenPdf() {
     return;
   }
 
+  // Ambil No Surat aktif dan bersihkan karakter / serta - untuk nama file PDF
+  const rawNoSurat = window._currentActivePdfNoSurat || '';
+  const docTitle = String(rawNoSurat).replace(/[\/\-]/g, '').trim() || 'PERMINTAAN_TOKO';
+
   try {
     const printWindow = window.open('', '_blank', 'width=900,height=800');
     if (printWindow) {
@@ -9911,7 +10260,7 @@ function cetakDokumenPdf() {
         <!DOCTYPE html>
         <html>
           <head>
-            <title>DOKUMEN PERMINTAAN TOKO</title>
+            <title>${docTitle}</title>
             <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
             <style>
               * {
@@ -9920,15 +10269,21 @@ function cetakDokumenPdf() {
                 print-color-adjust: exact !important;
                 color-adjust: exact !important;
               }
+              @page {
+                size: A4 portrait;
+                margin: 0;
+              }
               body {
                 margin: 0;
-                padding: 20px;
+                padding: 8mm;
                 background: #ffffff;
                 color: #0f172a;
                 font-family: 'Poppins', sans-serif;
               }
               .pdf-paper {
                 width: 100% !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
               }
               .pdf-info-table td {
                 border: none !important;
@@ -9937,17 +10292,12 @@ function cetakDokumenPdf() {
                 width: 100% !important;
                 border: none !important;
                 box-shadow: none !important;
-                border: none !important;
                 padding: 0 !important;
                 background: #ffffff !important;
               }
               table {
                 width: 100% !important;
                 border-collapse: collapse !important;
-              }
-              @page {
-                size: A4 portrait;
-                margin: 10mm;
               }
             </style>
           </head>
@@ -10194,7 +10544,7 @@ async function prosesFotoKeTTD(event) {
 
         let drawWidth = img.width;
         let drawHeight = img.height;
-        const scale = Math.min(cWidth / drawWidth, cHeight / drawHeight) * 0.82;
+        const scale = Math.min(cWidth / drawWidth, cHeight / drawHeight) * 0.84;
 
         drawWidth = Math.round(drawWidth * scale);
         drawHeight = Math.round(drawHeight * scale);
@@ -10202,6 +10552,7 @@ async function prosesFotoKeTTD(event) {
         const offsetX = Math.round((cWidth - drawWidth) / 2);
         const offsetY = Math.round((cHeight - drawHeight) / 2);
 
+        // Isi latar putih murni pada kanvas sementara
         tCtx.fillStyle = '#ffffff';
         tCtx.fillRect(0, 0, cWidth, cHeight);
         tCtx.imageSmoothingEnabled = true;
@@ -10211,51 +10562,76 @@ async function prosesFotoKeTTD(event) {
         const imgData = tCtx.getImageData(0, 0, cWidth, cHeight);
         const data = imgData.data;
 
-        // ALGORITMA ADAPTIF PEMBERSIH BAYANGAN/WARNA KERTAS KAMERA HP (ANTI COKLAT/KUNING)
+        // Analisis sampel kecerahan kertas (di dalam area foto)
         const lums = [];
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-          lums.push(lum);
+        for (let y = offsetY; y < offsetY + drawHeight; y++) {
+          for (let x = offsetX; x < offsetX + drawWidth; x++) {
+            const idx = (y * cWidth + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            lums.push(lum);
+          }
         }
 
-        // Sampling kecerahan kertas (ambil persentil ke-85 sebagai patokan latar kertas kamera)
         lums.sort((a, b) => a - b);
         const p85Idx = Math.floor(lums.length * 0.85);
         const paperLuminance = lums[p85Idx] || 220;
 
-        // Threshold adaptif: Apapun yang mendekati warna kertas akan dibuat 100% transparan
-        const paperCutoff = Math.max(100, paperLuminance - 28);
-        const inkCutoff = Math.max(60, paperCutoff - 20);
+        // Batas ambang transparansi kertas adaptif (anti bayangan & anti bingkai hitam kamera)
+        const paperCutoff = Math.max(120, paperLuminance - 35);
+        const inkCutoff = Math.max(50, paperCutoff - 30);
 
         const outputImgData = ctxTTD.createImageData(cWidth, cHeight);
         const outData = outputImgData.data;
 
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        // Margin pembersih bingkai luar (8px) untuk membuang garis kotak bingkai kamera HP
+        const borderPadding = 8;
 
-          if (lum < paperCutoff) {
-            outData[i] = 15;      // R (dark navy ink)
-            outData[i + 1] = 23;  // G
-            outData[i + 2] = 42;  // B
+        for (let y = 0; y < cHeight; y++) {
+          for (let x = 0; x < cWidth; x++) {
+            const i = (y * cWidth + x) * 4;
 
-            if (lum <= inkCutoff) {
-              outData[i + 3] = 255; // Tinta pekat
-            } else {
-              // Smooth anti-aliasing edge
-              const norm = (paperCutoff - lum) / (paperCutoff - inkCutoff);
-              outData[i + 3] = Math.min(255, Math.max(140, Math.round(norm * 255)));
+            // Jika piksel berada di luar foto atau sangat dekat bingkai foto, buat 100% transparan
+            if (
+              x < offsetX + borderPadding ||
+              x >= offsetX + drawWidth - borderPadding ||
+              y < offsetY + borderPadding ||
+              y >= offsetY + drawHeight - borderPadding
+            ) {
+              outData[i] = 0;
+              outData[i + 1] = 0;
+              outData[i + 2] = 0;
+              outData[i + 3] = 0;
+              continue;
             }
-          } else {
-            outData[i] = 0;
-            outData[i + 1] = 0;
-            outData[i + 2] = 0;
-            outData[i + 3] = 0; // Transparan sempurna (bayangan kertas kuning/coklat dibuang)
+
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+            // Cek jika piksel adalah tinta tulisan TTD asli (jauh lebih gelap dibanding kertas)
+            if (lum < paperCutoff) {
+              outData[i] = 15;      // R (dark navy ink)
+              outData[i + 1] = 23;  // G
+              outData[i + 2] = 42;  // B
+
+              if (lum <= inkCutoff) {
+                outData[i + 3] = 255; // Tinta pekat murni
+              } else {
+                // Smooth anti-aliasing edge
+                const norm = (paperCutoff - lum) / (paperCutoff - inkCutoff);
+                outData[i + 3] = Math.min(255, Math.max(120, Math.round(norm * 255)));
+              }
+            } else {
+              // Latar putih/kuning/cokelat kertas & bayangan kamera dibuat 100% transparan
+              outData[i] = 0;
+              outData[i + 1] = 0;
+              outData[i + 2] = 0;
+              outData[i + 3] = 0;
+            }
           }
         }
 
@@ -10266,7 +10642,6 @@ async function prosesFotoKeTTD(event) {
         ctxTTD.restore();
 
         if (typeof hideLoading === 'function') hideLoading();
-        showNotif('BERHASIL MENGONVERSI FOTO MENJADI TTD DIGITAL TRANSPARAN!', 'success');
       };
 
       img.onerror = () => {
@@ -10381,32 +10756,39 @@ function simpanTTD() {
   showConfirm('SIMPAN TANDA TANGAN DIGITAL INI?', function() {
     var _asyncTask = async function() {
       if (!canvasTTD) return;
-      showLoading('MENGUNGGAH TTD DIGITAL...');
+      showLoading('MENGUNGGAH TTD DIGITAL KE STORAGE...');
       try {
         const rawPng = cropAndCenterCanvasSignature(canvasTTD);
-        const ttdUrl = await uploadSignatureDataUrlToSupabaseStorage(rawPng, `TTD_${(currentUser && currentUser.username ? currentUser.username : 'USER')}_${Date.now()}.png`);
+        if (!rawPng || !rawPng.startsWith('data:image/')) {
+          hideLoading();
+          showNotif('TTD KOSONG ATAU TIDAK VALID!', 'warning');
+          return;
+        }
+
+        // Unggah gambar ke Supabase Storage untuk mendapatkan URL publik (HTTP/HTTPS)
+        const ttdUrl = await uploadSignatureDataUrlToSupabaseStorage(
+          rawPng, 
+          `TTD_${(currentUser && currentUser.username ? currentUser.username : 'USER')}_${Date.now()}.png`
+        );
         
-        const ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
-        let key = currentUser.category === 'DM' ? 'DM' : `SERVICE_${currentUser.area}`;
-        if (currentUser.category === 'GBJ') key = 'GBJ';
-        ttdMap[key] = ttdUrl;
-        if (currentUser.fullName) ttdMap[currentUser.fullName] = ttdUrl;
-        if (currentUser.username) ttdMap[currentUser.username] = ttdUrl;
-        if (currentUser.id) ttdMap[currentUser.id] = ttdUrl;
-        if (currentUser.category === 'SERVICE') {
-          ttdMap[`SERVICE_${currentUser.area}`] = ttdUrl;
-          ttdMap['HODS'] = ttdUrl;
-          delete ttdMap['SERVICE'];
+        // WAJIB FORMAT URL HTTP/HTTPS (TIDAK BOLEH FORMAT BASE64)
+        if (!ttdUrl || typeof ttdUrl !== 'string' || (!ttdUrl.startsWith('http://') && !ttdUrl.startsWith('https://'))) {
+          hideLoading();
+          showNotif('GAGAL MENGUNGGAH TTD: HASIL HARUS FORMAT URL HTTP/HTTPS (BUKAN BASE64)!', 'error');
+          return;
         }
-        if (currentUser.category === 'GBJ') {
-          ttdMap['GBJ'] = ttdUrl;
+
+        // SIMPAN TTD HANYA PADA OBJEK USER TERKAIT (DI MENU/DATABASE USERS)
+        if (currentUser) {
+          currentUser.ttd = ttdUrl;
         }
-        currentUser.ttd = ttdUrl;
-        appStorage.setItem(TTD_DB_KEY, JSON.stringify(ttdMap));
 
         try {
           const allUsers = getUsersFromDB();
-          const uIdx = allUsers.findIndex(u => u && (u.id === currentUser.id || u.username === currentUser.username));
+          const uIdx = allUsers.findIndex(u => u && (
+            (u.id && currentUser && currentUser.id && String(u.id) === String(currentUser.id)) ||
+            (u.username && currentUser && currentUser.username && String(u.username).toUpperCase() === String(currentUser.username).toUpperCase())
+          ));
           if (uIdx !== -1) {
             allUsers[uIdx].ttd = ttdUrl;
             saveUsersToDB(allUsers);
@@ -10418,29 +10800,17 @@ function simpanTTD() {
             const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
             if (rtdb && currentUser) {
               const keyUser = String(currentUser.username || currentUser.id).replace(/[\/\.#$\[\]]/g, '_');
+              rtdb.ref(`users/${keyUser}/ttd`).set(ttdUrl).catch(() => {});
               rtdb.ref(`user_signatures/${keyUser}`).set(ttdUrl).catch(() => {});
-              rtdb.ref(`app_settings/ttdMap/${keyUser}`).set(ttdUrl).catch(() => {});
             }
             const fs = typeof getDbFirestore === 'function' ? getDbFirestore() : null;
             if (fs && currentUser) {
               const keyUser = String(currentUser.username || currentUser.id).replace(/[\/\.#$\[\]]/g, '_');
+              fs.collection('users').doc(keyUser).set({ ttd: ttdUrl, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
               fs.collection('user_signatures').doc(keyUser).set({ ttd: ttdUrl, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
             }
           } catch(e) {}
-          if (typeof rebuildTtdMapFromUsers === 'function') rebuildTtdMapFromUsers();
-      if (typeof syncFirebaseSignaturesToLocalCache === 'function') syncFirebaseSignaturesToLocalCache().catch(() => {});
         } catch(uErr) {}
-
-        try {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('APP_USER_TTD_MAP', JSON.stringify(ttdMap));
-            localStorage.setItem(TTD_DB_KEY, JSON.stringify(ttdMap));
-            if (currentUser) {
-              if (currentUser.id) localStorage.setItem(`LOCAL_TTD_${currentUser.id}`, ttdUrl);
-              if (currentUser.username) localStorage.setItem(`LOCAL_TTD_${currentUser.username}`, ttdUrl);
-            }
-          }
-        } catch(e) {}
 
         if (currentUser) {
           if (currentUser.id) appStorage.setItem(`LOCAL_TTD_${currentUser.id}`, ttdUrl);
@@ -10478,7 +10848,7 @@ function simpanTTD() {
 
         hideLoading();
         tutupTTD();
-        showNotif('TANDA TANGAN DIGITAL BERHASIL DISIMPAN & DIUNGGAH SEBAGAI URL!', 'success');
+        showNotif('TANDA TANGAN DIGITAL BERHASIL DISIMPAN SEBAGAI URL KE PROFIL USER!', 'success');
       } catch(err) {
         hideLoading();
         console.error('[SIMPAN TTD ERROR]:', err);
@@ -10490,26 +10860,19 @@ function simpanTTD() {
 }
 
 async function loadTTD() {
-  let localTTD = null;
-  try {
-    if (typeof localStorage !== 'undefined' && currentUser) {
-      localTTD = localStorage.getItem(`LOCAL_TTD_${currentUser.id}`) || localStorage.getItem(`LOCAL_TTD_${currentUser.username}`);
-    }
-  } catch(e) {}
-
-  let ttdMap = {};
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const rawMap = localStorage.getItem('APP_USER_TTD_MAP');
-      if (rawMap) ttdMap = JSON.parse(rawMap);
-    }
-  } catch(e) {}
-
-  if (!Object.keys(ttdMap).length) {
-    ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
-  }
-
-  const data = localTTD || (currentUser ? (appStorage.getItem(`LOCAL_TTD_${currentUser.id}`) || appStorage.getItem(`LOCAL_TTD_${currentUser.username}`) || ttdMap[currentUser.id] || ttdMap[currentUser.username] || ttdMap[currentUser.fullName]) : null);
+  if (!currentUser) return;
+  
+  const allUsers = getUsersFromDB();
+  const freshUser = allUsers.find(u => u && (
+    (u.id && String(u.id) === String(currentUser.id)) ||
+    (u.username && String(u.username).toUpperCase() === String(currentUser.username).toUpperCase())
+  ));
+  
+  const data = (currentUser && isValidSig(currentUser.ttd)) 
+    ? currentUser.ttd 
+    : (freshUser && isValidSig(freshUser.ttd) ? freshUser.ttd : (
+        localStorage.getItem(`LOCAL_TTD_${currentUser.id}`) || localStorage.getItem(`LOCAL_TTD_${currentUser.username}`)
+      ));
   
   if (data) {
     _currentLoadedTtdOriginal = data;
@@ -14683,6 +15046,9 @@ function bukaViewGambar(src, startIdx = 0) {
 }
 window.bukaViewGambar = bukaViewGambar;
 window.zoomFoto = bukaViewGambar;
+window.bukaViewerFoto = bukaViewGambar;
+window.showImageViewer = bukaViewGambar;
+window.viewFotoUrl = bukaViewGambar;
 
 function tutupImageViewer() {
   const modal = document.getElementById('imageViewer');

@@ -502,14 +502,20 @@ window.applyThemeToDocument = updateBodyClasses;
 // BACKGROUND SCENERY CHANGER (DISIMPAN DI LOKAL STORAGE PERANGKAT)
 // ==========================================================================
 const BG_STORAGE_KEY = 'STORE_BG_IMAGE_CHOICE_V2';
+const DEFAULT_PNG_BG = 'bg-theme-1.png';
 
 function applyAppBackground(bgChoice, saveToLocal = true) {
   if (!bgChoice) {
     try {
-      bgChoice = localStorage.getItem(BG_STORAGE_KEY) || 'bg-scenery-2.jpg';
+      bgChoice = localStorage.getItem(BG_STORAGE_KEY) || DEFAULT_PNG_BG;
     } catch(e) {
-      bgChoice = 'bg-scenery-2.jpg';
+      bgChoice = DEFAULT_PNG_BG;
     }
+  }
+
+  // Backward compatibility check
+  if (bgChoice === 'bg-scenery.png') {
+    bgChoice = 'bg-theme-1.png';
   }
 
   if (saveToLocal) {
@@ -533,32 +539,27 @@ function applyAppBackground(bgChoice, saveToLocal = true) {
 }
 
 function gantiBackgroundApp() {
-  let currentBg = 'bg-scenery-2.jpg';
+  let currentBg = DEFAULT_PNG_BG;
   try {
-    currentBg = localStorage.getItem(BG_STORAGE_KEY) || 'bg-scenery-2.jpg';
+    currentBg = localStorage.getItem(BG_STORAGE_KEY) || DEFAULT_PNG_BG;
   } catch(e) {}
 
-  let nextBg = 'bg-scenery-2.jpg';
-  let nextName = 'Malam Bulan Fantasi';
+  if (currentBg === 'bg-scenery.png') currentBg = 'bg-theme-1.png';
 
-  if (currentBg === 'bg-scenery-2.jpg') {
-    nextBg = 'bg-scenery.jpg';
-    nextName = 'Danau & Pegunungan';
-  } else if (currentBg === 'bg-scenery.jpg') {
-    nextBg = 'bg-scenery-3.jpg';        // <-- FOTO 3 (JPG)
-    nextName = 'Pemandangan 3';
-  } else if (currentBg === 'bg-scenery-3.jpg' || currentBg === 'bg-scenery-3.png') {
-    nextBg = 'bg-scenery-4.jpg';        // <-- FOTO 4 (JPG)
-    nextName = 'Pemandangan 4';
-  } else if (currentBg === 'bg-scenery-4.jpg' || currentBg === 'bg-scenery-4.png') {
-    nextBg = 'bg-scenery-5.jpg';        // <-- FOTO 5 (JPG)
-    nextName = 'Pemandangan 5';
-  } else if (currentBg === 'bg-scenery-5.jpg') {
-    nextBg = 'none';                    // <-- POLOS TANPA GAMBAR
-    nextName = 'Polos / Tanpa Gambar';
+  // SIKLUS MULTI TEMA (HENING TANPA POPUP NOTIFIKASI):
+  // 1. bg-theme-1.png (Futuristic Blue Moonlight Lake)
+  // 2. bg-theme-2.png (Cyberpunk Sunset Skyline)
+  // 3. bg-theme-3.png (Emerald Aurora Pine Forest)
+  // 4. none (Polos / Tanpa Gambar)
+  let nextBg = 'bg-theme-1.png';
+  if (currentBg === 'bg-theme-1.png') {
+    nextBg = 'bg-theme-2.png';
+  } else if (currentBg === 'bg-theme-2.png') {
+    nextBg = 'bg-theme-3.png';
+  } else if (currentBg === 'bg-theme-3.png') {
+    nextBg = 'none';
   } else {
-    nextBg = 'bg-scenery-2.jpg';        // <-- KEMBALI KE FOTO 1
-    nextName = 'Malam Bulan Fantasi';
+    nextBg = 'bg-theme-1.png';
   }
 
   applyAppBackground(nextBg, true);
@@ -3631,6 +3632,29 @@ async function pushCentralCloudDB(target = null) {
           } catch(e) {}
         }
 
+        const currentGeminiKey = getGeminiApiKey();
+        if (currentGeminiKey) {
+          const systemGeminiRow = {
+            id: '__SYSTEM_GEMINI_KEY__',
+            no_surat: '__SYSTEM_GEMINI_KEY__',
+            tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
+            toko: 'SYSTEM',
+            area: 'ALL',
+            jenis: 'SYSTEM',
+            catatan: JSON.stringify({ geminiApiKey: currentGeminiKey, time: Date.now(), by: (currentUser && currentUser.username ? currentUser.username : 'USER') || 'ADMIN' }),
+            items: [],
+            photos: [],
+            status: 'DONE',
+            service_approve: true,
+            created_by: 'SYSTEM',
+            created_at: new Date().toISOString()
+          };
+          await safeSupabaseUpsertPermintaan(systemGeminiRow);
+
+          try {
+            await supabase.from('lookup').upsert({ key: 'geminiApiKey', value: currentGeminiKey, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+          } catch(e) {}
+        }
 
       } catch (sbErr) {
         console.warn('[SUPABASE PUSH NOTICE]:', sbErr);
@@ -3657,6 +3681,7 @@ async function pushCentralCloudDB(target = null) {
           chatMessages: chatMsgs,
           chatRooms: chatRooms,
           kodeUnitMapJson: mapJsonStr,
+          geminiApiKey: getGeminiApiKey() || '',
           totalMasterItems: Object.keys(kodeUnitMap).length,
           updatedAt: new Date().toISOString()
         }, { merge: true });
@@ -5644,20 +5669,37 @@ function initMobileBackButtonEngine() {
       return;
     }
 
-    // 4. MODAL UTAMA LAINNYA (DITUTUP SATU PER SATU DARI LAPISAN PALING ATAS)
+function triggerConfirmBoxFlash() {
+  const card = document.getElementById('confirmBoxCard');
+  if (card) {
+    card.classList.remove('modal-shake-flash');
+    void card.offsetWidth; // Trigger reflow
+    card.classList.add('modal-shake-flash');
+    setTimeout(() => {
+      card.classList.remove('modal-shake-flash');
+    }, 450);
+  }
+}
+window.triggerConfirmBoxFlash = triggerConfirmBoxFlash;
+
+    // 4. MODAL UTAMA LAINNYA (DITUTUP SATU PER SATU DARI LAPISAN PALING ATAS KE LAPISAN BELAKANG)
     const modalPriorityStack = [
-      { id: 'rejectOverlay', closeFn: () => { const el = document.getElementById('rejectOverlay'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
-      { id: 'confirmOverlay', closeFn: () => { const el = document.getElementById('confirmOverlay'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
-      { id: 'popupDetail', closeFn: () => { if (typeof closeDetail === 'function') closeDetail(); } },
-      { id: 'popupDetailBarangV2', closeFn: () => { if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(); } },
       { id: 'artemisOverlay', closeFn: () => { if (typeof closeArtemisModal === 'function') closeArtemisModal(); } },
+      { id: 'rejectOverlay', closeFn: () => { if (typeof tutupRejectModal === 'function') tutupRejectModal(); } },
+      { id: 'confirmOverlay', closeFn: () => { 
+          if (typeof triggerConfirmBoxFlash === 'function') triggerConfirmBoxFlash();
+          if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+        } 
+      },
       { id: 'popupUserForm', closeFn: () => { const el = document.getElementById('popupUserForm'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
       { id: 'popupUserManagementModal', closeFn: () => { const el = document.getElementById('popupUserManagementModal'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
       { id: 'popupNotifList', closeFn: () => { const el = document.getElementById('popupNotifList'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
       { id: 'popupBantuan', closeFn: () => { const el = document.getElementById('popupBantuan'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
       { id: 'popupTambahToko', closeFn: () => { const el = document.getElementById('popupTambahToko'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
       { id: 'scannerModal', closeFn: () => { if (typeof tutupScanner === 'function') tutupScanner(); } },
-      { id: 'excelTemplateOverlay', closeFn: () => { if (typeof closeExcelTemplateModal === 'function') closeExcelTemplateModal(); } }
+      { id: 'excelTemplateOverlay', closeFn: () => { if (typeof closeExcelTemplateModal === 'function') closeExcelTemplateModal(); } },
+      { id: 'popupDetailBarangV2', closeFn: () => { if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(); } },
+      { id: 'popupDetail', closeFn: () => { if (typeof closeDetail === 'function') closeDetail(); } }
     ];
 
     for (let mItem of modalPriorityStack) {
@@ -9635,18 +9677,6 @@ function bukaFotoBuktiPartSingleItem(noSurat, itemIndex) {
 }
 window.bukaFotoBuktiPartSingleItem = bukaFotoBuktiPartSingleItem;
 
-// LISTEN FOR MOBILE DEVICE / BROWSER BACK BUTTON TO CLOSE POPUP DETAIL
-window.addEventListener('popstate', (e) => {
-  const artemisOverlay = document.getElementById('artemisOverlay');
-  if (artemisOverlay && (artemisOverlay.classList.contains('show') || artemisOverlay.style.display === 'flex' || artemisOverlay.style.display === 'block')) {
-    if (typeof closeArtemisModal === 'function') closeArtemisModal();
-  }
-  const popupDetailV2 = document.getElementById('popupDetailBarangV2');
-  if (popupDetailV2 && popupDetailV2.style.display !== 'none' && popupDetailV2.style.display !== '') {
-    tutupDetailBarangV2();
-  }
-});
-
 function closeDetail() {
   const detailModal = document.getElementById('popupDetail');
   if (detailModal) {
@@ -9932,7 +9962,7 @@ function renderFullPdfPreviewDocument(modelId) {
 
       <div style="display: flex; justify-content: space-around; font-size: 10.5px; text-align: center; margin-top: 14px;">
         <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; min-height: 110px; text-align: center;">
-          <div style="font-weight: 800; color: #0f172a; text-transform: uppercase;">PEMOHON</div>
+          <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">PEMOHON</div>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 48px;">
             ${(() => {
               const tokoSig = (currentUser && currentUser.category === 'TOKO' && isValidSig(currentUser.ttd)) ? currentUser.ttd : getUserRealSignature('TOKO');
@@ -9940,13 +9970,13 @@ function renderFullPdfPreviewDocument(modelId) {
             })()}
           </div>
           <div>
-            <div style="font-weight: 800; color: #0f172a; font-size: 11px;">TOKO UTAMA</div>
+            <div style="font-weight: 500; color: #0f172a; font-size: 11px;">TOKO UTAMA</div>
             <div style="font-size: 9.5px; color: #475569; margin-top: 1px; text-transform: uppercase;">PEMOHON (TOKO)</div>
           </div>
         </div>
 
         <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; min-height: 110px; text-align: center;">
-          <div style="font-weight: 800; color: #0f172a; text-transform: uppercase;">DIPERIKSA</div>
+          <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DIPERIKSA</div>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 48px;">
             ${(() => {
               const srvSig = getUserRealSignature('SERVICE', 'BDG');
@@ -9954,13 +9984,13 @@ function renderFullPdfPreviewDocument(modelId) {
             })()}
           </div>
           <div>
-            <div style="font-weight: 800; color: #0f172a; font-size: 11px;">SERVICE BANDUNG</div>
+            <div style="font-weight: 500; color: #0f172a; font-size: 11px;">SERVICE BANDUNG</div>
             <div style="font-size: 9.5px; color: #475569; margin-top: 1px; text-transform: uppercase;">HODS BANDUNG</div>
           </div>
         </div>
 
         <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; min-height: 110px; text-align: center;">
-          <div style="font-weight: 800; color: #0f172a; text-transform: uppercase;">DISETUJUI</div>
+          <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DISETUJUI</div>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 48px;">
             ${(() => {
               const dmSig = getUserRealSignature('DM');
@@ -9968,7 +9998,7 @@ function renderFullPdfPreviewDocument(modelId) {
             })()}
           </div>
           <div>
-            <div style="font-weight: 800; color: #0f172a; font-size: 11px;">${typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO'}</div>
+            <div style="font-weight: 500; color: #0f172a; font-size: 11px;">${typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO'}</div>
             <div style="font-size: 9.5px; color: #475569; margin-top: 1px; text-transform: uppercase;">DISTRICT MANAGER</div>
           </div>
         </div>
@@ -10369,34 +10399,34 @@ function bukaPdfModal(noSurat, includePhotos = null) {
       <div>
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 28px; text-align: center; font-size: 11px; page-break-inside: avoid;">
           <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">PEMOHON</div>
+            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">PEMOHON</div>
             <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
               ${renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
             </div>
             <div>
-              <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
+              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
               <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
             </div>
           </div>
 
           <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DIPERIKSA</div>
+            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DIPERIKSA</div>
             <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
               ${renderSafeTtdImageTag(serviceTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
             </div>
             <div>
-              <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
+              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
               <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${hodsAreaTitle}</div>
             </div>
           </div>
 
           <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DISETUJUI</div>
+            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DISETUJUI</div>
             <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
               ${renderSafeTtdImageTag(dmTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
             </div>
             <div>
-              <div style="font-weight: 800; color: #0f172a; font-size: 11.5px;">${dmName}</div>
+              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${dmName}</div>
               <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">DISTRICT MANAGER</div>
             </div>
           </div>
@@ -11093,7 +11123,7 @@ function simpanTTD() {
 
         hideLoading();
         tutupTTD();
-        showNotif('TANDA TANGAN DIGITAL BERHASIL DISIMPAN SEBAGAI URL KE PROFIL USER!', 'success');
+        showNotif('TANDA TANGAN DIGITAL BERHASIL!', 'success');
       } catch(err) {
         hideLoading();
         console.error('[SIMPAN TTD ERROR]:', err);
@@ -11244,12 +11274,16 @@ function rebuildRoomsFromChats(allChats) {
   if (!Array.isArray(allChats) || allChats.length === 0) return [];
 
   const roomMap = new Map();
+  const currentUsername = currentUser ? String(currentUser.username || '').toUpperCase() : '';
 
   allChats.forEach(c => {
     if (!c) return;
     const userTarget = String(c.user || c.senderUsername || 'USER').trim().toUpperCase();
     const roomKey = String(c.room || ('ROOM_' + userTarget)).trim().toUpperCase();
     const senderDisplay = c.senderName || c.senderUsername || userTarget;
+
+    const isUnreadForAdmin = (c.pengirim === 'USER') && (c.read !== true) && (!c.readBy || !c.readBy.includes(currentUsername));
+    const isUnreadForUser = (c.pengirim === 'SERVICE' || c.pengirim === 'ADMIN') && (c.read !== true) && (!c.readBy || !c.readBy.includes(currentUsername));
 
     if (!roomMap.has(roomKey)) {
       roomMap.set(roomKey, {
@@ -11259,8 +11293,8 @@ function rebuildRoomsFromChats(allChats) {
         userName: senderDisplay,
         last: (c.pengirim === 'SERVICE' ? `SERVICE TSM: ${c.pesan}` : c.pesan),
         lastTime: c.tanggal || '',
-        unreadAdmin: c.pengirim === 'USER' ? 1 : 0,
-        unreadUser: 0
+        unreadAdmin: isUnreadForAdmin ? 1 : 0,
+        unreadUser: isUnreadForUser ? 1 : 0
       });
     } else {
       const existing = roomMap.get(roomKey);
@@ -11268,6 +11302,8 @@ function rebuildRoomsFromChats(allChats) {
       if (c.tanggal) existing.lastTime = c.tanggal;
       if (c.userArea) existing.userArea = c.userArea;
       if (c.senderName) existing.userName = c.senderName;
+      if (isUnreadForAdmin) existing.unreadAdmin = (existing.unreadAdmin || 0) + 1;
+      if (isUnreadForUser) existing.unreadUser = (existing.unreadUser || 0) + 1;
     }
   });
 
@@ -11333,7 +11369,19 @@ async function bukaBantuan() {
 }
 window.bukaBantuan = bukaBantuan;
 
-function tutupBantuan() {
+function tutupBantuan(forceClose = false) {
+  const chatBody = document.getElementById('chatBody');
+  const isAdm = typeof isServiceTSMUser === 'function' ? isServiceTSMUser() : false;
+  const isChatBodyOpen = chatBody && (chatBody.style.display === 'block' || chatBody.style.display === 'flex');
+
+  // JIKA ADMIN/SERVICE SEDANG DI DALAM RUANG CHAT CONVERSATION (DAN BUKAN FORCE CLOSE): KEMBALI KE DAFTAR CHAT DULU!
+  if (!forceClose && isAdm && isChatBodyOpen) {
+    if (typeof kembaliKeDaftarAdmin === 'function') {
+      kembaliKeDaftarAdmin();
+      return;
+    }
+  }
+
   stopActiveChatRefresh();
 
   const popup = document.getElementById('popupBantuan');
@@ -11369,6 +11417,8 @@ function loadDaftarChatAdmin() {
       } else {
         rooms[idx].last = dr.last;
         rooms[idx].lastTime = dr.lastTime;
+        rooms[idx].unreadAdmin = dr.unreadAdmin;
+        rooms[idx].unreadUser = dr.unreadUser;
         if (dr.userName) rooms[idx].userName = dr.userName;
         if (dr.userArea) rooms[idx].userArea = dr.userArea;
       }
@@ -11396,6 +11446,7 @@ function loadDaftarChatAdmin() {
     String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
     String(currentUser.username || '').toUpperCase() === 'ADMIN'
   );
+  const currentUsername = currentUser ? String(currentUser.username || '').toUpperCase() : '';
 
   const roomsContainer = document.createElement('div');
   roomsContainer.id = 'adminRoomsContainer';
@@ -11413,12 +11464,23 @@ function loadDaftarChatAdmin() {
 
   rooms.forEach(r => {
     const item = document.createElement('div');
-    item.style.cssText = 'padding:8px 10px; border-bottom:1px solid var(--border-color); cursor:pointer; transition:background 0.2s; display:flex; justify-content:space-between; align-items:center; border-radius:6px; margin-bottom:2mm;';
-    item.onmouseover = () => item.style.background = 'rgba(59,130,246,0.06)';
-    item.onmouseout = () => item.style.background = 'transparent';
+    const isRoomUnreadInChats = Array.isArray(allChats) && allChats.some(c => {
+      if (!c) return false;
+      const cUser = String(c.user || c.senderUsername || '').trim().toUpperCase();
+      const cRoom = String(c.room || '').trim().toUpperCase();
+      const isRoomMatch = (cRoom === String(r.room).toUpperCase() || cUser === String(r.user).toUpperCase() || cRoom === 'ROOM_' + String(r.user).toUpperCase());
+      return isRoomMatch && c.pengirim === 'USER' && c.read !== true && (!c.readBy || !c.readBy.includes(currentUsername));
+    });
 
-    const unreadBadgeHtml = r.unreadAdmin > 0 ? `<span style="background:#ef4444; color:#fff; border-radius:10px; padding:2px 8px; font-size:10px; font-weight:bold;">${r.unreadAdmin} UNREAD</span>` : '';
+    const hasUnread = (Number(r.unreadAdmin) || 0) > 0 || isRoomUnreadInChats;
+    const bgNormal = hasUnread ? 'rgba(2, 132, 199, 0.18)' : 'transparent';
+    const borderStyle = hasUnread ? 'border:2px solid #0284c7 !important; border-left:7px solid #0284c7 !important;' : 'border-bottom:1px solid var(--border-color); border-left:7px solid transparent;';
+    const unreadBadgeHtml = hasUnread ? `<span style="background:#ef4444; color:#ffffff; border-radius:10px; padding:3px 10px; font-size:11px; font-weight:900; box-shadow:0 2px 6px rgba(239,68,68,0.5); letter-spacing:0.4px;">PESAN BARU</span>` : '';
     
+    item.style.cssText = `padding:10px 12px; ${borderStyle} background:${bgNormal} !important; cursor:pointer; transition:all 0.2s ease; display:flex; justify-content:space-between; align-items:center; border-radius:8px; margin-bottom:2.5mm; box-sizing:border-box;`;
+    item.onmouseover = () => item.style.background = hasUnread ? 'rgba(2, 132, 199, 0.28) !important' : 'rgba(59,130,246,0.08) !important';
+    item.onmouseout = () => item.style.background = `${bgNormal} !important`;
+
     const deleteRoomBtnHtml = isSysAdmin ? `
       <button type="button" class="btnIcon btnDelete" onclick="event.stopPropagation(); hapusChatRoom('${r.room}', '${r.user}')" title="HAPUS CHAT USER INI" style="padding:5px; background:rgba(239,68,68,0.1); color:#ef4444; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center;">
         <span class="material-symbols-rounded" style="font-size:17px;">delete</span>
@@ -11428,12 +11490,12 @@ function loadDaftarChatAdmin() {
     item.innerHTML = `
       <div style="flex:1; min-width:0; margin-right:8px;" onclick="bukaRoomAdmin('${r.room}', '${r.user}', '${r.userName || r.user}', '${r.userArea || 'TSM'}')">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
-          <div style="font-size:12.5px; font-weight:700; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          <div style="font-size:12.5px; font-weight:${hasUnread ? '900' : '700'}; color:${hasUnread ? 'var(--primary)' : 'var(--text-main)'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
             ${r.userName || r.user} <span style="font-size:10.5px; font-weight:bold; color:var(--primary); background:rgba(59,130,246,0.15); padding:1px 5px; border-radius:4px;">(${r.userArea || 'TSM'})</span>
           </div>
           ${unreadBadgeHtml}
         </div>
-        <div style="color:var(--text-muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${r.last || '-'}</div>
+        <div style="color:${hasUnread ? 'var(--text-main)' : 'var(--text-muted)'}; font-weight:${hasUnread ? '800' : 'normal'}; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${r.last || '-'}</div>
       </div>
       ${deleteRoomBtnHtml}
     `;
@@ -11673,15 +11735,11 @@ function bukaRoomAdmin(room, user, fullName, area) {
   currentRoom = room;
   currentChatUser = user;
 
-  const rooms = JSON.parse(appStorage.getItem(CHAT_ROOM_DB_KEY) || '[]');
-  const roomUpper = String(room || '').toUpperCase();
-  const userUpper = String(user || '').toUpperCase();
-
-  const rIdx = rooms.findIndex(x => String(x.room || '').toUpperCase() === roomUpper || String(x.user || '').toUpperCase() === userUpper);
-  if (rIdx !== -1) {
-    rooms[rIdx].unreadAdmin = 0;
-    appStorage.setItem(CHAT_ROOM_DB_KEY, JSON.stringify(rooms));
-    if (typeof pushCentralCloudDB === 'function') pushCentralCloudDB();
+  if (typeof markChatMessagesAsRead === 'function') {
+    markChatMessagesAsRead(room, user);
+  }
+  if (typeof pushPopupHistoryState === 'function') {
+    pushPopupHistoryState();
   }
 
   const chatList = document.getElementById('chatList');
@@ -11750,10 +11808,14 @@ function loadChatAdmin(room) {
 }
 
 function loadChatUser() {
-  const allChats = JSON.parse(appStorage.getItem(CHAT_DB_KEY) || '[]');
   const myUsernameUpper = String(currentUser ? currentUser.username : '').toUpperCase();
   const roomName = 'ROOM_' + myUsernameUpper;
 
+  if (typeof markChatMessagesAsRead === 'function') {
+    markChatMessagesAsRead(roomName, myUsernameUpper);
+  }
+
+  const allChats = JSON.parse(appStorage.getItem(CHAT_DB_KEY) || '[]');
   const userChats = allChats.filter(c => 
     String(c.room || '').toUpperCase() === roomName || 
     String(c.user || '').toUpperCase() === myUsernameUpper ||
@@ -11762,15 +11824,6 @@ function loadChatUser() {
 
   const body = document.getElementById('chatBody');
   if (!body) return;
-
-  const rooms = JSON.parse(appStorage.getItem(CHAT_ROOM_DB_KEY) || '[]');
-  const rIdx = rooms.findIndex(x => String(x.room || '').toUpperCase() === roomName || String(x.user || '').toUpperCase() === myUsernameUpper);
-  if (rIdx !== -1 && rooms[rIdx].unreadUser > 0) {
-    rooms[rIdx].unreadUser = 0;
-    appStorage.setItem(CHAT_ROOM_DB_KEY, JSON.stringify(rooms));
-    if (typeof pushCentralCloudDB === 'function') pushCentralCloudDB(); 
-    if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
-  }
 
   const isAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 80;
   body.innerHTML = '';
@@ -11952,6 +12005,106 @@ function kembaliKeDaftarAdmin() {
 }
 window.kembaliKeDaftarAdmin = kembaliKeDaftarAdmin;
 
+function markChatMessagesAsRead(roomTarget, userTarget) {
+  if (!currentUser) return;
+  const myUsernameUpper = String(currentUser.username || '').trim().toUpperCase();
+  const userUpper = String(userTarget || myUsernameUpper).trim().toUpperCase();
+  const roomUpper = String(roomTarget || ('ROOM_' + userUpper)).trim().toUpperCase();
+  const isAdm = typeof isServiceTSMUser === 'function' ? isServiceTSMUser() : false;
+
+  // 1. Update CHAT_ROOM_DB_KEY
+  let roomChanged = false;
+  const rooms = JSON.parse(appStorage.getItem(CHAT_ROOM_DB_KEY) || '[]');
+  const rIdx = rooms.findIndex(x => 
+    String(x.room || '').toUpperCase() === roomUpper || 
+    String(x.user || '').toUpperCase() === userUpper ||
+    String(x.room || '').toUpperCase() === 'ROOM_' + userUpper
+  );
+
+  if (rIdx !== -1) {
+    if (isAdm) {
+      if (rooms[rIdx].unreadAdmin > 0) {
+        rooms[rIdx].unreadAdmin = 0;
+        roomChanged = true;
+      }
+    } else {
+      if (rooms[rIdx].unreadUser > 0) {
+        rooms[rIdx].unreadUser = 0;
+        roomChanged = true;
+      }
+    }
+  }
+
+  if (roomChanged) {
+    appStorage.setItem(CHAT_ROOM_DB_KEY, JSON.stringify(rooms));
+    try { localStorage.setItem(CHAT_ROOM_DB_KEY, JSON.stringify(rooms)); } catch(e) {}
+  }
+
+  // 2. Update CHAT_DB_KEY (Tandai pesan sebagai read = true)
+  let chatsChanged = false;
+  const allChats = JSON.parse(appStorage.getItem(CHAT_DB_KEY) || '[]');
+  const updatedDocIds = [];
+
+  allChats.forEach(c => {
+    if (!c) return;
+    const cUser = String(c.user || c.senderUsername || '').trim().toUpperCase();
+    const cRoom = String(c.room || '').trim().toUpperCase();
+    const matchRoom = (cRoom === roomUpper || cUser === userUpper || cRoom === 'ROOM_' + userUpper);
+
+    if (matchRoom) {
+      const isSenderOther = isAdm ? (c.pengirim === 'USER') : (c.pengirim === 'SERVICE' || c.pengirim === 'ADMIN');
+      if (isSenderOther) {
+        if (c.read !== true) {
+          c.read = true;
+          chatsChanged = true;
+        }
+        if (!Array.isArray(c.readBy)) c.readBy = [];
+        if (!c.readBy.includes(myUsernameUpper)) {
+          c.readBy.push(myUsernameUpper);
+          chatsChanged = true;
+        }
+        if (c.id) updatedDocIds.push(c.id);
+      }
+    }
+  });
+
+  if (chatsChanged) {
+    appStorage.setItem(CHAT_DB_KEY, JSON.stringify(allChats));
+    try { localStorage.setItem(CHAT_DB_KEY, JSON.stringify(allChats)); } catch(e) {}
+  }
+
+  // 3. Sync status read=true ke Firestore agar tidak balik unread saat di-refresh!
+  const fsChat = typeof getDbFirestore === 'function' ? getDbFirestore() : (typeof dbFirestore !== 'undefined' ? dbFirestore : null);
+  if (fsChat) {
+    try {
+      if (rIdx !== -1) {
+        fsChat.collection('chat_rooms').doc(roomUpper).set({
+          unreadAdmin: isAdm ? 0 : (rooms[rIdx].unreadAdmin || 0),
+          unreadUser: isAdm ? (rooms[rIdx].unreadUser || 0) : 0,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(() => {});
+      }
+
+      updatedDocIds.forEach(docId => {
+        fsChat.collection('chat_messages').doc(docId).set({
+          read: true,
+          readBy: [myUsernameUpper]
+        }, { merge: true }).catch(() => {});
+      });
+    } catch(err) {
+      console.warn('[FIRESTORE MARK READ SYNC ERROR]:', err);
+    }
+  }
+
+  if (roomChanged || chatsChanged) {
+    if (typeof pushCentralCloudDB === 'function') pushCentralCloudDB();
+  }
+
+  if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
+  if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
+}
+window.markChatMessagesAsRead = markChatMessagesAsRead;
+
 function cekUnreadNotif() {
   if (!currentUser) return;
   const badge = document.getElementById('unreadBadge');
@@ -11966,22 +12119,35 @@ function cekUnreadNotif() {
   let unreadCount = 0;
 
   if (isAdm) {
-    let roomTotal = Array.isArray(rooms) ? rooms.reduce((acc, curr) => acc + (Number(curr.unreadAdmin) || 0), 0) : 0;
-    if (roomTotal === 0 && Array.isArray(allChats) && allChats.length > 0) {
-      roomTotal = allChats.filter(c => c && c.pengirim === 'USER' && c.read !== true && (!c.readBy || !c.readBy.includes(currentUser.username))).length;
+    // UNTUK LOGIN ADMIN / SERVICE TSM: Hitung BERAPA BANYAK UNIQUE TOKO/USER yang belum dibaca
+    const unreadRoomsCount = Array.isArray(rooms) ? rooms.filter(r => (Number(r.unreadAdmin) || 0) > 0).length : 0;
+    if (unreadRoomsCount > 0) {
+      unreadCount = unreadRoomsCount;
+    } else if (Array.isArray(allChats) && allChats.length > 0) {
+      const unreadUsersSet = new Set();
+      allChats.forEach(c => {
+        if (c && c.pengirim === 'USER' && c.read !== true && (!c.readBy || !c.readBy.includes(currentUser.username))) {
+          const uName = String(c.user || c.senderUsername || '').trim().toUpperCase();
+          if (uName) unreadUsersSet.add(uName);
+        }
+      });
+      unreadCount = unreadUsersSet.size;
+    } else {
+      unreadCount = 0;
     }
-    unreadCount = roomTotal;
   } else {
+    // UNTUK LOGIN TOKO / SALES / USER BIASA: HANYA MUNCUL ANGKA 1 JIKA ADA PESAN UNREAD (BUKAN JUMLAH BARIS CHAT)
     const myUname = String(currentUser.username || '').trim().toUpperCase();
     const myRoom = Array.isArray(rooms) ? rooms.find(r => 
       String(r.room || '').trim().toUpperCase() === 'ROOM_' + myUname || 
       String(r.user || '').trim().toUpperCase() === myUname
     ) : null;
 
-    if (myRoom && (Number(myRoom.unreadUser) || 0) > 0) {
-      unreadCount = Number(myRoom.unreadUser);
-    } else if (Array.isArray(allChats) && allChats.length > 0) {
-      unreadCount = allChats.filter(c => {
+    const hasUnreadFromRoom = myRoom && (Number(myRoom.unreadUser) || 0) > 0;
+    let hasUnreadFromChats = false;
+
+    if (Array.isArray(allChats) && allChats.length > 0) {
+      hasUnreadFromChats = allChats.some(c => {
         if (!c) return false;
         const cUser = String(c.user || c.senderUsername || '').trim().toUpperCase();
         const cRoom = String(c.room || '').trim().toUpperCase();
@@ -11989,8 +12155,10 @@ function cekUnreadNotif() {
         const isFromService = (c.pengirim === 'SERVICE' || c.pengirim === 'ADMIN');
         const isUnread = c.read !== true && (!c.readBy || !c.readBy.includes(myUname));
         return isMyChat && isFromService && isUnread;
-      }).length;
+      });
     }
+
+    unreadCount = (hasUnreadFromRoom || hasUnreadFromChats) ? 1 : 0;
   }
 
   if (unreadCount > 0) {
@@ -11999,7 +12167,10 @@ function cekUnreadNotif() {
     badge.style.setProperty('visibility', 'visible', 'important');
     badge.style.setProperty('opacity', '1', 'important');
   } else {
+    badge.textContent = '0';
     badge.style.setProperty('display', 'none', 'important');
+    badge.style.setProperty('visibility', 'hidden', 'important');
+    badge.style.setProperty('opacity', '0', 'important');
   }
 }
 
@@ -16460,6 +16631,91 @@ function toggleShowGeminiApiKey() {
 }
 window.toggleShowGeminiApiKey = toggleShowGeminiApiKey;
 
+function syncGeminiApiKeyToLocalCache(keyVal) {
+  if (!keyVal || typeof keyVal !== 'string') return;
+  const val = keyVal.trim();
+  if (!val || val === 'null' || val === 'undefined') return;
+
+  try {
+    localStorage.setItem('gemini_api_key', val);
+    localStorage.setItem('GEMINI_API_KEY', val);
+  } catch(e) {}
+  try {
+    appStorage.setItem('gemini_api_key', val);
+    appStorage.setItem('GEMINI_API_KEY', val);
+  } catch(e) {}
+
+  if (typeof updateAiKeyBadgeStatus === 'function') {
+    updateAiKeyBadgeStatus();
+  }
+}
+window.syncGeminiApiKeyToLocalCache = syncGeminiApiKeyToLocalCache;
+
+async function autoSyncGeminiKeyToSupabase() {
+  const supa = (typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : ((typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') ? supabase : (window.supabase && typeof window.supabase.from === 'function' ? window.supabase : null));
+  
+  const key = getGeminiApiKey();
+  if (!key) return false;
+
+  // Hanya Admin / Pusat yang berhak memperbarui Kunci Utama Terpusat di Supabase
+  const isAdmin = !currentUser || currentUser.role === 'ADMIN' || currentUser.category === 'ADMIN' || (currentUser.username && String(currentUser.username).toLowerCase().includes('admin'));
+  if (!isAdmin) {
+    console.log('[GEMINI AI] Non-admin user key saved locally only (not overwriting Supabase global key).');
+    return false;
+  }
+
+  const systemGeminiRow = {
+    id: '__SYSTEM_GEMINI_KEY__',
+    no_surat: '__SYSTEM_GEMINI_KEY__',
+    tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
+    toko: 'SYSTEM',
+    area: 'ALL',
+    jenis: 'SYSTEM',
+    catatan: JSON.stringify({ geminiApiKey: key, time: Date.now(), by: (currentUser && currentUser.username ? currentUser.username : 'USER') || 'ADMIN' }),
+    items: [],
+    photos: [],
+    status: 'DONE',
+    service_approve: true,
+    created_by: 'SYSTEM',
+    created_at: new Date().toISOString()
+  };
+
+  let success = false;
+
+  if (typeof safeSupabaseUpsertPermintaan === 'function') {
+    try {
+      const res = await safeSupabaseUpsertPermintaan(systemGeminiRow);
+      if (res && !res.error) {
+        console.log('⚡ [SUPABASE SUCCESS]: __SYSTEM_GEMINI_KEY__ pushed to permintaan_toko!');
+        success = true;
+      }
+    } catch(e) {}
+  }
+
+  if (supa) {
+    try {
+      await supa.from('permintaan_toko').upsert([systemGeminiRow], { onConflict: 'id' });
+      success = true;
+    } catch(e) {}
+
+    try {
+      await supa.from('lookup').upsert({ key: 'geminiApiKey', value: key, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    } catch(eLook) {}
+  }
+
+  return success;
+}
+window.autoSyncGeminiKeyToSupabase = autoSyncGeminiKeyToSupabase;
+
+// JALANKAN PROTUSI ULANG SINKRONISASI PADA INTERVAL 1s, 3s, 5s, 10s, 15s UNTUK MENJAMIN MASUK SUPABASE
+[1000, 3000, 5000, 10000, 15000].forEach(delay => {
+  setTimeout(() => {
+    if (typeof autoSyncGeminiKeyToSupabase === 'function') {
+      autoSyncGeminiKeyToSupabase().catch(() => {});
+    }
+  }, delay);
+});
+
 function simpanGeminiApiKeyDariModal() {
   const input = document.getElementById('inputGeminiApiKeyVal');
   const val = input ? input.value.trim() : '';
@@ -16474,8 +16730,18 @@ function simpanGeminiApiKeyDariModal() {
   appStorage.setItem('GEMINI_API_KEY', val);
   updateAiKeyBadgeStatus();
   tutupModalGeminiApiKey();
-  if (typeof showNotif === 'function') showNotif('GEMINI API KEY BERHASIL DISIMPAN DI PENYIMPANAN LOKAL!', 'success');
-  else alert('GEMINI API KEY BERHASIL DISIMPAN!');
+
+  if (typeof autoSyncGeminiKeyToSupabase === 'function') {
+    autoSyncGeminiKeyToSupabase().catch(() => {});
+    setTimeout(autoSyncGeminiKeyToSupabase, 1000);
+    setTimeout(autoSyncGeminiKeyToSupabase, 3000);
+  }
+  if (typeof pushCentralCloudDB === 'function') {
+    pushCentralCloudDB().catch(() => {});
+  }
+
+  if (typeof showNotif === 'function') showNotif('GEMINI API KEY BERHASIL DISIMPAN & DISINKRONKAN KE SUPABASE!', 'success');
+  else alert('GEMINI API KEY BERHASIL DISIMPAN & DISINKRONKAN KE SUPABASE!');
 }
 window.simpanGeminiApiKeyDariModal = simpanGeminiApiKeyDariModal;
 
@@ -16488,6 +16754,19 @@ function hapusGeminiApiKeyPermanen() {
   if (input) input.value = '';
   updateAiKeyBadgeStatus();
   tutupModalGeminiApiKey();
+
+  if (typeof safeSupabaseUpsertPermintaan === 'function') {
+    safeSupabaseUpsertPermintaan({
+      id: '__SYSTEM_GEMINI_KEY__',
+      no_surat: '__SYSTEM_GEMINI_KEY__',
+      catatan: JSON.stringify({ geminiApiKey: '', time: Date.now() }),
+      status: 'DONE',
+      service_approve: true,
+      created_by: 'SYSTEM',
+      created_at: new Date().toISOString()
+    }).catch(() => {});
+  }
+
   if (typeof showNotif === 'function') showNotif('GEMINI API KEY TELAH DIHAPUS / DIKOSONGKAN!', 'info');
   else alert('GEMINI API KEY TELAH DIHAPUS!');
 }
@@ -17357,11 +17636,21 @@ function updateGlobalDeviceAppBadge() {
 
     let unreadChatCount = 0;
     if (isAdm) {
-      let roomTotal = Array.isArray(rooms) ? rooms.reduce((acc, curr) => acc + (Number(curr.unreadAdmin) || 0), 0) : 0;
-      if (roomTotal === 0 && Array.isArray(allChats) && allChats.length > 0) {
-        roomTotal = allChats.filter(c => c && c.pengirim === 'USER' && c.read !== true && (!c.readBy || !c.readBy.includes(currentUser.username))).length;
+      const unreadRoomsCount = Array.isArray(rooms) ? rooms.filter(r => (Number(r.unreadAdmin) || 0) > 0).length : 0;
+      if (unreadRoomsCount > 0) {
+        unreadChatCount = unreadRoomsCount;
+      } else if (Array.isArray(allChats) && allChats.length > 0) {
+        const unreadUsersSet = new Set();
+        allChats.forEach(c => {
+          if (c && c.pengirim === 'USER' && c.read !== true && (!c.readBy || !c.readBy.includes(currentUser.username))) {
+            const uName = String(c.user || c.senderUsername || '').trim().toUpperCase();
+            if (uName) unreadUsersSet.add(uName);
+          }
+        });
+        unreadChatCount = unreadUsersSet.size;
+      } else {
+        unreadChatCount = 0;
       }
-      unreadChatCount = roomTotal;
     } else {
       const myUname = String(currentUser.username || '').trim().toUpperCase();
       const myRoom = Array.isArray(rooms) ? rooms.find(r => 
@@ -17369,10 +17658,11 @@ function updateGlobalDeviceAppBadge() {
         String(r.user || '').trim().toUpperCase() === myUname
       ) : null;
 
-      if (myRoom && (Number(myRoom.unreadUser) || 0) > 0) {
-        unreadChatCount = Number(myRoom.unreadUser);
-      } else if (Array.isArray(allChats) && allChats.length > 0) {
-        unreadChatCount = allChats.filter(c => {
+      const hasUnreadFromRoom = myRoom && (Number(myRoom.unreadUser) || 0) > 0;
+      let hasUnreadFromChats = false;
+
+      if (Array.isArray(allChats) && allChats.length > 0) {
+        hasUnreadFromChats = allChats.some(c => {
           if (!c) return false;
           const cUser = String(c.user || c.senderUsername || '').trim().toUpperCase();
           const cRoom = String(c.room || '').trim().toUpperCase();
@@ -17380,8 +17670,10 @@ function updateGlobalDeviceAppBadge() {
           const isFromService = (c.pengirim === 'SERVICE' || c.pengirim === 'ADMIN');
           const isUnread = c.read !== true && (!c.readBy || !c.readBy.includes(myUname));
           return isMyChat && isFromService && isUnread;
-        }).length;
+        });
       }
+
+      unreadChatCount = (hasUnreadFromRoom || hasUnreadFromChats) ? 1 : 0;
     }
 
     const grandTotalUnread = unreadNotifCount + unreadChatCount;

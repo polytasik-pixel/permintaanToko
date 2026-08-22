@@ -302,12 +302,13 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
-  background-image: var(--app-bg-image, url('bg-scenery-2.jpg'));
+  background-image: var(--app-bg-image, url('bg-scenery.png'));
   background-size: cover;
   background-position: center center;
   background-repeat: no-repeat;
-  opacity: var(--bg-opacity-val, 0.48) !important;
-  filter: saturate(1.15) contrast(1.05) blur(1px);
+  opacity: var(--bg-opacity-val, 0.55) !important;
+  filter: saturate(1.15) contrast(1.05);
+  image-rendering: -webkit-optimize-contrast;
   transition: background-image 0.3s ease, filter 0.3s ease;
   will-change: opacity, background-image;
 }
@@ -319,7 +320,7 @@ body.sunset-mode .aesthetic-bg-image {
   transform: translateZ(0);
   backface-visibility: hidden;
   opacity: var(--bg-opacity-val, 0.38) !important;
-  filter: saturate(1.1) contrast(1.0) blur(1px);
+  filter: saturate(1.1) contrast(1.0);
 }
 
 /* 2. Subtle Micro Dot Grid Pattern (Samar-samar & Bersih) */
@@ -4475,9 +4476,7 @@ html body #popupUserForm .popupBox {
     text-align: left !important;
   }
 
-  .login-card {
-    padding: 18px 14px !important;
-  }
+
 
   .login-card h2 {
     font-size: 15px;
@@ -9648,6 +9647,37 @@ html body #loginPage .login-card {
   transition: transform 0.3s ease, box-shadow 0.3s ease !important;
 }
 
+/* HP / MOBILE SCREEN RESPONSIVE LOGIN CARD STYLING (JARAK KARTU DENGAN LAYAR ATAS, KANAN, KIRI PRESISI 1MM SIMETRIS, BAWAH MENYESUAIKAN) */
+@media screen and (max-width: 768px) {
+  #loginPage,
+  #loginPage.page,
+  #loginPage.active,
+  #loginPage.page.active,
+  html body #loginPage.active {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: stretch !important;
+    padding: 1mm 1mm 0 1mm !important;
+    margin: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+  }
+
+  .login-card,
+  #loginPage .login-card,
+  html body .login-card,
+  html body #loginPage .login-card {
+    width: calc(100vw - 2mm) !important;
+    max-width: calc(100vw - 2mm) !important;
+    margin: 0 auto auto auto !important;
+    padding: 24px 18px 24px 18px !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+  }
+}
+
 .login-card .logo {
   width: 56px !important;
   height: 56px !important;
@@ -10134,4 +10164,18 @@ html body #inputPage .inputPageHeader {
   box-sizing: border-box !important;
   transform: translateZ(0) !important;
   -webkit-transform: translateZ(0) !important;
+}
+
+/* POPUP SHAKE & FLASH ANIMATION FOR STRICT CONFIRMATION LOCK */
+@keyframes modalShakeFlash {
+  0% { transform: scale(1) translate(0, 0); box-shadow: 0 0 0 rgba(239, 68, 68, 0); }
+  20% { transform: scale(1.04) translate(-7px, 0); box-shadow: 0 0 25px rgba(239, 68, 68, 0.95); border: 2px solid #ef4444 !important; }
+  40% { transform: scale(1.04) translate(7px, 0); box-shadow: 0 0 25px rgba(239, 68, 68, 0.95); border: 2px solid #ef4444 !important; }
+  60% { transform: scale(1.04) translate(-5px, 0); box-shadow: 0 0 25px rgba(239, 68, 68, 0.95); border: 2px solid #ef4444 !important; }
+  80% { transform: scale(1.02) translate(5px, 0); box-shadow: 0 0 25px rgba(239, 68, 68, 0.95); border: 2px solid #ef4444 !important; }
+  100% { transform: scale(1) translate(0, 0); box-shadow: 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.modal-shake-flash {
+  animation: modalShakeFlash 0.45s ease-in-out !important;
 }

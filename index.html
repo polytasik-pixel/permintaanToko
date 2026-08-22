@@ -1076,8 +1076,8 @@
   </div>
 
   <!-- 3. POPUP CONFIRMATION MODAL (YES/NO CENTERED SCREEN CARD) -->
-  <div id="confirmOverlay" class="popupOverlay" style="display: none; z-index: 999999999 !important; align-items: center !important; justify-content: center !important;">
-    <div class="popupNotifCard" id="confirmBoxCard" style="width: 350px !important; max-width: 88vw !important; border-radius: 5px !important; overflow: hidden !important; margin: auto !important;">
+  <div id="confirmOverlay" class="popupOverlay" style="display: none; z-index: 2000000000 !important; align-items: center !important; justify-content: center !important;" onclick="if(event.target === this) { event.preventDefault(); event.stopPropagation(); if (typeof triggerConfirmBoxFlash === 'function') triggerConfirmBoxFlash(); }">
+    <div class="popupNotifCard" id="confirmBoxCard" style="width: 350px !important; max-width: 88vw !important; border-radius: 5px !important; overflow: hidden !important; margin: auto !important;" onclick="event.stopPropagation()">
       <div class="popupNotifBody" style="padding: 16px 18px 12px 18px; text-align: center;">
         <span class="material-symbols-rounded" style="font-size: 32px; color: var(--primary); margin-bottom: 4px; display: block;">help</span>
         <p id="confirmMessage" style="font-size: 13px; font-weight: 700; line-height: 1.45; color: var(--text-main); margin: 0;">YAKIN INGIN MELANJUTKAN KAN?</p>

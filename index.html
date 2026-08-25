@@ -31,8 +31,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics-compat.js"></script>
 
   <!-- Master Stylesheet -->
-  <link rel="stylesheet" href="styles.css?v=20260825_v1788000000">
-  <script src="app.js?v=20260825_v1788000000"></script>
+  <link rel="stylesheet" href="styles.css?v=20260825_v1792000000">
+  <script src="app.js?v=20260825_v1792000000"></script>
 
   <!-- Global Failsafe Gemini AI Key Handler -->
   <script>
@@ -772,6 +772,28 @@
           <button type="button" class="btnDownload" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); height: 42px; padding: 0 20px; font-weight: 800; border: none; border-radius: 5px; color: #ffffff; cursor: pointer; box-shadow: 0 2px 6px rgba(139, 92, 246, 0.25);" onclick="bukaModalSetupSupabaseKeys()">
             <span class="material-symbols-rounded">vpn_key</span> ATUR KUNCI SUPABASE
           </button>
+        </div>
+      </div>
+
+      <!-- ADMIN CONTROL: PENGATURAN TEMA & BACKGROUND GLOBAL (SINKRON KE SEMUA USER) -->
+      <div id="containerAdminGlobalThemeBg" class="box" style="border-left: 4px solid #ec4899; margin-bottom: 1mm !important; background: var(--bg-card);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h3 style="color: #ec4899; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 900;">
+              <span class="material-symbols-rounded">palette</span> PENGATURAN TEMA & BACKGROUND GLOBAL (SEMUA USER)
+            </h3>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0;">
+              ATUR & SINKRONKAN TEMA WARNA ATAU GAMBAR BACKGROUND KE SELURUH PERANGKAT USER SECARA REAL-TIME DARI CLOUD.
+            </p>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button type="button" class="btnDownload" style="background: linear-gradient(135deg, #ec4899, #db2777); height: 42px; padding: 0 16px; font-weight: 800; border: none; border-radius: 5px; color: #ffffff; cursor: pointer; box-shadow: 0 2px 6px rgba(236, 72, 153, 0.25); display: flex; align-items: center; gap: 6px;" onclick="toggleTheme()">
+              <span class="material-symbols-rounded">palette</span> GANTI TEMA GLOBAL
+            </button>
+            <button type="button" class="btnDownload" style="background: linear-gradient(135deg, #059669, #047857); height: 42px; padding: 0 16px; font-weight: 800; border: none; border-radius: 5px; color: #ffffff; cursor: pointer; box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25); display: flex; align-items: center; gap: 6px;" onclick="gantiBackgroundApp()">
+              <span class="material-symbols-rounded">wallpaper</span> GANTI BACKGROUND GLOBAL
+            </button>
+          </div>
         </div>
       </div>
 

@@ -311,11 +311,19 @@ CREATE TABLE IF NOT EXISTS public.users (
   full_name TEXT NOT NULL,
   role TEXT DEFAULT 'TOKO',
   category TEXT DEFAULT 'REGULER',
+  area TEXT DEFAULT 'ALL',
   store_code TEXT DEFAULT '',
   password TEXT DEFAULT '123',
+  theme TEXT DEFAULT 'dark-mode',
+  bg_image TEXT DEFAULT '',
   status TEXT DEFAULT 'ACTIVE',
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- AUTO ALTER TABLE TAMBAH KOLOM JIKA TABEL KUNYIT/USERS SUDAH TERBENTUK SEBELUMNYA
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS area TEXT DEFAULT 'ALL';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS theme TEXT DEFAULT 'dark-mode';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS bg_image TEXT DEFAULT '';
 
 -- 6. TABEL SYSTEM SETTINGS (Pengaturan Sistem Admin)
 CREATE TABLE IF NOT EXISTS public.system_settings (
@@ -591,10 +599,29 @@ function listenApprovalParsialSettingFromCloud() {
   // Listen from Firebase Realtime DB
   if (typeof firebase !== 'undefined' && firebase.database) {
     try {
-      firebase.database().ref('config/system_settings/require_dm_approval_breakdown').on('value', snapshot => {
+      firebase.database().ref('config/system_settings').on('value', snapshot => {
         if (snapshot.exists()) {
-          const val = snapshot.val() !== false && snapshot.val() !== 'false';
-          updateUIApprovalParsialToggle(val);
+          const data = snapshot.val();
+          if (data && data.require_dm_approval_breakdown !== undefined) {
+            const val = data.require_dm_approval_breakdown !== false && data.require_dm_approval_breakdown !== 'false';
+            updateUIApprovalParsialToggle(val);
+          }
+          if (data && (data.theme_bg_push_time || data.global_theme || data.global_bg)) {
+            const isSysAdmin = currentUser && (
+              String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+              String(currentUser.username || '').toUpperCase() === 'ADMIN'
+            );
+            if (!isSysAdmin) {
+              if (data.global_theme) {
+                if (typeof updateBodyClasses === 'function') updateBodyClasses(data.global_theme);
+                if (currentUser) currentUser.theme = data.global_theme;
+              }
+              if (data.global_bg !== undefined && data.global_bg !== null) {
+                if (typeof applyAppBackground === 'function') applyAppBackground(data.global_bg, true);
+                if (currentUser) currentUser.bg_image = data.global_bg;
+              }
+            }
+          }
         }
       });
     } catch(e) {}
@@ -1132,7 +1159,7 @@ window.getSavedLocalTheme = getSavedLocalTheme;
 function updateBodyClasses(specificTheme) {
   const savedTheme = specificTheme || getSavedLocalTheme();
   
-  const allThemes = ['dark-mode', 'light-mode', 'classic-mode', 'neon-mode', 'forest-mode', 'sunset-mode', 'ocean-mode', 'coffee-mode', 'purple-mode', 'crimson-mode'];
+  const allThemes = ['dark-mode', 'space-mode', 'light-mode', 'classic-mode', 'neon-mode', 'forest-mode', 'sunset-mode', 'ocean-mode', 'coffee-mode', 'purple-mode', 'crimson-mode'];
   
   allThemes.forEach(t => {
     document.body.classList.remove(t);
@@ -1225,22 +1252,132 @@ function gantiBackgroundApp() {
   // 1. bg-theme-1.png (Futuristic Blue Moonlight Lake)
   // 2. bg-theme-2.png (Cyberpunk Sunset Skyline)
   // 3. bg-theme-3.png (Emerald Aurora Pine Forest)
-  // 4. none (Polos / Tanpa Gambar)
+  // 4. bg-theme-4.svg (Aesthetic Cosmic Dense Crystals & Stardust - Rame di Semua Bagian)
+  // 5. none (Polos / Tanpa Gambar)
   let nextBg = 'bg-theme-1.png';
   if (currentBg === 'bg-theme-1.png') {
     nextBg = 'bg-theme-2.png';
   } else if (currentBg === 'bg-theme-2.png') {
     nextBg = 'bg-theme-3.png';
   } else if (currentBg === 'bg-theme-3.png') {
+    nextBg = 'bg-theme-4.svg';
+  } else if (currentBg === 'bg-theme-4.svg') {
     nextBg = 'none';
   } else {
     nextBg = 'bg-theme-1.png';
   }
 
+  const now = Date.now();
+  try {
+    localStorage.setItem('STORE_USER_BG_TIME', String(now));
+  } catch(e) {}
+
   applyAppBackground(nextBg, true);
+
+  if (typeof currentUser !== 'undefined' && currentUser) {
+    currentUser.bg_image = nextBg;
+  }
+
+  if (typeof saveUserThemeAndBgPreference === 'function') {
+    saveUserThemeAndBgPreference(null, nextBg);
+  }
 }
 window.applyAppBackground = applyAppBackground;
 window.gantiBackgroundApp = gantiBackgroundApp;
+
+function saveUserThemeAndBgPreference(themeId, bgChoice) {
+  if (typeof currentUser === 'undefined' || !currentUser) return;
+  const isSysAdmin = currentUser && (
+    String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+    String(currentUser.username || '').toUpperCase() === 'ADMIN'
+  );
+
+  const allUsers = (typeof getUsersFromDB === 'function') ? getUsersFromDB() : [];
+  const now = Date.now();
+
+  if (isSysAdmin) {
+    // ADMIN OVERRIDE: Update all user records in DB and push global broadcast to all clients!
+    if (Array.isArray(allUsers)) {
+      allUsers.forEach(u => {
+        if (u) {
+          if (themeId) u.theme = themeId;
+          if (bgChoice) u.bg_image = bgChoice;
+        }
+      });
+    }
+
+    if (typeof saveUsersToDB === 'function') {
+      saveUsersToDB(allUsers, currentUser);
+    }
+
+    broadcastAdminGlobalThemeAndBg(themeId, bgChoice, now);
+  } else {
+    // NORMAL USER PERSONAL PREFERENCE: Update only currentUser in DB
+    const uIdx = Array.isArray(allUsers) ? allUsers.findIndex(u => u && (u.id === currentUser.id || u.username === currentUser.username)) : -1;
+    if (uIdx !== -1) {
+      if (themeId) allUsers[uIdx].theme = themeId;
+      if (bgChoice) allUsers[uIdx].bg_image = bgChoice;
+      if (typeof saveUsersToDB === 'function') {
+        saveUsersToDB(allUsers, allUsers[uIdx]);
+      }
+    } else {
+      if (typeof saveUsersToDB === 'function') {
+        saveUsersToDB(allUsers, currentUser);
+      }
+    }
+  }
+}
+window.saveUserThemeAndBgPreference = saveUserThemeAndBgPreference;
+
+async function broadcastAdminGlobalThemeAndBg(themeId, bgChoice, nowTime) {
+  const pushTime = nowTime || Date.now();
+
+  // 1. Supabase system_settings
+  try {
+    if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
+      if (themeId) {
+        await supabase.from('system_settings').upsert({ setting_key: 'global_theme', setting_value: themeId, updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+      }
+      if (bgChoice) {
+        await supabase.from('system_settings').upsert({ setting_key: 'global_bg', setting_value: bgChoice, updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+      }
+      await supabase.from('system_settings').upsert({ setting_key: 'theme_bg_push_time', setting_value: String(pushTime), updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+    }
+  } catch(e) {}
+
+  // 2. Firebase Firestore app_settings/config
+  try {
+    const fs = typeof getDbFirestore === 'function' ? getDbFirestore() : (typeof dbFirestore !== 'undefined' ? dbFirestore : null);
+    if (fs) {
+      const fsPayload = { theme_bg_push_time: pushTime };
+      if (themeId) fsPayload.global_theme = themeId;
+      if (bgChoice) fsPayload.global_bg = bgChoice;
+      fs.collection('app_settings').doc('config').set(fsPayload, { merge: true }).catch(() => {});
+    }
+  } catch(e) {}
+
+  // 3. Firebase Realtime DB
+  try {
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      const rtdbPayload = { theme_bg_push_time: pushTime };
+      if (themeId) rtdbPayload.global_theme = themeId;
+      if (bgChoice) rtdbPayload.global_bg = bgChoice;
+      firebase.database().ref('config/system_settings').update(rtdbPayload).catch(() => {});
+    }
+  } catch(e) {}
+
+  // 4. Siarkan sinyal Realtime Broadcast ke SEMUA perangkat user lain secara instan!
+  if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+    try {
+      supabaseRealtimeChannel.send({
+        type: 'broadcast',
+        event: 'theme_bg_changed',
+        payload: { global_theme: themeId, global_bg: bgChoice, push_time: pushTime }
+      });
+    } catch(e) {}
+  }
+}
+window.broadcastAdminGlobalThemeAndBg = broadcastAdminGlobalThemeAndBg;
 
 // ==========================================================================
 // SETELAN TRANSPARANSI BACKGROUND LATAR BELAKANG
@@ -1511,23 +1648,9 @@ async function setGlobalAdminTheme(themeName) {
 window.setGlobalAdminTheme = setGlobalAdminTheme;
 
 function toggleTheme() {
-  const currentTheme = getActiveAppliedTheme();
-  const newTheme = (currentTheme === 'light') ? 'dark' : 'light';
-
-  // HANYA DISIMPAN DI LOKAL PENYIMPANAN (LOCALSTORAGE & APPSTORAGE), TIDAK DIKIRIM KE SUPABASE
-  if (typeof appStorage !== 'undefined') {
-    appStorage.setItem(LOCAL_USER_THEME_KEY, newTheme);
-    appStorage.setItem(THEME_KEY, newTheme);
-    appStorage.setItem('APP_SELECTED_THEME', newTheme);
+  if (typeof cycleNextAppTheme === 'function') {
+    cycleNextAppTheme();
   }
-  try { localStorage.setItem(LOCAL_USER_THEME_KEY, newTheme); } catch(e) {}
-  try { localStorage.setItem(THEME_KEY, newTheme); } catch(e) {}
-  try { localStorage.setItem('APP_SELECTED_THEME', newTheme); } catch(e) {}
-
-  if (currentUser) {
-    currentUser.theme = newTheme;
-  }
-  applyThemeToDocument(newTheme);
 }
 window.toggleTheme = toggleTheme;
 
@@ -2346,9 +2469,10 @@ function getStoresFromDB() {
   return stores;
 }
 
-// 10 THEME MODES
+// 11 THEME MODES
 const THEME_MODES = [
   { id: 'dark-mode', icon: 'light_mode', name: 'DARK' },
+  { id: 'space-mode', icon: 'rocket_launch', name: 'SPACE COSMIC' },
   { id: 'light-mode', icon: 'dark_mode', name: 'LIGHT' },
   { id: 'classic-mode', icon: 'menu_book', name: 'CLASSIC' },
   { id: 'neon-mode', icon: 'bolt', name: 'NEON' },
@@ -2922,9 +3046,31 @@ function startFirebaseRealtimeAppSettingsListener() {
           if (typeof updatePhotoSectionVisibility === 'function') updatePhotoSectionVisibility();
         }
 
-        // 3. THEME
-        if (data.theme) {
-          appStorage.setItem(GLOBAL_THEME_KEY, String(data.theme));
+        // 3. THEME & BG GLOBAL PUSH FROM ADMIN
+        if (data.theme || data.global_theme) {
+          const cloudTheme = data.global_theme || data.theme;
+          appStorage.setItem(GLOBAL_THEME_KEY, String(cloudTheme));
+        }
+
+        if (data.theme_bg_push_time || data.global_theme || data.global_bg) {
+          const isSysAdmin = currentUser && (
+            String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+            String(currentUser.username || '').toUpperCase() === 'ADMIN'
+          );
+
+          if (!isSysAdmin) {
+            const targetTheme = data.global_theme || data.theme;
+            const targetBg = data.global_bg !== undefined ? data.global_bg : data.bg_image;
+
+            if (targetTheme) {
+              if (typeof updateBodyClasses === 'function') updateBodyClasses(targetTheme);
+              if (currentUser) currentUser.theme = targetTheme;
+            }
+            if (targetBg !== undefined && targetBg !== null) {
+              if (typeof applyAppBackground === 'function') applyAppBackground(targetBg, true);
+              if (currentUser) currentUser.bg_image = targetBg;
+            }
+          }
         }
 
         // 4. FONTE TOKEN
@@ -3315,6 +3461,29 @@ async function initSupabaseRealtimeEngine() {
         { event: '*', schema: 'public', table: 'toko_list' },
         (payload) => {
           handleRealtimeStoreChange(payload);
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'theme_bg_changed' },
+        (payload) => {
+          if (payload && payload.payload) {
+            const data = payload.payload;
+            const isSysAdmin = currentUser && (
+              String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+              String(currentUser.username || '').toUpperCase() === 'ADMIN'
+            );
+            if (!isSysAdmin) {
+              if (data.global_theme) {
+                if (typeof updateBodyClasses === 'function') updateBodyClasses(data.global_theme);
+                if (currentUser) currentUser.theme = data.global_theme;
+              }
+              if (data.global_bg !== undefined && data.global_bg !== null) {
+                if (typeof applyAppBackground === 'function') applyAppBackground(data.global_bg, true);
+                if (currentUser) currentUser.bg_image = data.global_bg;
+              }
+            }
+          }
         }
       )
       .subscribe((status) => {
@@ -4228,7 +4397,7 @@ async function getSupabaseUserColumns(client) {
       return _supabaseUserColumnsCache;
     }
   } catch (e) {}
-  return ['id', 'username', 'password', 'full_name', 'store_code', 'phone', 'category', 'area', 'ttd', 'created_at', 'updated_at'];
+  return ['id', 'username', 'password', 'full_name', 'store_code', 'phone', 'category', 'area', 'ttd', 'theme', 'bg_image', 'created_at', 'updated_at'];
 }
 
 async function simpanUserKeSupabase(userObj) {
@@ -4248,6 +4417,8 @@ async function simpanUserKeSupabase(userObj) {
       category: String(userObj.category || 'TOKO').trim().toUpperCase(),
       area: String(userObj.area || 'BDG').trim().toUpperCase(),
       ttd: userObj.ttd || '',
+      theme: userObj.theme || 'dark-mode',
+      bg_image: userObj.bg_image || '',
       created_at: userObj.createdAt || userObj.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -6017,7 +6188,14 @@ function loadSavedTheme() {
 }
 
 function toggleTheme() {
-  currentThemeIndex = (currentThemeIndex + 1) % THEME_MODES.length;
+  const activeTheme = (typeof getSavedLocalTheme === 'function') ? getSavedLocalTheme() : (document.body.getAttribute('data-theme') || 'dark-mode');
+  let foundIdx = THEME_MODES.findIndex(m => m.id === activeTheme);
+  if (foundIdx !== -1) {
+    currentThemeIndex = (foundIdx + 1) % THEME_MODES.length;
+  } else {
+    currentThemeIndex = (currentThemeIndex + 1) % THEME_MODES.length;
+  }
+  
   const t = THEME_MODES[currentThemeIndex];
   const now = Date.now();
 
@@ -6026,19 +6204,33 @@ function toggleTheme() {
       localStorage.setItem('APP_SELECTED_THEME', t.id);
       localStorage.setItem('LOCAL_USER_THEME', t.id);
       localStorage.setItem('APP_THEME', t.id);
+      localStorage.setItem('STORE_ACTIVE_THEME_V7_CLEAN', t.id);
+      localStorage.setItem('STORE_LOCAL_USER_THEME_V7_CLEAN', t.id);
+      localStorage.setItem('STORE_USER_THEME_TIME', String(now));
     }
   } catch(e) {}
   if (typeof appStorage !== 'undefined') {
     appStorage.setItem(THEME_KEY, t.id);
     appStorage.setItem(LOCAL_USER_THEME_KEY, t.id);
+    appStorage.setItem('STORE_ACTIVE_THEME_V7_CLEAN', t.id);
+    appStorage.setItem('STORE_LOCAL_USER_THEME_V7_CLEAN', t.id);
     appStorage.setItem('STORE_USER_THEME_TIME', String(now));
   }
-  updateBodyClasses();
 
-  if (currentUser) {
+  if (typeof updateBodyClasses === 'function') {
+    updateBodyClasses(t.id);
+  }
+
+  if (typeof currentUser !== 'undefined' && currentUser) {
     currentUser.theme = t.id;
   }
+
+  if (typeof saveUserThemeAndBgPreference === 'function') {
+    saveUserThemeAndBgPreference(t.id, null);
+  }
 }
+window.toggleTheme = toggleTheme;
+window.cycleNextAppTheme = toggleTheme;
 
 function updateThemeIcon() {
   const iconSpans = document.querySelectorAll('.theme-toggle-btn span, .popupThemeToggleBtn span, .theme-icon-btn span, .theme-toggle-inline span');
@@ -6380,7 +6572,7 @@ async function logout() {
 // =======================================================================
 let _sessionTokenRealtimeRef = null;
 
-function startSessionTokenRealtimeListener(isFreshLogin = false) {
+async function startSessionTokenRealtimeListener(isFreshLogin = false) {
   if (!currentUser || !currentUser.username) return;
   const usernameKey = String(currentUser.username).replace(/[\/\.#$\[\]]/g, '_');
   const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
@@ -6393,20 +6585,40 @@ function startSessionTokenRealtimeListener(isFreshLogin = false) {
 
   let myLocalToken = appStorage.getItem('MY_SESSION_TOKEN');
 
-  // Jika ini LOGIN BARU (user memasukkan username/password), buat token baru & update ke DB
+  // Jika ini LOGIN BARU (user memasukkan username/password), buat token baru & update ke DB lebih dulu
   if (isFreshLogin || !myLocalToken) {
     myLocalToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     appStorage.setItem('MY_SESSION_TOKEN', myLocalToken);
     try {
-      rtdb.ref(`user_sessions/${usernameKey}`).set({
+      await rtdb.ref(`user_sessions/${usernameKey}`).set({
         session_token: myLocalToken,
         updated_at: new Date().toISOString()
       });
-    } catch(e) {}
+    } catch(e) {
+      console.warn('[SESSION WRITE NOTICE]:', e);
+    }
   }
 
-  // CEK KELAYAKAN SESI DAHULU DARI DATABASE (untuk menangani kasus user di-logout Admin saat offline)
-  rtdb.ref(`user_sessions/${usernameKey}`).once('value').then(snapshot => {
+  // Jika ini fresh login, token baru sudah 100% tersimpan di DB.
+  // Langsung pasang Realtime listener tanpa cek `once` (mencegah race-condition membaca token lama sebelum set selesai).
+  if (isFreshLogin) {
+    _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
+      if (!currentUser) return;
+      const dbVal = snap.val();
+      if (dbVal && dbVal.session_token) {
+        const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
+        if (curActiveToken && dbVal.session_token !== curActiveToken) {
+          console.warn('⚠️ [GLOBAL LOGOUT NOTICE]: Account logged out by Admin!');
+          forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI');
+        }
+      }
+    });
+    return;
+  }
+
+  // UNTUK USER YANG RE-OPEN BROWSER / REFRESH: Cek kelayakan sesi dari DB (menangani kasus user di-logout saat offline)
+  try {
+    const snapshot = await rtdb.ref(`user_sessions/${usernameKey}`).once('value');
     if (!currentUser) return;
     const data = snapshot.val();
     const activeMyToken = appStorage.getItem('MY_SESSION_TOKEN');
@@ -6414,39 +6626,29 @@ function startSessionTokenRealtimeListener(isFreshLogin = false) {
     // JIKA TOKEN DI DATABASE SUDAH BERBEDA DENGAN TOKEN LOKAL => PERANGKAT DI-LOGOUT ADMIN SAAT OFFLINE
     if (data && data.session_token && activeMyToken && data.session_token !== activeMyToken) {
       console.warn('⚠️ [OFFLINE LOGOUT DETECTED]: Account was logged out by Admin while offline!');
-      forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN / DARI PERANGKAT LAIN!');
+      forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI');
       return;
     }
+  } catch(errOnce) {
+    console.warn('[SESSION ONCE READ NOTICE]:', errOnce);
+  }
 
-    // Jika token masih sesuai, pasang listener Realtime untuk memantau logout saat user sedang online
-    _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
-      if (!currentUser) return;
-      const dbVal = snap.val();
-      if (dbVal && dbVal.session_token) {
-        const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
-        if (curActiveToken && dbVal.session_token !== curActiveToken) {
-          console.warn('⚠️ [GLOBAL LOGOUT NOTICE]: Account logged out from another device!');
-          forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT DARI PERANGKAT LAIN!');
-        }
+  // Pasang listener Realtime untuk memantau logout saat user sedang aktif
+  _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
+    if (!currentUser) return;
+    const dbVal = snap.val();
+    if (dbVal && dbVal.session_token) {
+      const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
+      if (curActiveToken && dbVal.session_token !== curActiveToken) {
+        console.warn('⚠️ [GLOBAL LOGOUT NOTICE]: Account logged out by Admin!');
+        forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI');
       }
-    });
-  }).catch(() => {
-    // Fallback listener jika once gagal karena koneksi lambat
-    _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
-      if (!currentUser) return;
-      const dbVal = snap.val();
-      if (dbVal && dbVal.session_token) {
-        const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
-        if (curActiveToken && dbVal.session_token !== curActiveToken) {
-          forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT DARI PERANGKAT LAIN!');
-        }
-      }
-    });
+    }
   });
 }
 window.startSessionTokenRealtimeListener = startSessionTokenRealtimeListener;
 
-function forceLogoutThisDevice(customMsg = 'SESI ANDA TELAH KEDALUWARSA ATAU DI-LOGOUT!') {
+function forceLogoutThisDevice(customMsg = 'AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI') {
   if (_sessionTokenRealtimeRef) {
     try {
       const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
@@ -6462,6 +6664,10 @@ function forceLogoutThisDevice(customMsg = 'SESI ANDA TELAH KEDALUWARSA ATAU DI-
   appStorage.removeItem(SESSION_KEY);
   appStorage.removeItem('MY_SESSION_TOKEN');
   try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
+  try { localStorage.removeItem('MY_SESSION_TOKEN'); } catch(e) {}
+
+  if (typeof hideLoading === 'function') hideLoading();
+  if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
 
   if (typeof tutupAkun === 'function') tutupAkun(true);
   if (typeof tutupNotificationModal === 'function') tutupNotificationModal();
@@ -6471,8 +6677,8 @@ function forceLogoutThisDevice(customMsg = 'SESI ANDA TELAH KEDALUWARSA ATAU DI-
   if (typeof tutupModalPeriksaToko === 'function') tutupModalPeriksaToko();
   if (typeof tutupModalManagementUser === 'function') tutupModalManagementUser();
 
-  // Bersihkan seluruh popup overlay & backdrop agar tombol di loginPage tidak terkunci
-  document.querySelectorAll('.popupOverlay, .modal').forEach(el => {
+  // Bersihkan seluruh popup overlay, modal, & backdrop loader agar tombol di loginPage 100% responsif & aktif
+  document.querySelectorAll('.popupOverlay, .modal, .modal-backdrop, #loadingScreen, #loadingModal').forEach(el => {
     el.classList.remove('show');
     el.style.display = 'none';
   });
@@ -6967,6 +7173,7 @@ function updateAdminNavVisibility() {
 
   const btnUserNav = document.getElementById('btnUserNav');
   const btnMasterDbNav = document.getElementById('btnMasterDbNav');
+  const containerAdminThemeBg = document.getElementById('containerAdminGlobalThemeBg');
 
   if (btnUserNav) {
     if (isAdmin) {
@@ -6985,6 +7192,14 @@ function updateAdminNavVisibility() {
     } else {
       btnMasterDbNav.style.setProperty('display', 'none', 'important');
       btnMasterDbNav.classList.add('hidden-admin-btn');
+    }
+  }
+
+  if (containerAdminThemeBg) {
+    if (isAdmin) {
+      containerAdminThemeBg.style.setProperty('display', 'block', 'important');
+    } else {
+      containerAdminThemeBg.style.setProperty('display', 'none', 'important');
     }
   }
 }
@@ -21978,6 +22193,159 @@ async function simpanUbahStatusAdmin() {
   }
 }
 window.simpanUbahStatusAdmin = simpanUbahStatusAdmin;
+
+// HELPER UNTUK PUSH TEMA & BG GLOBAL OLEH ADMIN KE SELURUH PENGGUNA
+async function pushGlobalThemeAndBg(themeId, bgUrl) {
+  const isSysAdmin = currentUser && (
+    String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+    String(currentUser.username || '').toUpperCase() === 'ADMIN'
+  );
+  if (!isSysAdmin) return;
+
+  const nowTime = Date.now();
+  const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : null;
+  const dbFs = (typeof dbFirestore !== 'undefined' && dbFirestore) ? dbFirestore : null;
+  const rtdb = (typeof firebase !== 'undefined' && firebase.database) ? firebase.database() : null;
+
+  // 1. Push ke Supabase system_settings & tabel users (SEMUA USER)
+  if (sb) {
+    try {
+      if (themeId) {
+        await sb.from('system_settings').upsert({ setting_key: 'global_theme', setting_value: themeId, updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+      }
+      if (bgUrl !== undefined && bgUrl !== null) {
+        await sb.from('system_settings').upsert({ setting_key: 'global_bg', setting_value: bgUrl || '', updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+      }
+      await sb.from('system_settings').upsert({ setting_key: 'theme_bg_push_time', setting_value: String(nowTime), updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+
+      // Update SEMUA baris pengguna di tabel 'users' Supabase
+      const validCols = typeof getSupabaseUserColumns === 'function' ? await getSupabaseUserColumns(sb) : [];
+      const userUpdatePayload = {};
+      if (themeId && validCols.includes('theme')) userUpdatePayload.theme = themeId;
+      if (bgUrl !== undefined && bgUrl !== null && validCols.includes('bg_image')) userUpdatePayload.bg_image = bgUrl || '';
+      
+      if (Object.keys(userUpdatePayload).length > 0) {
+        await sb.from('users').update(userUpdatePayload).neq('username', '');
+      }
+    } catch(e) {
+      console.warn('[PUSH GLOBAL THEME/BG SUPABASE NOTICE]:', e);
+    }
+  }
+
+  // Update memori lokal semua user (USERS_DB_KEY)
+  try {
+    const rawUsers = appStorage.getItem(USERS_DB_KEY);
+    if (rawUsers) {
+      let users = JSON.parse(rawUsers);
+      users.forEach(u => {
+        if (u) {
+          if (themeId) u.theme = themeId;
+          if (bgUrl !== undefined && bgUrl !== null) u.bg_image = bgUrl || '';
+        }
+      });
+      appStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
+      try { localStorage.setItem(USERS_DB_KEY, JSON.stringify(users)); } catch(e) {}
+    }
+  } catch(e) {}
+
+  // 2. Push ke Firestore app_settings/config
+  if (dbFs) {
+    try {
+      const payload = { theme_bg_push_time: nowTime };
+      if (themeId) payload.global_theme = themeId;
+      if (bgUrl !== undefined && bgUrl !== null) payload.global_bg = bgUrl || '';
+      await dbFs.collection('app_settings').doc('config').set(payload, { merge: true });
+    } catch(e) {
+      console.warn('[PUSH GLOBAL THEME/BG FIRESTORE NOTICE]:', e);
+    }
+  }
+
+  // 3. Push ke Firebase Realtime DB config/system_settings
+  if (rtdb) {
+    try {
+      const rPayload = { theme_bg_push_time: nowTime };
+      if (themeId) rPayload.global_theme = themeId;
+      if (bgUrl !== undefined && bgUrl !== null) rPayload.global_bg = bgUrl || '';
+      await rtdb.ref('config/system_settings').update(rPayload);
+    } catch(e) {
+      console.warn('[PUSH GLOBAL THEME/BG RTDB NOTICE]:', e);
+    }
+  }
+
+  // 4. Siarkan sinyal Realtime Broadcast ke SEMUA perangkat user lain secara instan!
+  if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+    try {
+      supabaseRealtimeChannel.send({
+        type: 'broadcast',
+        event: 'theme_bg_changed',
+        payload: { global_theme: themeId, global_bg: bgUrl, push_time: nowTime }
+      });
+    } catch(e) {}
+  }
+}
+window.pushGlobalThemeAndBg = pushGlobalThemeAndBg;
+
+// HELPER UNTUK MENYIMPAN PREFERENSI TEMA & BG LOKAL / USER DB
+async function saveUserThemeAndBgPreference(themeId = null, bgUrl = null) {
+  if (!currentUser || !currentUser.username) return;
+
+  const nowTime = Date.now();
+  if (themeId) {
+    currentUser.theme = themeId;
+    try { localStorage.setItem('STORE_USER_THEME_TIME', String(nowTime)); } catch(e) {}
+  }
+  if (bgUrl !== null) {
+    currentUser.bg_image = bgUrl;
+    try { localStorage.setItem('STORE_USER_BG_TIME', String(nowTime)); } catch(e) {}
+  }
+
+  // Update memory USERS_DB_KEY & SESSION_KEY
+  try {
+    const rawUsers = appStorage.getItem(USERS_DB_KEY);
+    if (rawUsers) {
+      let users = JSON.parse(rawUsers);
+      const uIdx = users.findIndex(u => u && String(u.username || '').toLowerCase() === String(currentUser.username).toLowerCase());
+      if (uIdx !== -1) {
+        if (themeId) users[uIdx].theme = themeId;
+        if (bgUrl !== null) users[uIdx].bg_image = bgUrl;
+        appStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
+        try { localStorage.setItem(USERS_DB_KEY, JSON.stringify(users)); } catch(e) {}
+      }
+    }
+    const rawSess = appStorage.getItem(SESSION_KEY);
+    if (rawSess) {
+      let sess = JSON.parse(rawSess);
+      if (themeId) sess.theme = themeId;
+      if (bgUrl !== null) sess.bg_image = bgUrl;
+      appStorage.setItem(SESSION_KEY, JSON.stringify(sess));
+      try { localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); } catch(e) {}
+    }
+  } catch(e) {}
+
+  // Save to Supabase users table (Sanitize with schema cache check to prevent HTTP 400 Bad Request)
+  const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : null;
+  if (sb) {
+    try {
+      const validCols = typeof getSupabaseUserColumns === 'function' ? await getSupabaseUserColumns(sb) : [];
+      const updateData = {};
+      if (themeId && validCols.includes('theme')) updateData.theme = themeId;
+      if (bgUrl !== null && validCols.includes('bg_image')) updateData.bg_image = bgUrl || '';
+      if (Object.keys(updateData).length > 0) {
+        await sb.from('users').update(updateData).eq('username', currentUser.username);
+      }
+    } catch(e) {}
+  }
+
+  // If Admin, also push as global theme/bg to cloud!
+  const isSysAdmin = (
+    String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+    String(currentUser.username || '').toUpperCase() === 'ADMIN'
+  );
+  if (isSysAdmin) {
+    pushGlobalThemeAndBg(themeId, bgUrl);
+  }
+}
+window.saveUserThemeAndBgPreference = saveUserThemeAndBgPreference;
 
 function showToastExit(msg) {
   return;

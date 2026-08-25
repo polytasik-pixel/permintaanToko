@@ -6313,7 +6313,7 @@ async function prosesLogin() {
         hideLoading();
       }
 
-      await bukaMainApp();
+      await bukaMainApp(true);
     } else {
       currentUser = null;
       appStorage.removeItem(SESSION_KEY);
@@ -6380,7 +6380,7 @@ async function logout() {
 // =======================================================================
 let _sessionTokenRealtimeRef = null;
 
-function startSessionTokenRealtimeListener() {
+function startSessionTokenRealtimeListener(isFreshLogin = false) {
   if (!currentUser || !currentUser.username) return;
   const usernameKey = String(currentUser.username).replace(/[\/\.#$\[\]]/g, '_');
   const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
@@ -6392,29 +6392,56 @@ function startSessionTokenRealtimeListener() {
   }
 
   let myLocalToken = appStorage.getItem('MY_SESSION_TOKEN');
-  if (!myLocalToken) {
+
+  // Jika ini LOGIN BARU (user memasukkan username/password), buat token baru & update ke DB
+  if (isFreshLogin || !myLocalToken) {
     myLocalToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     appStorage.setItem('MY_SESSION_TOKEN', myLocalToken);
+    try {
+      rtdb.ref(`user_sessions/${usernameKey}`).set({
+        session_token: myLocalToken,
+        updated_at: new Date().toISOString()
+      });
+    } catch(e) {}
   }
 
-  // SINKRONISASI PENTING: Update token sesi lokal saat login ke Realtime DB
-  try {
-    rtdb.ref(`user_sessions/${usernameKey}`).set({
-      session_token: myLocalToken,
-      updated_at: new Date().toISOString()
-    });
-  } catch(e) {}
-
-  _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snapshot => {
+  // CEK KELAYAKAN SESI DAHULU DARI DATABASE (untuk menangani kasus user di-logout Admin saat offline)
+  rtdb.ref(`user_sessions/${usernameKey}`).once('value').then(snapshot => {
     if (!currentUser) return;
     const data = snapshot.val();
-    if (data && data.session_token) {
-      const activeMyToken = appStorage.getItem('MY_SESSION_TOKEN');
-      if (activeMyToken && data.session_token !== activeMyToken) {
-        console.warn('⚠️ [GLOBAL LOGOUT NOTICE]: Account logged out from another device!');
-        forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT DARI PERANGKAT LAIN!');
-      }
+    const activeMyToken = appStorage.getItem('MY_SESSION_TOKEN');
+
+    // JIKA TOKEN DI DATABASE SUDAH BERBEDA DENGAN TOKEN LOKAL => PERANGKAT DI-LOGOUT ADMIN SAAT OFFLINE
+    if (data && data.session_token && activeMyToken && data.session_token !== activeMyToken) {
+      console.warn('⚠️ [OFFLINE LOGOUT DETECTED]: Account was logged out by Admin while offline!');
+      forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN / DARI PERANGKAT LAIN!');
+      return;
     }
+
+    // Jika token masih sesuai, pasang listener Realtime untuk memantau logout saat user sedang online
+    _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
+      if (!currentUser) return;
+      const dbVal = snap.val();
+      if (dbVal && dbVal.session_token) {
+        const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
+        if (curActiveToken && dbVal.session_token !== curActiveToken) {
+          console.warn('⚠️ [GLOBAL LOGOUT NOTICE]: Account logged out from another device!');
+          forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT DARI PERANGKAT LAIN!');
+        }
+      }
+    });
+  }).catch(() => {
+    // Fallback listener jika once gagal karena koneksi lambat
+    _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
+      if (!currentUser) return;
+      const dbVal = snap.val();
+      if (dbVal && dbVal.session_token) {
+        const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
+        if (curActiveToken && dbVal.session_token !== curActiveToken) {
+          forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT DARI PERANGKAT LAIN!');
+        }
+      }
+    });
   });
 }
 window.startSessionTokenRealtimeListener = startSessionTokenRealtimeListener;
@@ -6538,7 +6565,7 @@ window.logoutSemuaPerangkat = logoutSemuaPerangkat;
 // =======================================================================
 // BUKA MAIN APP: LOCAL-FIRST (0ms INSTANT LOAD) + REALTIME + DELTA SYNC
 // =======================================================================
-async function bukaMainApp() {
+async function bukaMainApp(isFreshLogin = false) {
   updateBodyClasses();
 
   if (currentUser) {
@@ -6554,7 +6581,7 @@ async function bukaMainApp() {
 
   // Active Realtime Session Token Invalidation Listener
   if (currentUser && typeof startSessionTokenRealtimeListener === 'function') {
-    startSessionTokenRealtimeListener();
+    startSessionTokenRealtimeListener(isFreshLogin);
   }
 
   const loginPage = document.getElementById('loginPage');
@@ -11300,6 +11327,48 @@ function renderSafeTtdImageTag(sigUrl, styleAttr = 'max-height: 52px; max-width:
 }
 window.renderSafeTtdImageTag = renderSafeTtdImageTag;
 
+async function preloadAndConvertTtdToBase64(sigUrl) {
+  if (!sigUrl || typeof sigUrl !== 'string') return '';
+  const trimmed = sigUrl.trim();
+  if (!trimmed || trimmed === 'null' || trimmed === 'undefined' || trimmed === 'false') return '';
+
+  if (trimmed.startsWith('blob:')) return '';
+
+  // 1. JIKA SUDAH BASE64 DATA URI
+  if (trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+
+  // 2. JIKA LINK URL ONLINE (HTTP/HTTPS dari Supabase Storage atau Cloud)
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      // Panggil fetch dengan parameter pencabut cache (_t=timestamp) agar selalu mengambil file segar
+      const cacheBustUrl = trimmed.includes('?') ? `${trimmed}&_t=${Date.now()}` : `${trimmed}?_t=${Date.now()}`;
+      const res = await fetch(cacheBustUrl, { cache: 'no-cache' });
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          const base64Str = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result || '');
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(blob);
+          });
+          if (base64Str && base64Str.startsWith('data:image/')) {
+            return base64Str;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [PRELOAD TTD ONLINE FETCH ERROR]:', e);
+    }
+    return trimmed;
+  }
+
+  return '';
+}
+window.preloadAndConvertTtdToBase64 = preloadAndConvertTtdToBase64;
+
 function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', targetFullName = '') {
   const role = String(targetRole || '').toUpperCase();
   const area = String(targetArea || '').toUpperCase();
@@ -11656,7 +11725,7 @@ function tutupPilihanCetakPdf() {
 }
 window.tutupPilihanCetakPdf = tutupPilihanCetakPdf;
 
-function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
+async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
   const requests = getRequestsFromDB();
   const targetNo = String(noSurat || '').trim().toUpperCase();
   const req = requests.find(r => r && (
@@ -11728,6 +11797,36 @@ function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
     `;
   }).join('');
 
+  // ---------------------------------------------------------------------
+  // SINKRONISASI TTD ONLINE LIVE DARI SUPABASE DATABASE (JIKA SUPABASE ONLINE)
+  // ---------------------------------------------------------------------
+  if (typeof supabase !== 'undefined' && supabase && typeof isSupabaseConnected === 'function' && isSupabaseConnected()) {
+    try {
+      const { data: supaUsers } = await supabase.from('users').select('id, username, full_name, category, area, ttd').not('ttd', 'is', null);
+      if (Array.isArray(supaUsers) && supaUsers.length > 0) {
+        const dbUsers = getUsersFromDB();
+        let changed = false;
+        supaUsers.forEach(su => {
+          if (su && su.ttd && isValidSig(su.ttd)) {
+            const matchUser = dbUsers.find(u => u && (
+              (u.username && String(u.username).toUpperCase() === String(su.username || '').toUpperCase()) ||
+              (u.fullName && String(u.fullName).toUpperCase() === String(su.full_name || su.fullName || '').toUpperCase())
+            ));
+            if (matchUser && matchUser.ttd !== su.ttd) {
+              matchUser.ttd = su.ttd;
+              changed = true;
+            }
+          }
+        });
+        if (changed && typeof saveUsersToDB === 'function') {
+          saveUsersToDB(dbUsers);
+        }
+      }
+    } catch(errSb) {
+      console.warn('[ONLINE SUPABASE TTD SYNC NOTICE]:', errSb);
+    }
+  }
+
   const users = getUsersFromDB();
   const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
   const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
@@ -11790,6 +11889,18 @@ function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
 
   if (!isValidSig(pemohonTTD)) {
     pemohonTTD = '';
+  }
+
+  // PRE-LOAD DAN KONVERSI LINK GAMBAR ONLINE HTTP/HTTPS KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
+  if (typeof preloadAndConvertTtdToBase64 === 'function') {
+    const [pConverted, sConverted, dConverted] = await Promise.all([
+      preloadAndConvertTtdToBase64(pemohonTTD),
+      preloadAndConvertTtdToBase64(serviceTTD),
+      preloadAndConvertTtdToBase64(dmTTD)
+    ]);
+    if (pConverted) pemohonTTD = pConverted;
+    if (sConverted) serviceTTD = sConverted;
+    if (dConverted) dmTTD = dConverted;
   }
 
   const nowPrint = new Date();
@@ -14125,6 +14236,15 @@ function loadUsersManagement() {
 
 async function paksaLogoutUserByAdmin(targetUsername) {
   if (!targetUsername) return;
+
+  const targetUpper = String(targetUsername || '').trim().toUpperCase();
+  const myUpper = currentUser && currentUser.username ? String(currentUser.username).trim().toUpperCase() : '';
+
+  if (targetUpper && targetUpper === myUpper) {
+    showNotif('UNTUK LOGOUT DARI AKUN ANDA SENDIRI, SILAKAN GUNAKAN TOMBOL LOGOUT KELUAR DI MENU AKUN!', 'warning');
+    return;
+  }
+
   showConfirm(`YAKIN INGIN LOGOUT USER '${targetUsername}' DARI SELURUH PERANGKAT HP & LAPTOP?`, function() {
     var _asyncTask = async function() {
       showLoading(`MEMPROSES LOGOUT USER '${targetUsername}'...`);
@@ -14183,10 +14303,18 @@ async function logoutSemuaPerangkatUserByAdmin() {
         const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
         const newSessionTokenBase = 'ST_' + Date.now() + '_';
         const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
+        const myUnameUpper = currentUser && currentUser.username ? String(currentUser.username).trim().toUpperCase() : '';
 
         for (let i = 0; i < users.length; i++) {
           const u = users[i];
           if (!u || !u.username) continue;
+          
+          const uNameUpper = String(u.username).trim().toUpperCase();
+          // JANGAN LOGOUT AKUN ADMIN YANG SEDANG LOGIN SAAT INI
+          if (myUnameUpper && uNameUpper === myUnameUpper) {
+            continue;
+          }
+
           const uKey = String(u.username).trim().replace(/[\/\.#$\[\]]/g, '_');
           const token = newSessionTokenBase + i + '_' + Math.random().toString(36).substring(2, 6);
 
@@ -14200,7 +14328,7 @@ async function logoutSemuaPerangkatUserByAdmin() {
         }
 
         hideLoading();
-        showNotif('SELURUH AKUN USER BERHASIL DI-LOGOUT DARI SEMUA PERANGKAT!', 'success');
+        showNotif('SELURUH AKUN USER (KECUALI AKUN ADMIN ANDA) BERHASIL DI-LOGOUT DARI SEMUA PERANGKAT!', 'success');
       } catch(err) {
         hideLoading();
         showNotif('GAGAL LOGOUT SEMUA AKUN: ' + (err.message || err), 'warning');

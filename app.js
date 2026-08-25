@@ -620,6 +620,15 @@ function listenApprovalParsialSettingFromCloud() {
                 if (typeof applyAppBackground === 'function') applyAppBackground(data.global_bg, true);
                 if (currentUser) currentUser.bg_image = data.global_bg;
               }
+              if (data.global_bg_opacity !== undefined && data.global_bg_opacity !== null) {
+                const opVal = parseFloat(data.global_bg_opacity) || 48;
+                if (typeof ubahTransparansiBackground === 'function') ubahTransparansiBackground(opVal);
+                try { localStorage.setItem(BG_OPACITY_KEY, String(opVal)); } catch(e) {}
+                const rangeInp = document.getElementById('bgOpacityRange');
+                if (rangeInp) rangeInp.value = opVal;
+                const valTxt = document.getElementById('bgOpacityValText');
+                if (valTxt) valTxt.textContent = `${opVal}%`;
+              }
             }
           }
         }
@@ -1518,6 +1527,12 @@ function loadSavedBgOpacity() {
 
   const valText = document.getElementById('bgOpacityValText');
   if (valText) valText.textContent = `${savedVal}%`;
+
+  const adminRangeInput = document.getElementById('adminGlobalBgOpacityRange');
+  if (adminRangeInput) adminRangeInput.value = savedVal;
+
+  const adminValText = document.getElementById('adminGlobalBgOpacityValText');
+  if (adminValText) adminValText.textContent = `${savedVal}%`;
 
   const numVal = parseFloat(savedVal) || 0;
   const opacityFloat = (numVal / 100).toFixed(2);
@@ -3070,6 +3085,15 @@ function startFirebaseRealtimeAppSettingsListener() {
               if (typeof applyAppBackground === 'function') applyAppBackground(targetBg, true);
               if (currentUser) currentUser.bg_image = targetBg;
             }
+            if (data.global_bg_opacity !== undefined && data.global_bg_opacity !== null) {
+              const opVal = parseFloat(data.global_bg_opacity) || 48;
+              if (typeof ubahTransparansiBackground === 'function') ubahTransparansiBackground(opVal);
+              try { localStorage.setItem(BG_OPACITY_KEY, String(opVal)); } catch(e) {}
+              const rangeInp = document.getElementById('bgOpacityRange');
+              if (rangeInp) rangeInp.value = opVal;
+              const valTxt = document.getElementById('bgOpacityValText');
+              if (valTxt) valTxt.textContent = `${opVal}%`;
+            }
           }
         }
 
@@ -3482,6 +3506,28 @@ async function initSupabaseRealtimeEngine() {
                 if (typeof applyAppBackground === 'function') applyAppBackground(data.global_bg, true);
                 if (currentUser) currentUser.bg_image = data.global_bg;
               }
+            }
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'bg_opacity_changed' },
+        (payload) => {
+          if (payload && payload.payload) {
+            const data = payload.payload;
+            const isSysAdmin = currentUser && (
+              String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+              String(currentUser.username || '').toUpperCase() === 'ADMIN'
+            );
+            if (!isSysAdmin && data.global_bg_opacity !== undefined && data.global_bg_opacity !== null) {
+              const opVal = parseFloat(data.global_bg_opacity) || 48;
+              if (typeof ubahTransparansiBackground === 'function') ubahTransparansiBackground(opVal);
+              try { localStorage.setItem(BG_OPACITY_KEY, String(opVal)); } catch(e) {}
+              const rangeInp = document.getElementById('bgOpacityRange');
+              if (rangeInp) rangeInp.value = opVal;
+              const valTxt = document.getElementById('bgOpacityValText');
+              if (valTxt) valTxt.textContent = `${opVal}%`;
             }
           }
         }
@@ -22284,6 +22330,82 @@ async function pushGlobalThemeAndBg(themeId, bgUrl) {
   }
 }
 window.pushGlobalThemeAndBg = pushGlobalThemeAndBg;
+
+// HELPER PUSH TRANSPARANSI BACKGROUND GLOBAL ADMIN KE SELURUH USER
+async function pushGlobalBgOpacity(opacityVal) {
+  const isSysAdmin = currentUser && (
+    String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+    String(currentUser.username || '').toUpperCase() === 'ADMIN'
+  );
+  if (!isSysAdmin) return;
+
+  const valNum = parseFloat(opacityVal) || 48;
+  const nowTime = Date.now();
+
+  const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : null;
+  const dbFs = (typeof dbFirestore !== 'undefined' && dbFirestore) ? dbFirestore : null;
+  const rtdb = (typeof firebase !== 'undefined' && firebase.database) ? firebase.database() : null;
+
+  // 1. Push ke Supabase system_settings
+  if (sb) {
+    try {
+      await sb.from('system_settings').upsert({ setting_key: 'global_bg_opacity', setting_value: String(valNum), updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+      await sb.from('system_settings').upsert({ setting_key: 'theme_bg_push_time', setting_value: String(nowTime), updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
+    } catch(e) {
+      console.warn('[PUSH GLOBAL OPACITY SUPABASE NOTICE]:', e);
+    }
+  }
+
+  // 2. Push ke Firestore app_settings/config
+  if (dbFs) {
+    try {
+      await dbFs.collection('app_settings').doc('config').set({ global_bg_opacity: valNum, theme_bg_push_time: nowTime }, { merge: true });
+    } catch(e) {
+      console.warn('[PUSH GLOBAL OPACITY FIRESTORE NOTICE]:', e);
+    }
+  }
+
+  // 3. Push ke Firebase Realtime DB config/system_settings
+  if (rtdb) {
+    try {
+      await rtdb.ref('config/system_settings').update({ global_bg_opacity: valNum, theme_bg_push_time: nowTime });
+    } catch(e) {
+      console.warn('[PUSH GLOBAL OPACITY RTDB NOTICE]:', e);
+    }
+  }
+
+  // 4. Siarkan Broadcast Supabase Realtime ke SEMUA user aktif secara instan!
+  if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+    try {
+      supabaseRealtimeChannel.send({
+        type: 'broadcast',
+        event: 'bg_opacity_changed',
+        payload: { global_bg_opacity: valNum, push_time: nowTime }
+      });
+    } catch(e) {}
+  }
+
+  if (typeof showNotif === 'function') {
+    showNotif(`TRANSPARANSI BACKGROUND GLOBAL (${valNum}%) BERHASIL DISINKRONKAN KE SEMUA USER!`, 'success');
+  }
+}
+window.pushGlobalBgOpacity = pushGlobalBgOpacity;
+
+function adminUbahTransparansiGlobalPreview(val) {
+  const txt = document.getElementById('adminGlobalBgOpacityValText');
+  if (txt) txt.textContent = `${val}%`;
+  if (typeof ubahTransparansiBackground === 'function') {
+    ubahTransparansiBackground(val);
+  }
+}
+window.adminUbahTransparansiGlobalPreview = adminUbahTransparansiGlobalPreview;
+
+function simpanTransparansiGlobalAdmin() {
+  const input = document.getElementById('adminGlobalBgOpacityRange');
+  const val = input ? input.value : 48;
+  pushGlobalBgOpacity(val);
+}
+window.simpanTransparansiGlobalAdmin = simpanTransparansiGlobalAdmin;
 
 // HELPER UNTUK MENYIMPAN PREFERENSI TEMA & BG LOKAL / USER DB
 async function saveUserThemeAndBgPreference(themeId = null, bgUrl = null) {

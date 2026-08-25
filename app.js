@@ -2831,6 +2831,12 @@ function getDbFirestore() {
       }
       if (typeof firebase.firestore === 'function') {
         dbFirestore = firebase.firestore();
+        try {
+          dbFirestore.settings({
+            experimentalAutoDetectLongPolling: true,
+            ignoreUndefinedProperties: true
+          });
+        } catch(eSet) {}
         window.dbFirestore = dbFirestore;
         return dbFirestore;
       }
@@ -3097,7 +3103,14 @@ function startFirebaseRealtimeAppSettingsListener() {
           }
         }
 
-        // 4. FONTE TOKEN
+        // 4. GLOBAL CLEAR CACHE COMMAND FROM ADMIN
+        if (data.global_clear_cache_time) {
+          if (typeof periksaDanEksekusiGlobalClearCache === 'function') {
+            periksaDanEksekusiGlobalClearCache(data.global_clear_cache_time);
+          }
+        }
+
+        // 5. FONTE TOKEN
         if (data.fonteToken) {
           appStorage.setItem(FONTE_TOKEN_KEY, String(data.fonteToken));
           try { localStorage.setItem(FONTE_TOKEN_KEY, String(data.fonteToken)); } catch(e) {}
@@ -3528,6 +3541,17 @@ async function initSupabaseRealtimeEngine() {
               if (rangeInp) rangeInp.value = opVal;
               const valTxt = document.getElementById('bgOpacityValText');
               if (valTxt) valTxt.textContent = `${opVal}%`;
+            }
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'global_clear_cache' },
+        (payload) => {
+          if (payload && payload.payload && payload.payload.clear_time) {
+            if (typeof periksaDanEksekusiGlobalClearCache === 'function') {
+              periksaDanEksekusiGlobalClearCache(payload.payload.clear_time);
             }
           }
         }
@@ -6188,6 +6212,267 @@ async function hapusSemuaFotoBiasa() {
 }
 window.hapusSemuaFotoBiasa = hapusSemuaFotoBiasa;
 
+function base64ToUint8Array(base64Str) {
+  try {
+    const cleanStr = String(base64Str || '').replace(/^data:image\/[a-zA-Z0-9\+\-\.]+;base64,/, '').replace(/[^A-Za-z0-9\+\/\=]/g, '');
+    if (!cleanStr) return null;
+    const binaryStr = window.atob(cleanStr);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return bytes;
+  } catch(e) {
+    console.warn('[BASE64 CONVERT ERR]:', e);
+    return null;
+  }
+}
+window.base64ToUint8Array = base64ToUint8Array;
+
+async function getPhotoBlobOrBase64(url) {
+  if (!url || typeof url !== 'string') return null;
+  const str = url.trim();
+  if (str.length < 10) return null;
+
+  // Helper to detect extension from binary magic bytes
+  function detectImageExtension(bytes) {
+    if (!bytes || bytes.length < 10) return null;
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'jpg';
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'png';
+    if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return 'webp';
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'gif';
+    return null;
+  }
+
+  // 1. Data URL Base64 or raw Base64 string
+  if (str.startsWith('data:image/') || (!str.startsWith('http') && !str.startsWith('/') && str.length > 100 && !str.includes(' '))) {
+    const bytes = base64ToUint8Array(str);
+    if (bytes && bytes.length > 150) {
+      const ext = detectImageExtension(bytes) || 'jpg';
+      return { bytes: bytes, ext: ext };
+    }
+  }
+
+  // 2. HTTP / HTTPS / Relative URL
+  if (str.startsWith('http://') || str.startsWith('https://') || str.startsWith('/')) {
+    // Attempt A: Direct fetch to Uint8Array
+    try {
+      const res = await fetch(str, { mode: 'cors' });
+      if (res.ok) {
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('html') && !ct.includes('json') && !ct.includes('text')) {
+          const ab = await res.arrayBuffer();
+          if (ab && ab.byteLength > 150) {
+            const bytes = new Uint8Array(ab);
+            const ext = detectImageExtension(bytes) || (ct.includes('png') ? 'png' : (ct.includes('webp') ? 'webp' : 'jpg'));
+            return { bytes: bytes, ext: ext };
+          }
+        }
+      }
+    } catch(eFetch) {
+      console.warn('[FETCH FOTO WARN]: Direct fetch failed, trying Image Canvas fallback...', eFetch);
+    }
+
+    // Attempt B: HTML5 Image Element + Canvas Fallback (Converts CORS/WebP/PNG to clean binary JPEG Uint8Array)
+    try {
+      const bytes = await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width || 800;
+            canvas.height = img.naturalHeight || img.height || 600;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            canvas.toBlob(async (blob) => {
+              if (blob) {
+                const ab = await blob.arrayBuffer();
+                resolve(new Uint8Array(ab));
+              } else {
+                resolve(null);
+              }
+            }, 'image/jpeg', 0.92);
+          } catch(e) { resolve(null); }
+        };
+        img.onerror = () => resolve(null);
+        img.src = str;
+      });
+
+      if (bytes && bytes.length > 150) {
+        const ext = detectImageExtension(bytes) || 'jpg';
+        return { bytes: bytes, ext: ext };
+      }
+    } catch(eCanvas) {}
+  }
+
+  return null;
+}
+window.getPhotoBlobOrBase64 = getPhotoBlobOrBase64;
+
+async function downloadSemuaFotoZipAdmin() {
+  showConfirm('UNDUH SELURUH FOTO LANGSUNG KE FOLDER PENYIMPANAN DI KOMPUTER?', async function() {
+    showLoading('MENGAMBIL DAFTAR FOTO DARI DATABASE...');
+    try {
+      let dirHandle = null;
+      if ('showDirectoryPicker' in window) {
+        try {
+          hideLoading();
+          dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        } catch (eDir) {
+          if (eDir.name === 'AbortError') {
+            hideLoading();
+            return;
+          }
+          console.warn('[SHOW DIRECTORY PICKER WARN]:', eDir);
+        }
+      }
+
+      showLoading('MEMPROSES DAFTAR FOTO DARI CLOUD...');
+      let allPhotosToFetch = [];
+      const extractedUrlsSet = new Set();
+
+      // 1. Ambil data dari Supabase / Local DB
+      let requests = [];
+      if (typeof supabase !== 'undefined' && supabase) {
+        try {
+          const { data, error } = await supabase.from('permintaan_toko').select('*');
+          if (!error && Array.isArray(data)) requests = data;
+        } catch(e) {}
+      }
+      if (requests.length === 0) {
+        requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+      }
+
+      // Collect photo URLs from database records
+      requests.forEach(r => {
+        if (!r) return;
+        const noSuratClean = String(r.no_surat || r.noSurat || 'DOKUMEN').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const tokoClean = String(r.toko || r.nama_toko || 'TOKO').replace(/[^a-zA-Z0-9_-]/g, '_');
+        
+        // Extract photos array / field
+        const photosRaw = r.photos || r.foto_barang || r.foto || [];
+        const photoUrls = typeof parsePhotosArray === 'function' ? parsePhotosArray(photosRaw) : (Array.isArray(photosRaw) ? photosRaw : [photosRaw]);
+        
+        photoUrls.forEach((url, idx) => {
+          if (url && typeof url === 'string' && !extractedUrlsSet.has(url)) {
+            extractedUrlsSet.add(url);
+            const fileName = `Foto_${noSuratClean}_${tokoClean}_${idx + 1}`;
+            allPhotosToFetch.push({ name: fileName, url: url });
+          }
+        });
+
+        // Extract Artemis photos if any
+        const artemisRaw = r.foto_bukti_artemis || r.artemisPhotos || [];
+        const artemisUrls = typeof parsePhotosArray === 'function' ? parsePhotosArray(artemisRaw) : (Array.isArray(artemisRaw) ? artemisRaw : [artemisRaw]);
+        artemisUrls.forEach((url, idx) => {
+          if (url && typeof url === 'string' && !extractedUrlsSet.has(url)) {
+            extractedUrlsSet.add(url);
+            const fileName = `Artemis_${noSuratClean}_${tokoClean}_${idx + 1}`;
+            allPhotosToFetch.push({ name: fileName, url: url });
+          }
+        });
+
+        // Extract individual item photos if present
+        let itemsList = r.items || [];
+        if (typeof itemsList === 'string') {
+          try { itemsList = JSON.parse(itemsList); } catch(e) { itemsList = []; }
+        }
+        if (Array.isArray(itemsList)) {
+          itemsList.forEach((it, iIdx) => {
+            const itemUrl = it.fotoBuktiPart || it.fotoPart || it.foto || '';
+            if (itemUrl && typeof itemUrl === 'string' && !extractedUrlsSet.has(itemUrl)) {
+              extractedUrlsSet.add(itemUrl);
+              const fileName = `BuktiPart_${noSuratClean}_Item${iIdx + 1}`;
+              allPhotosToFetch.push({ name: fileName, url: itemUrl });
+            }
+          });
+        }
+      });
+
+      // 2. Periksa file di Supabase Storage Buckets
+      if (typeof supabase !== 'undefined' && supabase && supabase.storage) {
+        const candidateBuckets = ['photos', 'permintaan_photos', 'foto-permintaan', 'request-photos', 'documents', 'evidence_photos'];
+        for (const bucketName of candidateBuckets) {
+          try {
+            const { data, error } = await supabase.storage.from(bucketName).list('', { limit: 1000 });
+            if (!error && Array.isArray(data)) {
+              for (const item of data) {
+                if (item.name && item.name !== '.emptyFolderPlaceholder' && !item.name.toLowerCase().includes('ttd')) {
+                  const publicUrl = supabase.storage.from(bucketName).getPublicUrl(item.name).data.publicUrl;
+                  if (publicUrl && !extractedUrlsSet.has(publicUrl)) {
+                    extractedUrlsSet.add(publicUrl);
+                    const cleanItemName = item.name.replace(/\.[a-zA-Z0-9]+$/, '');
+                    allPhotosToFetch.push({ name: `Storage_${bucketName}_${cleanItemName}`, url: publicUrl });
+                  }
+                }
+              }
+            }
+          } catch(eStorage) {}
+        }
+      }
+
+      if (allPhotosToFetch.length === 0) {
+        hideLoading();
+        showNotif('TIDAK ADA FOTO TERSEDIA UNTUK DIUNDUH!', 'warning');
+        return;
+      }
+
+      showLoading(`MENGUNDUH 0 DARI ${allPhotosToFetch.length} FOTO KE FOLDER...`);
+      let successCount = 0;
+
+      for (let i = 0; i < allPhotosToFetch.length; i++) {
+        const item = allPhotosToFetch[i];
+        showLoading(`MENYIMPAN FOTO ${i + 1}/${allPhotosToFetch.length}: ${item.name}...`);
+        try {
+          const parsed = await getPhotoBlobOrBase64(item.url);
+          if (parsed && parsed.bytes) {
+            const finalFileName = `${item.name}.${parsed.ext || 'jpg'}`;
+
+            if (dirHandle) {
+              // Option A: Write directly into the user's chosen folder via File System Access API
+              const fileHandle = await dirHandle.getFileHandle(finalFileName, { create: true });
+              const writable = await fileHandle.createWritable();
+              await writable.write(parsed.bytes);
+              await writable.close();
+              successCount++;
+            } else {
+              // Option B: Download directly as individual image file to browser Downloads folder
+              const blob = new Blob([parsed.bytes], { type: parsed.ext === 'png' ? 'image/png' : 'image/jpeg' });
+              const downloadLink = document.createElement('a');
+              downloadLink.href = URL.createObjectURL(blob);
+              downloadLink.download = finalFileName;
+              document.body.appendChild(downloadLink);
+              downloadLink.click();
+              document.body.removeChild(downloadLink);
+              await new Promise(r => setTimeout(r, 150)); // stagger downloads
+              successCount++;
+            }
+          }
+        } catch(eSave) {
+          console.warn(`[SAVE FOTO ERR]: Gagal simpan foto ${item.name}`, eSave);
+        }
+      }
+
+      hideLoading();
+      if (successCount > 0) {
+        showNotif(`BERHASIL MENYIMPAN ${successCount} FOTO LANGSUNG KE FOLDER!`, 'success');
+      } else {
+        showNotif('GAGAL MENYIMPAN BEBERAPA FOTO.', 'danger');
+      }
+
+    } catch(err) {
+      hideLoading();
+      console.error('[DOWNLOAD FOTO DIRECT ERR]:', err);
+      showNotif('GAGAL MENYIMPAN FOTO: ' + (err.message || err), 'danger');
+    }
+  });
+}
+window.downloadSemuaFotoZipAdmin = downloadSemuaFotoZipAdmin;
+
 async function hapusFotoDokumenBiasa(noSurat) {
   if (!noSurat) return;
   showConfirm(`HAPUS FOTO PADA DOKUMEN #${noSurat}?`, function() {
@@ -6860,6 +7145,7 @@ async function bukaMainApp(isFreshLogin = false) {
   if (typeof loadRiwayat === 'function') loadRiwayat();
   if (typeof initSupabaseRealtimeEngine === 'function') initSupabaseRealtimeEngine();
   if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
+  if (typeof syncSupabaseSystemSettingsToLocalCache === 'function') syncSupabaseSystemSettingsToLocalCache();
 
   if (typeof setupBottomMenuAutoHide === 'function') {
     setupBottomMenuAutoHide();
@@ -6947,6 +7233,156 @@ async function hapusSemuaPenyimpananLokalApk() {
   });
 }
 window.hapusSemuaPenyimpananLokalApk = hapusSemuaPenyimpananLokalApk;
+
+// =============================================================================
+// GLOBAL CLEAR CACHE & STORAGE CONTROL ENGINE (PURGE ALL USERS ON DEMAND & ON CONNECT)
+// =============================================================================
+const LAST_DEVICE_CLEAR_CACHE_TIME_KEY = 'STORE_LAST_DEVICE_CLEAR_CACHE_TIME_V1';
+
+function eksekusiPurgeCachePerangkatLokal(clearTime) {
+  try {
+    const timeToSave = clearTime || Date.now();
+    
+    if (typeof appStorage !== 'undefined' && appStorage && typeof appStorage.clear === 'function') {
+      appStorage.clear();
+    }
+    if (typeof localStorage !== 'undefined' && localStorage) {
+      localStorage.clear();
+      try { localStorage.setItem(LAST_DEVICE_CLEAR_CACHE_TIME_KEY, String(timeToSave)); } catch(e) {}
+    }
+    if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+      sessionStorage.clear();
+    }
+    if (typeof caches !== 'undefined' && caches.keys) {
+      caches.keys().then(names => {
+        for (let name of names) caches.delete(name);
+      }).catch(e => {});
+    }
+    if (typeof indexedDB !== 'undefined' && indexedDB.databases) {
+      indexedDB.databases().then(dbs => {
+        if (Array.isArray(dbs)) {
+          dbs.forEach(db => {
+            if (db && db.name) indexedDB.deleteDatabase(db.name);
+          });
+        }
+      }).catch(e => {});
+    }
+  } catch(e) {
+    console.warn('[PURGE CACHE LOKAL EXCEPTION]:', e);
+  }
+  window.location.reload();
+}
+window.eksekusiPurgeCachePerangkatLokal = eksekusiPurgeCachePerangkatLokal;
+
+function periksaDanEksekusiGlobalClearCache(remoteClearTime) {
+  if (!remoteClearTime) return;
+  const numRemoteTime = parseFloat(remoteClearTime) || 0;
+  if (!numRemoteTime) return;
+
+  let localLastClear = 0;
+  try {
+    localLastClear = parseFloat(localStorage.getItem(LAST_DEVICE_CLEAR_CACHE_TIME_KEY) || '0') || 0;
+  } catch(e) {}
+
+  if (numRemoteTime > localLastClear) {
+    console.info('🚀 [GLOBAL CLEAR CACHE TRIGGERED]: Remote timestamp', numRemoteTime, 'is newer than local', localLastClear);
+    eksekusiPurgeCachePerangkatLokal(numRemoteTime);
+  }
+}
+window.periksaDanEksekusiGlobalClearCache = periksaDanEksekusiGlobalClearCache;
+
+async function pushGlobalClearCacheAdmin() {
+  const isSysAdmin = currentUser && (
+    String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+    String(currentUser.username || '').toUpperCase() === 'ADMIN'
+  );
+  if (!isSysAdmin) {
+    if (typeof showNotif === 'function') showNotif('HANYA ADMIN YANG DAPAT MEMERINTAHKAN BERSIH CACHE GLOBAL!', 'warning');
+    return;
+  }
+
+  showConfirm(
+    `APAKAH ANDA YAKIN INGIN MENGHAPUS CACHE & PENYIMPANAN LOKAL SELURUH PERANGKAT USER?\n\nSeluruh perangkat HP/Laptop user (baik yang sedang online maupun offline saat nanti dibuka) akan otomatis membersihkan cache lokal dan memuat ulang data terbaru dari cloud.`,
+    function() {
+      var _asyncTask = async function() {
+        showLoading('MENGIRIM PERINTAH HAPUS CACHE GLOBAL KE CLOUD...');
+        try {
+          const nowTime = Date.now();
+          const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : null;
+          const dbFs = (typeof dbFirestore !== 'undefined' && dbFirestore) ? dbFirestore : null;
+          const rtdb = (typeof firebase !== 'undefined' && firebase.database) ? firebase.database() : null;
+
+          // 1. Supabase system_settings
+          if (sb) {
+            try {
+              await sb.from('system_settings').upsert({
+                setting_key: 'global_clear_cache_time',
+                setting_value: String(nowTime),
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'setting_key' });
+            } catch(eSb) { console.warn('[GLOBAL CLEAR CACHE SUPABASE ERR]:', eSb); }
+          }
+
+          // 2. Firestore app_settings/config
+          if (dbFs) {
+            try {
+              await dbFs.collection('app_settings').doc('config').set({
+                global_clear_cache_time: nowTime,
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+            } catch(eFs) {}
+          }
+
+          // 3. Firebase Realtime DB config/system_settings
+          if (rtdb) {
+            try {
+              await rtdb.ref('config/system_settings').update({
+                global_clear_cache_time: nowTime
+              });
+            } catch(eRtdb) {}
+          }
+
+          // 4. Supabase Realtime Channel Broadcast
+          if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+            try {
+              supabaseRealtimeChannel.send({
+                type: 'broadcast',
+                event: 'global_clear_cache',
+                payload: { clear_time: nowTime }
+              });
+            } catch(eBc) {}
+          }
+
+          hideLoading();
+          showNotif('BERHASIL MENGIRIM PERINTAH BERSIH CACHE GLOBAL KE SEMUA PERANGKAT!', 'success');
+
+          setTimeout(() => {
+            eksekusiPurgeCachePerangkatLokal(nowTime);
+          }, 1200);
+        } catch(err) {
+          hideLoading();
+          showNotif('GAGAL MENGIRIM PERINTAH HAPUS CACHE: ' + (err.message || err), 'warning');
+        }
+      };
+      _asyncTask();
+    }
+  );
+}
+window.pushGlobalClearCacheAdmin = pushGlobalClearCacheAdmin;
+
+async function syncSupabaseSystemSettingsToLocalCache() {
+  if (typeof supabase === 'undefined' || !supabase) return;
+  try {
+    const { data, error } = await supabase.from('system_settings').select('*');
+    if (!error && Array.isArray(data)) {
+      const clearCacheRow = data.find(r => r && r.setting_key === 'global_clear_cache_time');
+      if (clearCacheRow && clearCacheRow.setting_value) {
+        periksaDanEksekusiGlobalClearCache(clearCacheRow.setting_value);
+      }
+    }
+  } catch(e) {}
+}
+window.syncSupabaseSystemSettingsToLocalCache = syncSupabaseSystemSettingsToLocalCache;
 
 function isFormDirtyOrFilled() {
   if (typeof modeEdit !== 'undefined' && modeEdit) return true;
@@ -14471,10 +14907,12 @@ function loadUsersManagement() {
         <td>${u.phone || '-'}</td>
         <td><span class="badgeStatus badge-pending" style="font-weight:600;">${u.category}</span></td>
         <td><span style="color:var(--primary); font-weight:600;">${u.area}</span></td>
-        <td style="text-align: right; white-space:nowrap;">
-          <button class="btnIcon btnForceLogout" onclick="paksaLogoutUserByAdmin('${u.username}')" title="LOGOUT USER '${u.username}' DARI SEMUA PERANGKAT"><span class="material-symbols-rounded">phonelink_erase</span></button>
-          <button class="btnIcon btnEdit" onclick="bukaUserModal('${uKey}', this)" title="EDIT USER"><span class="material-symbols-rounded">edit</span></button>
-          ${!isSuperAdmin ? `<button class="btnIcon btnDelete" onclick="hapusUser('${uKey}', this)" title="HAPUS USER"><span class="material-symbols-rounded">delete</span></button>` : ''}
+        <td style="text-align: center; white-space: nowrap !important;">
+          <div style="display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: 4px !important; flex-wrap: nowrap !important; white-space: nowrap !important;">
+            <button class="btnIcon btnForceLogout" onclick="paksaLogoutUserByAdmin('${u.username}')" title="LOGOUT USER '${u.username}' DARI SEMUA PERANGKAT"><span class="material-symbols-rounded">phonelink_erase</span></button>
+            <button class="btnIcon btnEdit" onclick="bukaUserModal('${uKey}', this)" title="EDIT USER"><span class="material-symbols-rounded">edit</span></button>
+            ${!isSuperAdmin ? `<button class="btnIcon btnDelete" onclick="hapusUser('${uKey}', this)" title="HAPUS USER"><span class="material-symbols-rounded">delete</span></button>` : ''}
+          </div>
         </td>
       `;
       tbody.appendChild(tr);

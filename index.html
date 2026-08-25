@@ -23,6 +23,8 @@
   <!-- PDF.js & Tesseract OCR untuk pembacaan dokumen PDF & Gambar lokal / failsafe -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- JSZip untuk kompresi & download semua foto ke ZIP -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
   <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -31,8 +33,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics-compat.js"></script>
 
   <!-- Master Stylesheet -->
-  <link rel="stylesheet" href="styles.css?v=20260825_v1792000000">
-  <script src="app.js?v=20260825_v1792000000"></script>
+  <link rel="stylesheet" href="styles.css?v=20260825_v1805000000">
+  <script src="app.js?v=20260825_v1805000000"></script>
 
   <!-- Global Failsafe Gemini AI Key Handler -->
   <script>
@@ -499,8 +501,7 @@
         <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; width: 100%; box-sizing: border-box;">
           <select id="toko" style="flex: 3; min-width: 0; height: 44px; margin: 0; border-radius: 5px; box-sizing: border-box;"></select>
           <div id="wrapperCariToko" style="flex: 0 0 108px !important; min-width: 98px !important; max-width: 123px !important; position: relative; height: 44px; box-sizing: border-box; margin: 0;">
-            <span class="material-symbols-rounded" style="position: absolute; left: 8px; top: 9px; font-size: 17px; color: var(--text-muted); pointer-events: none;">search</span>
-            <input type="text" id="cariTokoInput" placeholder="CARI TOKO" style="width: 100%; height: 44px; padding: 6px 24px 0 30px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-body); color: var(--text-main); font-size: 13px !important; font-weight: 400 !important; line-height: 1.2 !important; text-transform: uppercase; box-sizing: border-box; margin: 0;" oninput="filterDropdownToko(this.value)">
+            <input type="text" id="cariTokoInput" placeholder="CARI TOKO" style="width: 100%; height: 44px; padding: 0 24px 0 10px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-body); color: var(--text-main); font-size: 13px !important; font-weight: 400 !important; line-height: 44px !important; align-content: center !important; text-align: left !important; text-transform: uppercase; box-sizing: border-box; margin: 0;" oninput="filterDropdownToko(this.value)">
             <button type="button" id="btnHapusCariToko" onclick="resetCariToko()" title="Hapus Pencarian" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; display: none; padding: 2px; align-items: center;">
               <span class="material-symbols-rounded" style="font-size: 16px;">cancel</span>
             </button>
@@ -668,20 +669,25 @@
         </div>
       </div>
 
-      <!-- ADMIN CONTROL: HAPUS GAMBAR / FOTO SUPABASE -->
-      <div class="box" style="border-left: 4px solid #ef4444; margin-bottom: 1mm !important; background: var(--bg-card);">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <!-- ADMIN CONTROL: UNDUH / KELOLA FOTO CLOUD LANGSUNG KE FOLDER -->
+      <div id="containerDownloadFotoZipAdmin" class="box" style="border-left: 4px solid #0284c7; margin-bottom: 1mm !important; background: var(--bg-card);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
-            <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-              <span class="material-symbols-rounded">delete</span> HAPUS GAMBAR / FOTO SUPABASE
+            <h3 style="color: #0284c7; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 900;">
+              <span class="material-symbols-rounded">folder_open</span> UNDUH / KELOLA PENYIMPANAN FOTO CLOUD
             </h3>
             <p style="font-size: 12px; color: var(--text-muted); margin: 0;">
-              MENGHAPUS SEMUA GAMBAR/FOTO DARI SUPABASE CLOUD DAN APLIKASI UNTUK MENGHEMAT KAPASITAS PENYIMPANAN.
+              SIMPAN SELURUH FOTO PERMINTAAN LANGSUNG KE FOLDER KOMPUTER ATAU BERSIHKAN PENYIMPANAN CLOUD.
             </p>
           </div>
-          <button type="button" class="btnDownload" style="background: #dc2626; color: #ffffff; padding: 10px 16px; font-weight: 700;" onclick="hapusSemuaFotoBiasa()">
-            <span class="material-symbols-rounded" style="vertical-align: middle; margin-right: 4px;">delete_forever</span> HAPUS SEMUA FOTO
-          </button>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button type="button" class="btnDownload" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; padding: 10px 16px; font-weight: 800; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);" onclick="downloadSemuaFotoZipAdmin()">
+              <span class="material-symbols-rounded" style="font-size: 18px;">folder_open</span> SIMPAN SEMUA FOTO KE FOLDER
+            </button>
+            <button type="button" class="btnDownload" style="background: linear-gradient(135deg, #dc2626, #b91c1c); color: #ffffff; padding: 10px 16px; font-weight: 800; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);" onclick="hapusSemuaFotoBiasa()">
+              <span class="material-symbols-rounded" style="font-size: 18px;">delete_forever</span> HAPUS SEMUA FOTO
+            </button>
+          </div>
         </div>
       </div>
 
@@ -810,19 +816,19 @@
         </div>
       </div>
 
-      <!-- ADMIN CONTROL: HAPUS PENYIMPANAN LOKAL / CACHE -->
+      <!-- ADMIN CONTROL: HAPUS PENYIMPANAN LOKAL & CACHE GLOBAL (SEMUA PERANGKAT USER) -->
       <div id="containerHapusPenyimpananLokalAdmin" class="box" style="border-left: 4px solid #ef4444; margin-bottom: 1mm !important; background: var(--bg-card);">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div>
-            <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-              <span class="material-symbols-rounded">delete_forever</span> HAPUS LOKAL PENYIMPANAN / CACHE
+            <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 900;">
+              <span class="material-symbols-rounded">delete_forever</span> HAPUS LOKAL PENYIMPANAN & CACHE GLOBAL (SEMUA USER)
             </h3>
             <p style="font-size: 12px; color: var(--text-muted); margin: 0;">
-              BERSIHKAN SELURUH DATA LOKAL PENYIMPANAN & CACHE APLIKASI DI PERANGKAT SECARA PERMANEN.
+              PERINTAH KONTROL ADMIN: BERSIHKAN DATA CACHE & LOKAL STORAGE SELURUH PERANGKAT USER (ONLINE MAUPUN SAAT OFFLINE DIBUKA).
             </p>
           </div>
-          <button type="button" class="btnDownload" style="background: linear-gradient(135deg, #ef4444, #b91c1c); height: 42px; padding: 0 20px; font-weight: 800; border: none; border-radius: 5px; color: #ffffff; cursor: pointer; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.25);" onclick="hapusSemuaDataLokal()">
-            <span class="material-symbols-rounded">delete_forever</span> HAPUS LOKAL PENYIMPANAN / CACHE
+          <button type="button" class="btnDownload" style="background: linear-gradient(135deg, #ef4444, #b91c1c); height: 42px; padding: 0 20px; font-weight: 800; border: none; border-radius: 5px; color: #ffffff; cursor: pointer; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.25); display: flex; align-items: center; gap: 6px;" onclick="pushGlobalClearCacheAdmin()">
+            <span class="material-symbols-rounded">delete_forever</span> HAPUS CACHE GLOBAL (SEMUA USER)
           </button>
         </div>
       </div>

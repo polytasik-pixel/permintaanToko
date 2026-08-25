@@ -10792,23 +10792,38 @@ html body #inputPage.active {
   margin-top: 0 !important;
 }
 
-#inputPage input,
+/* VERTICALLY CENTERED (RATA TENGAH ATAS-BAWAH) & HORIZONTALLY LEFT ALIGNED (RATA KIRI) FOR ALL INPUT BOXES IN INPUT PAGE */
+#inputPage input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 #inputPage select,
-#inputPage textarea,
-#inputPage .box input,
+#inputPage .box input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 #inputPage .box select,
-#inputPage .box textarea,
-html body #inputPage input,
+#inputPage .detailRow input,
+html body #inputPage input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 html body #inputPage select,
-html body #inputPage textarea,
-.input-form input,
+html body #inputPage .detailRow input,
+.input-form input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .input-form select,
-.input-form textarea,
-.form-control,
-form input,
-form select,
-form textarea {
-  padding-top: 1mm !important;
+.form-control {
+  text-align: left !important;
+  vertical-align: middle !important;
+  line-height: normal !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  height: 42px !important;
+  align-content: center !important;
+  box-sizing: border-box !important;
+}
+
+#inputPage textarea,
+#inputPage .box textarea,
+html body #inputPage textarea,
+.input-form textarea {
+  text-align: left !important;
+  padding: 10px 12px !important;
+  line-height: 1.4 !important;
+  box-sizing: border-box !important;
 }
 
 /* 3. STICKY FULL-WIDTH TOP HEADER FOR INPUT FORM PAGE (TITLE, PDF/IMAGE/EXCEL ICONS & LINE STAYS PINNED AT TOP FULL-WIDTH) */
@@ -14399,7 +14414,19 @@ html body #popupBantuan .chatBox {
 #popupUserManagementModal table.userModalTable td:last-child,
 .userModalTable th:last-child,
 .userModalTable td:last-child {
-  text-align: right !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  min-width: 125px !important;
+}
+
+.userModalTable td:last-child > div,
+#popupUserManagementModal table.userModalTable td:last-child > div {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
 }
 
 

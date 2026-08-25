@@ -1,3 +1,80 @@
+
+// =============================================================================
+// HELPER: PASTIKAN POPUP DETAIL PERMINTAAN TETAP TERBUKA SAAT SUB-MODAL DITUTUP
+// =============================================================================
+function pastikanDetailPermintaanTetapTerbuka() {
+  _isClosingDetailModal = false;
+  window._isClosingDetailModal = false;
+  const targetNoSurat = window._currentDetailNoSurat || (document.getElementById('popupDetailBarangV2') ? document.getElementById('popupDetailBarangV2').dataset.noSurat : null);
+  const detailModal = document.getElementById('popupDetailBarangV2');
+  if (detailModal && targetNoSurat && targetNoSurat.trim() !== '') {
+    detailModal.dataset.active = "true";
+    detailModal.dataset.noSurat = targetNoSurat;
+    detailModal.style.setProperty('display', 'flex', 'important');
+    detailModal.classList.add('show');
+
+    if (!window.history.state || !window.history.state.popupDetailOpen) {
+      try {
+        history.pushState({ popupDetailOpen: true }, '');
+      } catch(e) {}
+    }
+
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(targetNoSurat, true);
+    }
+  }
+}
+window.pastikanDetailPermintaanTetapTerbuka = pastikanDetailPermintaanTetapTerbuka;
+
+// =============================================================================
+// GLOBAL REQUEST SEARCH FILTER MATCH FUNCTION (INCLUDES STATUS & ALL ALIASES)
+// =============================================================================
+function matchesRequestSearchFilter(r, search) {
+  if (!r || !search) return true;
+  const q = String(search).toLowerCase().trim();
+  if (!q) return true;
+
+  // 1. Direct fields
+  const noSurat = String(r.noSurat || r.id || '').toLowerCase();
+  const toko = String(r.toko || r.namaToko || '').toLowerCase();
+  const status = String(r.status || '').toLowerCase();
+  const createdBy = String(r.createdBy || r.user || r.pembuat || '').toLowerCase();
+  const catatan = String(r.catatan || r.keterangan || '').toLowerCase();
+  const area = String(r.area || '').toLowerCase();
+  const tgl = String(r.createdAt || r.tgl || r.tanggal || '').toLowerCase();
+
+  if (noSurat.includes(q) || toko.includes(q) || status.includes(q) || createdBy.includes(q) || catatan.includes(q) || area.includes(q) || tgl.includes(q)) {
+    return true;
+  }
+
+  // 2. Status Display Aliases
+  let statusDisplay = '';
+  if (r.status === 'PENDING') statusDisplay = 'pending menunggu verifikasi';
+  else if (r.status === 'APPROVE_SERVICE') statusDisplay = 'approve service disetujui service';
+  else if (r.status === 'APPROVE_DM' || r.status === 'APPROVE') statusDisplay = 'approve dm disetujui dm disetujui';
+  else if (r.status === 'REJECT' || r.status === 'REJECT_SERVICE') statusDisplay = 'reject ditolak service ditolak';
+  else if (r.status === 'REJECT_DM') statusDisplay = 'reject ditolak dm ditolak';
+  else if (r.status === 'DONE') statusDisplay = 'done selesai dipenuhi';
+  else statusDisplay = status;
+
+  if (statusDisplay.toLowerCase().includes(q)) {
+    return true;
+  }
+
+  // 3. Items array (type, seri, barang, alasan, statusPart, dus)
+  const items = Array.isArray(r.items) ? r.items : [];
+  return items.some(i => {
+    if (!i) return false;
+    const type = String(i.type || i.tipe || '').toLowerCase();
+    const seri = String(i.seri || i.sn || '').toLowerCase();
+    const barang = String(i.barang || i.permintaan || '').toLowerCase();
+    const alasan = String(i.alasan || '').toLowerCase();
+    const ketPart = String(i.statusPart || i.keteranganPart || i.noPart || '').toLowerCase();
+    const dus = String(i.dus || '').toLowerCase();
+    return type.includes(q) || seri.includes(q) || barang.includes(q) || alasan.includes(q) || ketPart.includes(q) || dus.includes(q);
+  });
+}
+window.matchesRequestSearchFilter = matchesRequestSearchFilter;
 async function pullFirebaseMasterLookup() {
   try {
     const fs = typeof getDbFirestore === 'function' ? getDbFirestore() : (typeof dbFirestore !== 'undefined' ? dbFirestore : null);
@@ -53,11 +130,11 @@ function getReqPhotosList(req) {
 }
 window.getReqPhotosList = getReqPhotosList;
 
-// 1. SUPABASE CLIENT & CREDENTIALS
-const SUPABASE_URL = 'https://nmzulwgqkcyxjjwroxvq.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_ygnIgHTSuSb7pt0s7hrQ6w_9iRs-7bf';
-const SUPABASE_SECRET_KEY = 'sb_secret_uF5qmjxW4W1038i0lkqFyw_dI93LO3r';
-const SUPABASE_JWKS_URL = 'https://nmzulwgqkcyxjjwroxvq.supabase.co/auth/v1/.well-known/jwks.json';
+// 1. SUPABASE CLIENT & CREDENTIALS (DITARIK DYNAMIS VIA FIREBASE)
+let SUPABASE_URL = '';
+let SUPABASE_PUBLISHABLE_KEY = '';
+let SUPABASE_SECRET_KEY = '';
+let SUPABASE_JWKS_URL = '';
 
 const supabaseAuthOptions = {
   auth: {
@@ -68,17 +145,597 @@ const supabaseAuthOptions = {
   }
 };
 
-const supabase = (window.supabase && typeof window.supabase.createClient === 'function') ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, supabaseAuthOptions) : null;
-const supabaseAdmin = supabase;
-window.supabase = supabase;
+// Check localStorage cache first for instant cold start
+const cachedSupaUrl = typeof localStorage !== 'undefined' ? (localStorage.getItem('APP_SUPABASE_URL') || '') : '';
+const cachedSupaKey = typeof localStorage !== 'undefined' ? (localStorage.getItem('APP_SUPABASE_KEY') || '') : '';
+
+// Preserve the global Supabase library creator function before window.supabase gets assigned
+window._supabaseClientCreator = (window.supabase && typeof window.supabase.createClient === 'function') 
+  ? window.supabase.createClient 
+  : (window.Supabase && typeof window.Supabase.createClient === 'function' 
+    ? window.Supabase.createClient 
+    : (window._supabaseClientCreator || null));
+
+if (cachedSupaUrl && cachedSupaKey) {
+  SUPABASE_URL = (typeof cleanSupabaseUrl === 'function') ? cleanSupabaseUrl(cachedSupaUrl) : cachedSupaUrl.match(/https:\/\/[a-zA-Z0-9_\-]+\.supabase\.co/i)?.[0] || cachedSupaUrl;
+  SUPABASE_PUBLISHABLE_KEY = cachedSupaKey;
+}
+
+let supabase = (window._supabaseClientCreator && SUPABASE_URL && SUPABASE_URL.startsWith('http')) 
+  ? window._supabaseClientCreator(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, supabaseAuthOptions) 
+  : null;
+let supabaseAdmin = supabase;
+if (supabase) {
+  window.supabase = supabase;
+}
 window.supabaseClient = supabase;
 window.supabaseAdmin = supabase;
 
+// =============================================================================
+// DYNAMIC SUPABASE CREDENTIALS & FIREBASE SYNC LOGIC
+// =============================================================================
+
+function cleanSupabaseUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return '';
+  const match = urlStr.match(/https:\/\/[a-zA-Z0-9_\-]+\.supabase\.co/i);
+  if (match) return match[0];
+  try {
+    const u = new URL(urlStr.trim());
+    return u.origin;
+  } catch (e) {
+    return urlStr.trim().replace(/\/+$/, '');
+  }
+}
+window.cleanSupabaseUrl = cleanSupabaseUrl;
+
+function parseRawSupabaseCredentials(rawText) {
+  let url = '';
+  let anonKey = '';
+
+  if (!rawText || typeof rawText !== 'string') {
+    return { url, anonKey };
+  }
+
+  const lines = rawText.split('\n');
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    if (trimmed.includes('=')) {
+      const parts = trimmed.split('=');
+      const key = parts[0].trim().toUpperCase();
+      const val = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
+
+      if (key.includes('URL') && !key.includes('JWKS') && !key.includes('AUTH') && !key.includes('REDIRECT') && val.startsWith('http')) {
+        url = cleanSupabaseUrl(val);
+      }
+      if ((key.includes('PUBLISHABLE') || key.includes('ANON') || key.includes('KEY')) && !key.includes('SECRET') && !key.includes('JWKS') && !key.includes('URL') && val.length > 10) {
+        anonKey = val;
+      }
+    }
+  });
+
+  if (!url) {
+    url = cleanSupabaseUrl(rawText);
+  }
+
+  if (!anonKey) {
+    const pubMatch = rawText.match(/sb_publishable_[a-zA-Z0-9_\-]+/);
+    if (pubMatch) {
+      anonKey = pubMatch[0];
+    } else {
+      const jwtMatch = rawText.match(/eyJ[a-zA-Z0-9_\-\.]{50,}/);
+      if (jwtMatch) anonKey = jwtMatch[0];
+    }
+  }
+
+  return { url: cleanSupabaseUrl(url), anonKey };
+}
+window.parseRawSupabaseCredentials = parseRawSupabaseCredentials;
+
+function prosesAutoParseRawSupabaseText(rawText) {
+  const parsed = parseRawSupabaseCredentials(rawText);
+  if (parsed.url) {
+    const urlEl = document.getElementById('parsedSupabaseUrlInput');
+    if (urlEl) urlEl.value = parsed.url;
+  }
+  if (parsed.anonKey) {
+    const keyEl = document.getElementById('parsedSupabaseKeyInput');
+    if (keyEl) keyEl.value = parsed.anonKey;
+  }
+}
+window.prosesAutoParseRawSupabaseText = prosesAutoParseRawSupabaseText;
+
+// =============================================================================
+// MASTER SUPABASE DDL SQL GENERATOR & COPY TO CLIPBOARD WORKFLOW
+// =============================================================================
+function getMasterSqlSupabaseScript() {
+  return `-- =============================================================================
+-- MASTER SETUP DDL SQL UNTUK SUPABASE (APLIKASI PERMINTAAN TOKO)
+-- Salin seluruh kode ini dan tempelkan ke:
+-- Dashboard Supabase -> SQL Editor -> New Query -> RUN
+-- =============================================================================
+
+-- 1. TABEL PERMINTAAN TOKO (Surat Utama Permintaan Barang)
+CREATE TABLE IF NOT EXISTS public.permintaan_toko (
+  no_surat TEXT PRIMARY KEY,
+  toko TEXT,
+  user_id TEXT,
+  created_by TEXT,
+  status TEXT DEFAULT 'PENDING',
+  area TEXT DEFAULT 'ALL',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  data JSONB DEFAULT '{}'::jsonb
+);
+
+-- 2. TABEL BREAKDOWN PARSIAL (Surat Jalan Parsial)
+CREATE TABLE IF NOT EXISTS public.breakdown_parsial (
+  id TEXT PRIMARY KEY,
+  no_surat_induk TEXT NOT NULL,
+  partial_id TEXT NOT NULL,
+  items JSONB DEFAULT '[]'::jsonb,
+  photos JSONB DEFAULT '[]'::jsonb,
+  artemis_photos JSONB DEFAULT '[]'::jsonb,
+  status TEXT DEFAULT 'PENDING',
+  created_by TEXT,
+  created_at TEXT,
+  approved_by TEXT,
+  approved_at TEXT,
+  reject_reason TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. TABEL MASTER BARANG (Database Master Kode Barang)
+CREATE TABLE IF NOT EXISTS public.master_barang (
+  kode_barang TEXT PRIMARY KEY,
+  nama_barang TEXT NOT NULL,
+  satuan TEXT DEFAULT 'PCS',
+  kategori TEXT DEFAULT 'UMUM',
+  harga NUMERIC DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. TABEL TOKO LIST (Database Daftar Toko)
+CREATE TABLE IF NOT EXISTS public.toko_list (
+  kode_toko TEXT PRIMARY KEY,
+  nama_toko TEXT NOT NULL,
+  area TEXT DEFAULT 'ALL',
+  alamat TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. TABEL USERS (Database Akun Pengguna)
+CREATE TABLE IF NOT EXISTS public.users (
+  username TEXT PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  role TEXT DEFAULT 'TOKO',
+  category TEXT DEFAULT 'REGULER',
+  store_code TEXT DEFAULT '',
+  password TEXT DEFAULT '123',
+  status TEXT DEFAULT 'ACTIVE',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. TABEL SYSTEM SETTINGS (Pengaturan Sistem Admin)
+CREATE TABLE IF NOT EXISTS public.system_settings (
+  setting_key TEXT PRIMARY KEY,
+  setting_value TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================================================
+-- HAK AKSES & SECURITY POLICIES (ROW LEVEL SECURITY / RLS)
+-- =============================================================================
+ALTER TABLE public.permintaan_toko ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow All permintaan_toko" ON public.permintaan_toko;
+CREATE POLICY "Allow All permintaan_toko" ON public.permintaan_toko FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.breakdown_parsial ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow All breakdown_parsial" ON public.breakdown_parsial;
+CREATE POLICY "Allow All breakdown_parsial" ON public.breakdown_parsial FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.master_barang ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow All master_barang" ON public.master_barang;
+CREATE POLICY "Allow All master_barang" ON public.master_barang FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.toko_list ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow All toko_list" ON public.toko_list;
+CREATE POLICY "Allow All toko_list" ON public.toko_list FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow All users" ON public.users;
+CREATE POLICY "Allow All users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow All system_settings" ON public.system_settings;
+CREATE POLICY "Allow All system_settings" ON public.system_settings FOR ALL USING (true) WITH CHECK (true);
+
+-- =============================================================================
+-- AKTIFKAN REPLIKASI SUPABASE REALTIME DENGAN AMAN
+-- =============================================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'permintaan_toko') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.permintaan_toko;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'breakdown_parsial') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.breakdown_parsial;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'master_barang') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.master_barang;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'toko_list') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.toko_list;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'users') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'system_settings') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.system_settings;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;`;
+}
+window.getMasterSqlSupabaseScript = getMasterSqlSupabaseScript;
+
+function salinKodeMasterSqlSupabase() {
+  try { history.pushState({ modalOpen: true }, '', location.href); } catch(e) {}
+  const sqlText = getMasterSqlSupabaseScript();
+  const txtArea = document.getElementById('txtMasterSqlSupabasePreview');
+  if (txtArea) txtArea.value = sqlText;
+
+  const modal = document.getElementById('modalViewMasterSqlSupabase');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.classList.add('active', 'show');
+  }
+
+  eksekusiSalinMasterSqlToClipboard();
+}
+window.salinKodeMasterSqlSupabase = salinKodeMasterSqlSupabase;
+
+function eksekusiSalinMasterSqlToClipboard() {
+  const sqlText = getMasterSqlSupabaseScript();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(sqlText).then(() => {
+      if (typeof showNotif === 'function') {
+        showNotif('📋 KODE MASTER DDL SQL SUPABASE BERHASIL DISALIN! Silakan paste & RUN di Supabase SQL Editor.', 'success');
+      }
+    }).catch(() => fallbackCopySqlText(sqlText));
+  } else {
+    fallbackCopySqlText(sqlText);
+  }
+}
+window.eksekusiSalinMasterSqlToClipboard = eksekusiSalinMasterSqlToClipboard;
+
+function fallbackCopySqlText(text) {
+  const txtArea = document.getElementById('txtMasterSqlSupabasePreview') || document.createElement('textarea');
+  if (!document.getElementById('txtMasterSqlSupabasePreview')) {
+    txtArea.value = text;
+    document.body.appendChild(txtArea);
+  }
+  txtArea.select();
+  txtArea.setSelectionRange(0, 99999);
+  try {
+    document.execCommand('copy');
+    if (typeof showNotif === 'function') {
+      showNotif('📋 KODE MASTER DDL SQL SUPABASE BERHASIL DISALIN! Silakan paste & RUN di Supabase SQL Editor.', 'success');
+    }
+  } catch(e) {}
+}
+
+function tutupModalViewMasterSqlSupabase() {
+  const modal = document.getElementById('modalViewMasterSqlSupabase');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('active', 'show');
+  }
+}
+window.tutupModalViewMasterSqlSupabase = tutupModalViewMasterSqlSupabase;
+
+function reinitSupabaseClient(newUrl, newKey) {
+  newUrl = cleanSupabaseUrl(newUrl);
+  if (!newUrl || !newKey) return false;
+
+  const currentCachedUrl = typeof localStorage !== 'undefined' ? (localStorage.getItem('APP_SUPABASE_URL') || '') : '';
+  const currentCachedKey = typeof localStorage !== 'undefined' ? (localStorage.getItem('APP_SUPABASE_KEY') || '') : '';
+
+  const isKeyChanged = (currentCachedUrl && cleanSupabaseUrl(currentCachedUrl) !== newUrl) || (currentCachedKey && currentCachedKey !== newKey);
+
+  if (SUPABASE_URL === newUrl && SUPABASE_PUBLISHABLE_KEY === newKey && supabase && !isKeyChanged) {
+    window.isSupabaseOnline = true;
+    return true;
+  }
+
+  // If key changed across devices, automatically purge stale local storage cache
+  if (isKeyChanged) {
+    console.log('🔄 [SUPABASE KEY CHANGED DETECTED]: Auto purging old device cache...');
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('APP_SUPABASE_URL');
+        localStorage.removeItem('APP_SUPABASE_KEY');
+        localStorage.removeItem('STORE_SUPABASE_LAST_SYNC_V7');
+      }
+      if (typeof appStorage !== 'undefined' && appStorage) {
+        appStorage.removeItem('STORE_SUPABASE_LAST_SYNC_V7');
+        if (typeof REQUESTS_DB_KEY !== 'undefined') appStorage.removeItem(REQUESTS_DB_KEY);
+      }
+    } catch(e) {}
+  }
+  try {
+    const creator = window._supabaseClientCreator || (window.supabase && typeof window.supabase.createClient === 'function' ? window.supabase.createClient : null);
+
+    if (creator) {
+      const client = creator(newUrl, newKey, supabaseAuthOptions);
+      if (client) {
+        SUPABASE_URL = newUrl;
+        SUPABASE_PUBLISHABLE_KEY = newKey;
+        supabase = client;
+        supabaseAdmin = client;
+        window.supabase = client;
+        window.supabaseClient = client;
+        window.supabaseAdmin = client;
+        window.isSupabaseOnline = true;
+
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('APP_SUPABASE_URL', newUrl);
+            localStorage.setItem('APP_SUPABASE_KEY', newKey);
+          }
+        } catch(e) {}
+
+        if (typeof updateGlobalConnectionDotStatus === 'function') updateGlobalConnectionDotStatus();
+        if (typeof pingSupabaseKeepAlive === 'function') pingSupabaseKeepAlive();
+        if (typeof syncAllDataToCache === 'function') {
+          syncAllDataToCache().then(() => {
+            if (typeof refreshRealtimeUI === 'function') refreshRealtimeUI();
+            if (typeof renderRiwayat === 'function') renderRiwayat();
+            if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
+          }).catch(() => {});
+        } else if (typeof syncSupabaseRequestsToLocalCache === 'function') {
+          syncSupabaseRequestsToLocalCache().catch(() => {});
+        }
+
+        console.log('⚡ [SUPABASE REINITIALIZED SUCCESSFULLY]:', newUrl);
+        return true;
+      }
+    } else {
+      console.error('[SUPABASE REINIT NOTICE]: Supabase SDK createClient constructor not found!');
+    }
+  } catch (err) {
+    console.error('[SUPABASE REINIT ERROR]:', err);
+  }
+  return false;
+}
+window.reinitSupabaseClient = reinitSupabaseClient;
+
+// =============================================================================
+// GLOBAL ADMIN CONFIG: DM APPROVAL FOR BREAKDOWN PARSIAL
+// =============================================================================
+window.REQUIRE_DM_APPROVAL_PARSIAL = (typeof localStorage !== 'undefined' && localStorage.getItem('APP_REQUIRE_DM_APPROVAL_PARSIAL') !== null) 
+  ? (localStorage.getItem('APP_REQUIRE_DM_APPROVAL_PARSIAL') === 'true')
+  : true;
+
+function updateUIApprovalParsialToggle(isChecked) {
+  window.REQUIRE_DM_APPROVAL_PARSIAL = !!isChecked;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('APP_REQUIRE_DM_APPROVAL_PARSIAL', isChecked ? 'true' : 'false');
+    }
+  } catch(e) {}
+
+  const sw = document.getElementById('toggleApprovalParsialSwitch');
+  const lbl = document.getElementById('labelApprovalParsialToggle');
+  const desc = document.getElementById('txtStatusApprovalParsialDesc');
+
+  if (sw) sw.checked = isChecked;
+  if (lbl) {
+    lbl.innerText = isChecked ? 'PERLU APPROVAL DM' : 'TANPA APPROVAL DM (OTOMATIS APPROVE)';
+    lbl.style.color = isChecked ? '#10b981' : '#f59e0b';
+  }
+  if (desc) {
+    desc.innerText = isChecked ? 'PERLU APPROVAL DM' : 'TANPA APPROVAL DM (OTOMATIS APPROVE)';
+    desc.style.color = isChecked ? '#0ea5e9' : '#f59e0b';
+  }
+}
+window.updateUIApprovalParsialToggle = updateUIApprovalParsialToggle;
+
+async function simpanApprovalParsialSettingToCloud(isChecked) {
+  updateUIApprovalParsialToggle(isChecked);
+
+  const valStr = isChecked ? 'true' : 'false';
+
+  // 1. Save to Supabase (system_settings table)
+  try {
+    if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
+      const { error } = await supabase.from('system_settings').upsert({
+        setting_key: 'require_dm_approval_breakdown',
+        setting_value: valStr,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'setting_key' });
+      if (error) {
+        if (error.code === 'PGRST205' || String(error.message || '').includes('Could not find the table')) {
+          console.info('ℹ️ [SUPABASE NOTICE]: Tabel system_settings belum dibuat di Supabase (Pengaturan tetap tersimpan & aktif via Firebase Realtime Cloud).');
+        } else {
+          console.warn('[SUPABASE SYSTEM_SETTINGS UPSERT NOTICE]:', error);
+        }
+      } else console.log('[SUPABASE SYSTEM_SETTINGS SUCCESS]: Saved require_dm_approval_breakdown =', valStr);
+    }
+  } catch(e) {
+    console.warn('[SUPABASE SYSTEM_SETTINGS EXCEPTION]:', e);
+  }
+
+  // 2. Mirror to Firebase Realtime Database
+  try {
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      firebase.database().ref('config/system_settings/require_dm_approval_breakdown').set(isChecked).catch(() => {});
+    }
+  } catch(e) {}
+
+  // 3. Mirror to Firebase Firestore
+  try {
+    if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      dbFirestore.collection('config').doc('system_settings').set({ require_dm_approval_breakdown: isChecked }, { merge: true }).catch(() => {});
+    }
+  } catch(e) {}
+
+  if (typeof showNotif === 'function') {
+    showNotif(isChecked ? 'PENGATURAN DIUBAH: Pengajuan breakdown WAJIB Approval DM!' : 'PENGATURAN DIUBAH: Pengajuan breakdown TANPA Approval DM (Otomatis Approve)!', isChecked ? 'info' : 'warning');
+  }
+}
+window.simpanApprovalParsialSettingToCloud = simpanApprovalParsialSettingToCloud;
+
+function listenApprovalParsialSettingFromCloud() {
+  // Listen from Firebase Realtime DB
+  if (typeof firebase !== 'undefined' && firebase.database) {
+    try {
+      firebase.database().ref('config/system_settings/require_dm_approval_breakdown').on('value', snapshot => {
+        if (snapshot.exists()) {
+          const val = snapshot.val() !== false && snapshot.val() !== 'false';
+          updateUIApprovalParsialToggle(val);
+        }
+      });
+    } catch(e) {}
+  }
+
+  // Listen / Fetch from Supabase
+  if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
+    supabase.from('system_settings').select('*').eq('setting_key', 'require_dm_approval_breakdown').then(({ data, error }) => {
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const valStr = data[0].setting_value;
+        const isReq = valStr !== 'false' && valStr !== false;
+        updateUIApprovalParsialToggle(isReq);
+      }
+    }).catch(() => {});
+  }
+}
+window.listenApprovalParsialSettingFromCloud = listenApprovalParsialSettingFromCloud;
+
+function loadSupabaseKeysFromFirebase() {
+  listenApprovalParsialSettingFromCloud();
+  const extractKeys = (data) => {
+    if (!data) return { url: '', anonKey: '' };
+    if (typeof data === 'string') return parseRawSupabaseCredentials(data);
+    const url = data.url || data.SUPABASE_URL || data.supabase_url || '';
+    const anonKey = data.anonKey || data.key || data.SUPABASE_PUBLISHABLE_KEY || data.anon_key || data.publishableKey || '';
+    if (url && anonKey) return { url, anonKey };
+    if (data.rawText) return parseRawSupabaseCredentials(data.rawText);
+    return { url, anonKey };
+  };
+
+  if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+    dbFirestore.collection('config').doc('supabase_credentials').get().then(doc => {
+      if (doc.exists) {
+        const { url, anonKey } = extractKeys(doc.data());
+        if (url && anonKey) {
+          reinitSupabaseClient(url, anonKey);
+          updateStatusSupabaseKeysCloudInfo(url, 'Firebase Cloud Firestore');
+        }
+      }
+    }).catch(e => console.warn('[SUPABASE KEYS FIRESTORE FETCH NOTICE]:', e));
+  }
+
+  if (typeof firebase !== 'undefined' && firebase.database) {
+    try {
+      firebase.database().ref('config/supabase_credentials').on('value', snapshot => {
+        const { url, anonKey } = extractKeys(snapshot.val());
+        if (url && anonKey) {
+          reinitSupabaseClient(url, anonKey);
+          updateStatusSupabaseKeysCloudInfo(url, 'Firebase Realtime Cloud');
+        }
+      });
+    } catch(e) {}
+  }
+}
+window.loadSupabaseKeysFromFirebase = loadSupabaseKeysFromFirebase;
+
+function updateStatusSupabaseKeysCloudInfo(activeUrl, sourceStr = 'Firebase Cloud') {
+  const infoEl = document.getElementById('statusSupabaseKeysCloudInfo');
+  if (infoEl) {
+    infoEl.innerHTML = `<span style="color:#16a34a">✓ Terhubung via ${sourceStr}:</span> <code>${activeUrl || SUPABASE_URL}</code>`;
+  }
+}
+
+function bukaModalSetupSupabaseKeys() {
+  try { history.pushState({ modalOpen: true }, '', location.href); } catch(e) {}
+  const modal = document.getElementById('modalSetupSupabaseKeys');
+  if (modal) {
+    modal.style.display = 'flex';
+    const urlEl = document.getElementById('parsedSupabaseUrlInput');
+    const keyEl = document.getElementById('parsedSupabaseKeyInput');
+    if (urlEl && !urlEl.value) urlEl.value = SUPABASE_URL || '';
+    if (keyEl && !keyEl.value) keyEl.value = SUPABASE_PUBLISHABLE_KEY || '';
+    updateStatusSupabaseKeysCloudInfo(SUPABASE_URL, 'Konfigurasi Aktif');
+  }
+}
+window.bukaModalSetupSupabaseKeys = bukaModalSetupSupabaseKeys;
+
+function tutupModalSetupSupabaseKeys() {
+  const modal = document.getElementById('modalSetupSupabaseKeys');
+  if (modal) modal.style.display = 'none';
+}
+window.tutupModalSetupSupabaseKeys = tutupModalSetupSupabaseKeys;
+
+async function simpanSetupSupabaseKeysToFirebase() {
+  const urlVal = (document.getElementById('parsedSupabaseUrlInput')?.value || '').trim();
+  const keyVal = (document.getElementById('parsedSupabaseKeyInput')?.value || '').trim();
+
+  if (!urlVal || !urlVal.startsWith('http')) {
+    if (typeof showNotif === 'function') showNotif('URL SUPABASE TIDAK VALID! (Harus diawali https://)', 'warning');
+    return;
+  }
+  if (!keyVal || keyVal.length < 10) {
+    if (typeof showNotif === 'function') showNotif('KUNCI SUPABASE (ANON/PUBLISHABLE KEY) TIDAK VALID!', 'warning');
+    return;
+  }
+
+  if (typeof showLoading === 'function') showLoading('MENYIMPAN KONFIGURASI SUPABASE KE FIREBASE CLOUD...');
+  try {
+    const payload = {
+      url: urlVal,
+      anonKey: keyVal,
+      updatedBy: (typeof currentUser !== 'undefined' && currentUser ? (currentUser.fullName || currentUser.username) : 'ADMIN'),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (typeof firebase !== 'undefined' && firebase.database) {
+      await firebase.database().ref('config/supabase_credentials').set(payload);
+    }
+    if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+      await dbFirestore.collection('config').doc('supabase_credentials').set(payload);
+    }
+
+    reinitSupabaseClient(urlVal, keyVal);
+
+    if (typeof hideLoading === 'function') hideLoading();
+    tutupModalSetupSupabaseKeys();
+    if (typeof showNotif === 'function') {
+      showNotif('KONFIGURASI SUPABASE BERHASIL DISIMPAN KE FIREBASE!\n\nSeluruh perangkat otomatis memperbarui koneksi database.', 'success');
+    }
+  } catch (err) {
+    if (typeof hideLoading === 'function') hideLoading();
+    console.error('[SIMPAN SUPABASE KEYS FIREBASE ERROR]:', err);
+    if (typeof showNotif === 'function') showNotif('GAGAL MENYIMPAN KUNCI SUPABASE: ' + err.message, 'warning');
+  }
+}
+window.simpanSetupSupabaseKeysToFirebase = simpanSetupSupabaseKeysToFirebase;
+
+// Auto-listen Firebase Supabase credentials on load
+try {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadSupabaseKeysFromFirebase);
+  } else {
+    loadSupabaseKeysFromFirebase();
+  }
+} catch(e) {}
+
 window.isFirebaseOnline = true;
-window.isSupabaseOnline = true;
+window.isSupabaseOnline = (typeof supabase !== 'undefined' && supabase !== null && typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL.startsWith('http')) ? true : false;
 
 function klikStatusKoneksiServer() {
-  const isOnline = (typeof navigator !== 'undefined' && navigator.onLine !== false) && (window.isSupabaseOnline !== false);
+  const isOnline = (typeof navigator !== 'undefined' && navigator.onLine !== false) && (window.isSupabaseOnline === true) && (typeof supabase !== 'undefined' && supabase !== null);
   if (isOnline) {
     if (typeof showNotif === 'function') {
       showNotif('TERHUBUNG KE SUPABASE CLOUD\n\nStatus: Online & Database Cloud Realtime Aktif.', 'success');
@@ -87,9 +744,9 @@ function klikStatusKoneksiServer() {
     }
   } else {
     if (typeof showNotif === 'function') {
-      showNotif('KONEKSI SUPABASE OFFLINE / TERPUTUS\n\nSilakan periksa koneksi internet atau jaringan Anda.', 'warning');
+      showNotif('KONEKSI SUPABASE OFFLINE / BELUM DI-SETUP\n\nSilakan atur kunci Supabase via Admin atau periksa koneksi Anda.', 'warning');
     } else {
-      alert('KONEKSI SUPABASE OFFLINE / TERPUTUS');
+      alert('KONEKSI SUPABASE OFFLINE / BELUM DI-SETUP');
     }
   }
 }
@@ -101,20 +758,20 @@ function updateGlobalConnectionDotStatus() {
   if (!dot) return;
 
   const fb = !!window.isFirebaseOnline;
-  const sb = !!window.isSupabaseOnline;
+  const sb = !!window.isSupabaseOnline && (typeof supabase !== 'undefined' && supabase !== null) && (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL.startsWith('http'));
 
   if (fb && sb) {
-    dot.style.background = '#10b981';
-    dot.style.boxShadow = '0 0 10px #10b981';
-    dot.title = 'STATUS KONEKSI: TERHUBUNG KE SUPABASE (KLIK UNTUK LIHAT STATUS)';
-  } else if (fb || sb) {
-    dot.style.background = '#f59e0b';
-    dot.style.boxShadow = '0 0 10px #f59e0b';
-    dot.title = 'STATUS KONEKSI: TERHUBUNG (KLIK UNTUK LIHAT STATUS)';
+    dot.style.setProperty('background', '#10b981', 'important');
+    dot.style.setProperty('box-shadow', '0 0 10px #10b981', 'important');
+    dot.title = 'STATUS KONEKSI: TERHUBUNG KE SUPABASE (ONLINE)';
+  } else if (sb && !fb) {
+    dot.style.setProperty('background', '#f59e0b', 'important');
+    dot.style.setProperty('box-shadow', '0 0 10px #f59e0b', 'important');
+    dot.title = 'STATUS KONEKSI: SUPABASE ONLINE, FIREBASE OFFLINE';
   } else {
-    dot.style.background = '#ef4444';
-    dot.style.boxShadow = '0 0 10px #ef4444';
-    dot.title = 'STATUS SERVER: OFFLINE / TERPUTUS (KLIK UNTUK LIHAT STATUS)';
+    dot.style.setProperty('background', '#ef4444', 'important');
+    dot.style.setProperty('box-shadow', '0 0 10px #ef4444', 'important');
+    dot.title = 'STATUS SERVER: SUPABASE OFFLINE / BELUM DI-SETUP (KLIK UNTUK DETAIL)';
   }
   dot.onclick = () => klikStatusKoneksiServer();
 }
@@ -373,14 +1030,20 @@ function parsePhotosArray(rawPhotos) {
 }
 window.parsePhotosArray = parsePhotosArray;
 
-// CLEAN KEEP-ALIVE PING (PREVENTS 404 & 401 CONSOLE ERRORS)
-async function pingSupabaseKeepAlive() {
-  if (supabase) {
+// CLEAN KEEP-ALIVE PING (PREVENTS SUPABASE FREE TIER SLEEP MODE & MONITORS HEALTH)
+async function pingSupabaseKeepAlive(force = false) {
+  // If tab is in background/minimized and not forced, skip to save resources
+  if (!force && document.hidden) return;
+
+  if (supabase && SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) {
     try {
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/health`, {
-        headers: { 'apikey': SUPABASE_PUBLISHABLE_KEY }
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/system_settings?select=setting_key&limit=1`, {
+        headers: {
+          'apikey': SUPABASE_PUBLISHABLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`
+        }
       });
-      window.isSupabaseOnline = (res.ok || res.status === 200);
+      window.isSupabaseOnline = (res.ok || res.status === 200 || res.status === 206);
     } catch (e) {
       window.isSupabaseOnline = false;
     }
@@ -389,11 +1052,23 @@ async function pingSupabaseKeepAlive() {
   }
   updateGlobalConnectionDotStatus();
 }
+
+function startSupabaseKeepalive() {
+  pingSupabaseKeepAlive(true);
+  if (!window._supabaseKeepaliveInterval) {
+    window._supabaseKeepaliveInterval = setInterval(() => {
+      pingSupabaseKeepAlive(false);
+    }, 15 * 60 * 1000); // Smart ping every 15 minutes
+  }
+}
+window.startSupabaseKeepalive = startSupabaseKeepalive;
+window.pingSupabaseKeepAlive = pingSupabaseKeepAlive;
+
 try {
-  pingSupabaseKeepAlive();
+  startSupabaseKeepalive();
   setTimeout(() => {
     if (typeof initSupabaseRealtimeEngine === 'function') initSupabaseRealtimeEngine();
-  if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
+    if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
   }, 100);
 } catch (e) {}
 
@@ -952,7 +1627,9 @@ function shouldEmitImportantNotification(targetRoles, targetArea, message, noSur
     'DITOLAK SERVICE',
     'DITOLAK',
     'SELESAI (DONE)',
-    'REMINDER PENDING'
+    'REMINDER PENDING',
+    'BREAKDOWN',
+    'PARSIAL'
   ];
 
   const containsImportant = importantPatterns.some(pattern => normalized.toUpperCase().includes(pattern));
@@ -1018,6 +1695,44 @@ function tambahNotifikasiSistem(targetRoles, targetArea, message, noSurat = '') 
   }
 }
 
+function countAllPendingBreakdowns() {
+  let count = 0;
+  const seenIds = new Set();
+
+  try {
+    const allPartials = typeof getAllPartialBreakdownsFromDB === 'function' ? getAllPartialBreakdownsFromDB() : [];
+    allPartials.forEach(p => {
+      if (p && String(p.status || '').toUpperCase() === 'PENDING') {
+        const pid = p.id || `${p.no_surat_induk || p.noSurat}_${p.partial_id || p.partialId || 'P1'}`;
+        if (!seenIds.has(pid)) {
+          seenIds.add(pid);
+          count++;
+        }
+      }
+    });
+
+    const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+    reqs.forEach(r => {
+      if (r && Array.isArray(r.partialBreakdowns)) {
+        r.partialBreakdowns.forEach(p => {
+          if (p && String(p.status || '').toUpperCase() === 'PENDING') {
+            const pid = p.id || `${r.noSurat}_${p.partialId || p.partial_id || 'P1'}`;
+            if (!seenIds.has(pid)) {
+              seenIds.add(pid);
+              count++;
+            }
+          }
+        });
+      }
+    });
+  } catch (e) {
+    console.warn('[COUNT PENDING BREAKDOWNS NOTICE]:', e);
+  }
+
+  return count;
+}
+window.countAllPendingBreakdowns = countAllPendingBreakdowns;
+
 function getAccessibleNotifications() {
   if (!currentUser) return [];
   const notifs = (typeof getSystemNotifications === 'function' ? getSystemNotifications() : []) || [];
@@ -1027,9 +1742,21 @@ function getAccessibleNotifications() {
   const userUname = String(currentUser.username || '').toUpperCase();
   const userFullName = String(currentUser.fullName || '').toUpperCase();
   const isSysAdmin = userCat === 'ADMIN' || userUname === 'ADMIN';
+  const isDMUser = userCat === 'DM' || isSysAdmin;
 
   let filtered = notifs.filter(n => {
     if (!n) return false;
+
+    // Untuk DM / Admin: Filter notifikasi breakdown PENDING individual agar digantikan 1 Notifikasi Konsolidasi
+    if (isDMUser) {
+      const msgUp = String(n.message || '').toUpperCase();
+      const titleUp = String(n.title || '').toUpperCase();
+      const typeUp = String(n.type || '').toUpperCase();
+      if ((msgUp.includes('BREAKDOWN') || titleUp.includes('BREAKDOWN') || typeUp.includes('BREAKDOWN')) &&
+          (msgUp.includes('MOHON APPROVAL') || msgUp.includes('PENDING') || titleUp.includes('MOHON APPROVAL'))) {
+        return false;
+      }
+    }
 
     if (isSysAdmin) return true;
 
@@ -1066,6 +1793,25 @@ function getAccessibleNotifications() {
 
     return true;
   });
+
+  // JIKA USER DM / ADMIN: SISIPKAN 1 NOTIFIKASI KONSOLIDASI BREAKDOWN DENGAN JUMLAH DYNAMIS XXX (JIKA ADA BREAKDOWN PENDING > 0)
+  if (isDMUser) {
+    const pendingCount = countAllPendingBreakdowns();
+    if (pendingCount > 0) {
+      const consolidatedNotif = {
+        id: 'CONSOLIDATED_BREAKDOWN_PENDING_NOTIF',
+        type: 'BREAKDOWN_CONSOLIDATED',
+        title: 'PENGAJUAN BREAKDOWN PARSIAL',
+        message: `ADA ${pendingCount} SURAT PENGAJUAN BREAKDOWN MENUNGGU APPROVAL ANDA`,
+        targetRoles: ['DM', 'ADMIN'],
+        targetArea: 'ALL',
+        time: 'HARI INI',
+        readBy: [],
+        pendingCount: pendingCount
+      };
+      filtered.unshift(consolidatedNotif);
+    }
+  }
 
   return filtered;
 }
@@ -1183,19 +1929,88 @@ function loadNotificationList() {
   });
 }
 
-function clickNotificationItem(notifId, noSurat) {
-  markNotifAsRead(notifId, noSurat);
-
-  const notifListPopup = document.getElementById('popupNotifList');
-  if (notifListPopup) {
-    notifListPopup.style.display = 'none';
-    notifListPopup.classList.remove('show');
+async function clickNotificationItem(notifId, noSurat) {
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MOHON TUNGGU...');
   }
+  try {
+    const notifs = typeof getAccessibleNotifications === 'function' ? getAccessibleNotifications() : [];
+    const targetNotif = notifs.find(n => n && (n.id === notifId || (noSurat && n.noSurat === noSurat)));
 
-  if (noSurat) {
+    markNotifAsRead(notifId, noSurat);
+
+    const notifListPopup = document.getElementById('popupNotifList');
+    if (notifListPopup) {
+      notifListPopup.style.display = 'none';
+      notifListPopup.classList.remove('show');
+    }
+
+    if (notifId === 'CONSOLIDATED_BREAKDOWN_PENDING_NOTIF' || (targetNotif && targetNotif.type === 'BREAKDOWN_CONSOLIDATED')) {
+      if (typeof syncSupabaseBreakdownParsialToLocalCache === 'function') {
+        await syncSupabaseBreakdownParsialToLocalCache().catch(() => {});
+      }
+      const allPartials = typeof getAllPartialBreakdownsFromDB === 'function' ? getAllPartialBreakdownsFromDB() : [];
+      const pendingPartials = allPartials.filter(p => p && String(p.status || '').toUpperCase() === 'PENDING');
+      
+      if (pendingPartials.length > 0) {
+        const targetNs = pendingPartials[0].no_surat_induk || pendingPartials[0].noSurat;
+        if (targetNs && typeof bukaModalRiwayatParsialList === 'function') {
+          bukaModalRiwayatParsialList(targetNs);
+        }
+      } else {
+        if (typeof showNotif === 'function') showNotif('SEMUA PENGAJUAN BREAKDOWN TELAH DI APPROVE / DITOLAK.', 'info');
+      }
+      return;
+    }
+
+    let targetNoSurat = String(noSurat || '').trim();
+    if (!targetNoSurat && targetNotif) {
+      targetNoSurat = String(targetNotif.noSurat || '').trim();
+    }
+    if (!targetNoSurat && targetNotif && targetNotif.message) {
+      const m = targetNotif.message.match(/(PRMT[\/\.\_\-A-Za-z0-9]+)/i) || targetNotif.message.match(/#?([A-Za-z0-9\/\.\_-]{5,30})/i);
+      if (m) targetNoSurat = m[1];
+    }
+
+    const cleanNoSurat = targetNoSurat.replace(/[-_]P\d+$/i, '').replace(/^#/, '').trim();
+
+    if (cleanNoSurat) {
+      if (typeof syncSupabaseBreakdownParsialToLocalCache === 'function') {
+        await syncSupabaseBreakdownParsialToLocalCache().catch(() => {});
+      }
+
+      const existingDetail = document.getElementById('popupDetailBarangV2');
+      if (existingDetail) {
+        existingDetail.style.display = 'none';
+        existingDetail.classList.remove('show');
+      }
+
+      const partials = typeof getPartialBreakdownsFromDB === 'function' ? getPartialBreakdownsFromDB(cleanNoSurat) : [];
+      const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+      const req = reqs.find(r => r && String(r.noSurat || '').trim().toUpperCase() === cleanNoSurat.toUpperCase());
+      const reqPartials = (req && Array.isArray(req.partialBreakdowns)) ? req.partialBreakdowns : [];
+
+      const hasBreakdownData = (Array.isArray(partials) && partials.length > 0) || (Array.isArray(reqPartials) && reqPartials.length > 0);
+      const isBreakdownNotif = hasBreakdownData || (targetNotif && (
+        String(targetNotif.title || '').toUpperCase().includes('BREAKDOWN') ||
+        String(targetNotif.message || '').toUpperCase().includes('BREAKDOWN') ||
+        String(targetNotif.type || '').toUpperCase().includes('BREAKDOWN') ||
+        String(targetNotif.title || '').toUpperCase().includes('PARSIAL') ||
+        String(targetNotif.message || '').toUpperCase().includes('PARSIAL')
+      ));
+
+      if (isBreakdownNotif && typeof bukaModalRiwayatParsialList === 'function') {
+        bukaModalRiwayatParsialList(cleanNoSurat);
+      } else if (typeof lihatDetail === 'function') {
+        lihatDetail(cleanNoSurat, true);
+      }
+    }
+  } finally {
     setTimeout(() => {
-      lihatDetail(noSurat, true);
-    }, 150);
+      if (typeof tutupLoadingProses === 'function') {
+        tutupLoadingProses();
+      }
+    }, 300);
   }
 }
 
@@ -1237,7 +2052,19 @@ function markNotifAsRead(notifId, noSurat = '') {
     appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload));
     try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload)); } catch(e) {}
 
-    // Notifikasi dikelola secara lokal & Firebase (tidak dikirim ke Supabase)
+    // SINKRONISASI STATUS BACA (readBy) KE CLOUD FIRESTORE & REALTIME DATABASE
+    try {
+      const fsNotif = typeof getDbFirestore === 'function' ? getDbFirestore() : null;
+      if (fsNotif && targetNotif && targetNotif.id) {
+        fsNotif.collection('notifications').doc(targetNotif.id).set({
+          readBy: targetNotif.readBy
+        }, { merge: true }).catch(() => {});
+      }
+      const rtdbNotif = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
+      if (rtdbNotif && targetNotif && targetNotif.id) {
+        rtdbNotif.ref(`notifications/${targetNotif.id}/readBy`).set(targetNotif.readBy).catch(() => {});
+      }
+    } catch(e) {}
   }
 
   updateNotifBellCounter();
@@ -1280,6 +2107,18 @@ function markAllNotifAsRead(silent = false) {
 
   appStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload));
   try { localStorage.setItem(NOTIFICATIONS_DB_KEY, JSON.stringify(payload)); } catch(e) {}
+
+  // SINKRONISASI TANDAI SEMUA SUDAH DIBACA KE FIRESTORE & RTDB
+  try {
+    const fsNotif = typeof getDbFirestore === 'function' ? getDbFirestore() : null;
+    const rtdbNotif = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
+    notifs.forEach(n => {
+      if (n && n.id && Array.isArray(n.readBy)) {
+        if (fsNotif) fsNotif.collection('notifications').doc(n.id).set({ readBy: n.readBy }, { merge: true }).catch(() => {});
+        if (rtdbNotif) rtdbNotif.ref(`notifications/${n.id}/readBy`).set(n.readBy).catch(() => {});
+      }
+    });
+  } catch(e) {}
 
   // Notifikasi dikelola secara lokal & Firebase (tidak dikirim ke Supabase)
 
@@ -1475,12 +2314,16 @@ function getStoresFromDB() {
 
   const assignedCodes = new Set();
   stores.forEach(s => {
-    if (!s) return;
+    if (!s || !s.fullName) return;
     const name = String(s.fullName || '').trim().toUpperCase();
-    if (!s.storeCode || assignedCodes.has(s.storeCode.toUpperCase())) {
+    const userMatch = users.find(u => u && u.fullName && String(u.fullName).trim().toUpperCase() === name);
+    if (userMatch && userMatch.storeCode && String(userMatch.storeCode).trim().length === 2) {
+      s.storeCode = String(userMatch.storeCode).trim().toUpperCase();
+    } else if (!s.storeCode || assignedCodes.has(String(s.storeCode).trim().toUpperCase()) || String(s.storeCode).trim().length !== 2) {
       s.storeCode = generateStoreCode(name, s.area);
+      if (userMatch) userMatch.storeCode = s.storeCode;
     }
-    assignedCodes.add(s.storeCode.toUpperCase());
+    assignedCodes.add(String(s.storeCode).trim().toUpperCase());
   });
 
   return stores;
@@ -1588,6 +2431,33 @@ function getFormattedDateDDMMYYYY(dObj = new Date()) {
   const year = d.getFullYear();
   return `${day}/${month}/${year}`;
 }
+
+
+function formatDateTimeWIB(input) {
+  if (!input) return '-';
+  const str = String(input).trim();
+  if (!str || str === '-') return '-';
+
+  try {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${day}/${month}/${year} ${hours}:${minutes} WIB`;
+    }
+  } catch(e) {}
+
+  const match = str.match(/^(\d{4})[-/](\d{2})[-/](\d{2})[T\s](\d{2}):(\d{2})/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]} WIB`;
+  }
+
+  return str;
+}
+window.formatDateTimeWIB = formatDateTimeWIB;
 
 function formatDateDDMMYYYYString(input) {
   if (!input) return '-';
@@ -1917,7 +2787,11 @@ function startFirebaseRealtimeChatListener() {
         if (typeof renderChatBoxUser === 'function') renderChatBoxUser();
         if (typeof renderChatBoxAdmin === 'function') renderChatBoxAdmin();
       }, err => {
-        console.warn('[FIRESTORE CHAT REALTIME LISTENER]:', err);
+        if (unsubscribeFirestoreChat) {
+          try { unsubscribeFirestoreChat(); } catch(e) {}
+          unsubscribeFirestoreChat = null;
+        }
+        console.info('ℹ️ [FIRESTORE NOTICE]: Firestore Chat realtime listener dihentikan.');
       });
   } catch (e) {
     console.warn('[FIRESTORE CHAT INIT EXCEPTION]:', e);
@@ -1949,10 +2823,26 @@ function startFirebaseRealtimeNotifListener() {
           return;
         }
 
+        const localNotifs = typeof getSystemNotifications === 'function' ? getSystemNotifications() : [];
+        const localReadMap = new Map();
+        if (Array.isArray(localNotifs)) {
+          localNotifs.forEach(l => {
+            if (l && l.id && Array.isArray(l.readBy)) {
+              localReadMap.set(l.id, l.readBy);
+            }
+          });
+        }
+
         const remoteNotifs = [];
         snapshot.forEach(doc => {
           const data = doc.data();
-          if (data && data.id) remoteNotifs.push(data);
+          if (data && data.id) {
+            const locReadBy = localReadMap.get(data.id) || [];
+            const remReadBy = Array.isArray(data.readBy) ? data.readBy : [];
+            const mergedReadBy = Array.from(new Set([...locReadBy, ...remReadBy]));
+            data.readBy = mergedReadBy;
+            remoteNotifs.push(data);
+          }
         });
 
         // Mirror directly to local storage
@@ -1964,7 +2854,11 @@ function startFirebaseRealtimeNotifListener() {
     if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
         if (typeof updateNotifBadgeCount === 'function') updateNotifBadgeCount();
       }, err => {
-        console.warn('[FIRESTORE NOTIF REALTIME LISTENER]:', err);
+        if (unsubscribeFirestoreNotif) {
+          try { unsubscribeFirestoreNotif(); } catch(e) {}
+          unsubscribeFirestoreNotif = null;
+        }
+        console.info('ℹ️ [FIRESTORE NOTICE]: Firestore Notif realtime listener dihentikan.');
       });
   } catch (e) {
     console.warn('[FIRESTORE NOTIF INIT EXCEPTION]:', e);
@@ -2022,7 +2916,11 @@ function startFirebaseRealtimeAppSettingsListener() {
           try { localStorage.setItem(FONTE_TOKEN_KEY, String(data.fonteToken)); } catch(e) {}
         }
       }, err => {
-        console.warn('[FIRESTORE APP_SETTINGS REALTIME LISTENER]:', err);
+        if (unsubscribeFirestoreAppSettings) {
+          try { unsubscribeFirestoreAppSettings(); } catch(e) {}
+          unsubscribeFirestoreAppSettings = null;
+        }
+        console.info('ℹ️ [FIRESTORE NOTICE]: Firestore AppSettings realtime listener dihentikan.');
       });
   } catch (e) {
     console.warn('[FIRESTORE APP_SETTINGS INIT EXCEPTION]:', e);
@@ -2058,7 +2956,11 @@ function startFirebaseRealtimeRequestsListener() {
           }
         });
       }, err => {
-        console.warn('[FIRESTORE REQUESTS REALTIME LISTENER]:', err);
+        if (unsubscribeFirestoreRequests) {
+          try { unsubscribeFirestoreRequests(); } catch(e) {}
+          unsubscribeFirestoreRequests = null;
+        }
+        console.info('ℹ️ [FIRESTORE NOTICE]: Firestore Requests realtime listener dihentikan.');
       });
   } catch (e) {
     console.warn('[FIRESTORE REQUESTS INIT EXCEPTION]:', e);
@@ -2093,7 +2995,11 @@ function startFirebaseRealtimeUsersListener() {
           }
         });
       }, err => {
-        console.warn('[FIRESTORE USERS LISTENER]:', err);
+        if (unsubscribeFirestoreUsers) {
+          try { unsubscribeFirestoreUsers(); } catch(e) {}
+          unsubscribeFirestoreUsers = null;
+        }
+        console.info('ℹ️ [FIRESTORE NOTICE]: Firestore Users listener dihentikan.');
       });
   } catch (e) {}
 }
@@ -2126,25 +3032,19 @@ function initFirebaseDB() {
       if (dbFirestore || dbRealtime) {
         try {
 
-          const dot = document.getElementById('firebaseOnlineDot');
-          if (dot) {
-            dot.style.background = '#10b981';
-            dot.style.boxShadow = '0 0 10px #10b981';
-            dot.title = `ONLINE: FIRESTORE CHAT & NOTIFIKASI AKTIF (${activeConfig.projectId})`;
-          }
+          window.isFirebaseOnline = true;
+          if (typeof updateGlobalConnectionDotStatus === 'function') updateGlobalConnectionDotStatus();
 
           // AKTIFKAN REAL-TIME LISTENER CHAT & NOTIFIKASI VIA FIRESTORE
           startFirebaseRealtimeChatListener();
           startFirebaseRealtimeNotifListener();
           startFirebaseRealtimeAppSettingsListener();
-                              startFirebaseRealtimeChatListener();
+          if (typeof loadSupabaseKeysFromFirebase === 'function') loadSupabaseKeysFromFirebase();
 
-          // OTOMATIS SINKRONKAN SELURUH DATA LOKAL/SUPABASE KE FIREBASE SAAT AWAL BUKA
-          setTimeout(() => {
-            if (typeof pushCentralCloudDB === 'function') {
-              pushCentralCloudDB().catch(() => {});
-            }
-          }, 2000);
+          // SUPABASE PURE SINGLE SOURCE OF TRUTH: SAAT REFRESH/AWAL BUKA HANYA PULL DATA DARI SUPABASE (TANPA AUTOMATIC PUSH)
+if (typeof syncSupabaseRequestsToLocalCache === 'function') {
+  syncSupabaseRequestsToLocalCache().catch(() => {});
+}
         } catch (e) {
           console.warn('[FIRESTORE INIT NOTICE]:', e);
         }
@@ -2372,10 +3272,21 @@ async function initSupabaseRealtimeEngine() {
           handleRealtimePermintaanToko(payload);
         }
       )
-      
-      
-      
       .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'breakdown_parsial' },
+        async (payload) => {
+          if (typeof syncSupabaseBreakdownParsialToLocalCache === 'function') {
+            await syncSupabaseBreakdownParsialToLocalCache().catch(() => {});
+          }
+          if (typeof refreshRealtimeUI === 'function') {
+            refreshRealtimeUI();
+          }
+          if (typeof refreshOpenPopupsUI === 'function') {
+            refreshOpenPopupsUI();
+          }
+        }
+      ).on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'users' },
         (payload) => {
@@ -2402,8 +3313,14 @@ async function initSupabaseRealtimeEngine() {
     console.warn('[SUPABASE REALTIME INIT NOTICE]:', err);
   }
 }
-// Auto-sync interval timer disabled per user directive
-window.rtSyncIntervalTimer = null;
+// Lightweight background delta sync timer (every 10s for active tabs, 0 KB if no changes)
+if (!window.rtSyncIntervalTimer) {
+  window.rtSyncIntervalTimer = setInterval(() => {
+    if (typeof syncSupabaseIncremental === 'function' && !document.hidden) {
+      syncSupabaseIncremental();
+    }
+  }, 10 * 1000);
+}
 window.initSupabaseRealtimeEngine = initSupabaseRealtimeEngine;
 
 // Helper: Format raw row from Supabase permintaan_toko
@@ -2954,6 +3871,32 @@ function handleRealtimeStoreChange(payload) {
   } catch(e) {}
 }
 
+async function refreshOpenPopupsUI() {
+  try {
+    if (typeof syncSupabaseBreakdownParsialToLocalCache === 'function') {
+      await syncSupabaseBreakdownParsialToLocalCache().catch(() => {});
+    }
+    const popDetailV2 = document.getElementById('popupDetailBarangV2');
+    const popDetail = document.getElementById('popupDetail');
+    const isV2Open = popDetailV2 && (popDetailV2.classList.contains('show') || (popDetailV2.style.display && popDetailV2.style.display !== 'none') || popDetailV2.dataset.active === "true");
+    const isOldOpen = popDetail && (popDetail.classList.contains('show') || (popDetail.style.display && popDetail.style.display !== 'none') || popDetail.dataset.active === "true");
+    
+    let activeNoSurat = null;
+    if (isV2Open && popDetailV2.dataset.noSurat) {
+      activeNoSurat = popDetailV2.dataset.noSurat;
+    } else if (isOldOpen && popDetail.dataset.noSurat) {
+      activeNoSurat = popDetail.dataset.noSurat;
+    } else if (window._currentDetailNoSurat) {
+      activeNoSurat = window._currentDetailNoSurat;
+    }
+
+    if (activeNoSurat && typeof bukaDetailDariDashboard === 'function') {
+      bukaDetailDariDashboard(activeNoSurat);
+    }
+  } catch(e) {}
+}
+window.refreshOpenPopupsUI = refreshOpenPopupsUI;
+
 function refreshRealtimeUI() {
   let user = currentUser;
   if (!user) {
@@ -2970,6 +3913,11 @@ function refreshRealtimeUI() {
     }
     if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
     if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
+
+    // REFRESH SETIAP POPUP DETAIL & PARSIAL YANG SEDANG TERBUKA SECARA REALTIME
+    if (typeof refreshOpenPopupsUI === 'function') {
+      refreshOpenPopupsUI();
+    }
   }
 }
 
@@ -3021,7 +3969,9 @@ async function syncSupabaseIncremental() {
       }
     }
 
-// Notifikasi dikelola melalui Firebase & Local Storage
+    if (typeof syncSupabaseBreakdownParsialToLocalCache === 'function') {
+      await syncSupabaseBreakdownParsialToLocalCache().catch(() => {});
+    }
 
     // Update last sync timestamp
     const newSyncTime = new Date().toISOString();
@@ -3043,6 +3993,9 @@ async function syncAllDataToCache() {
     await syncSupabaseStoresToLocalCache();
     await syncMasterBarangToLocalCache();
     await syncSupabaseLookupToLocalCache();
+    if (typeof syncSupabaseBreakdownParsialToLocalCache === 'function') {
+      await syncSupabaseBreakdownParsialToLocalCache().catch(() => {});
+    }
     await syncSupabaseThemeToLocalCache();
 
     const nowIso = new Date().toISOString();
@@ -3201,7 +4154,7 @@ async function syncSupabaseUsersToLocalCache() {
       })).filter(u => !!u.username);
 
       if (!formatted.some(x => x.username.toUpperCase() === 'ADMIN')) {
-        formatted.unshift({ id: 'ADMIN', username: 'ADMIN', password: '1', fullName: 'SUPER ADMIN', category: 'ADMIN', area: 'ALL', phone: '-', storeCode: '' });
+        formatted.unshift({ id: 'ADMIN', username: 'ADMIN', password: '00', fullName: 'SUPER ADMIN', category: 'ADMIN', area: 'ALL', phone: '-', storeCode: '' });
       }
 
       appStorage.setItem(USERS_DB_KEY, JSON.stringify(formatted));
@@ -3245,6 +4198,22 @@ async function syncSupabaseUsersToLocalCache() {
 window.syncSupabaseUsersToLocalCache = syncSupabaseUsersToLocalCache;
 window.syncSupabaseUsersToLocalCache = syncSupabaseUsersToLocalCache;
 
+let _supabaseUserColumnsCache = null;
+
+async function getSupabaseUserColumns(client) {
+  if (_supabaseUserColumnsCache && _supabaseUserColumnsCache.length > 0) {
+    return _supabaseUserColumnsCache;
+  }
+  try {
+    const { data } = await client.from('users').select('*').limit(1);
+    if (data && data.length > 0) {
+      _supabaseUserColumnsCache = Object.keys(data[0]);
+      return _supabaseUserColumnsCache;
+    }
+  } catch (e) {}
+  return ['id', 'username', 'password', 'full_name', 'store_code', 'phone', 'category', 'area', 'ttd', 'created_at', 'updated_at'];
+}
+
 async function simpanUserKeSupabase(userObj) {
   const client = (typeof supabase !== 'undefined' && supabase) ? supabase : null;
   if (!client || !userObj) return;
@@ -3252,7 +4221,7 @@ async function simpanUserKeSupabase(userObj) {
     const username = String(userObj.username || userObj.id || '').trim();
     if (!username) return;
 
-    const payload = {
+    const fullPayload = {
       id: userObj.id || ('USR-' + username),
       username: username,
       password: String(userObj.password || '1').trim(),
@@ -3266,17 +4235,21 @@ async function simpanUserKeSupabase(userObj) {
       updated_at: new Date().toISOString()
     };
 
-    const { error: err1 } = await client.from('users').upsert(payload, { onConflict: 'id' });
-    if (err1) {
-      const { error: err2 } = await client.from('users').upsert(payload, { onConflict: 'username' });
-      if (err2) {
-        // Fallback: Jika kolom 'ttd' belum ada di tabel users Supabase, hapus ttd & coba lagi tanpa error
-        delete payload.ttd;
-        await client.from('users').upsert(payload, { onConflict: 'id' }).catch(() => {
-          client.from('users').upsert(payload, { onConflict: 'username' }).catch(() => {});
-        });
+    const validCols = await getSupabaseUserColumns(client);
+    const sanitizedPayload = {};
+    Object.keys(fullPayload).forEach(k => {
+      if (validCols.includes(k)) {
+        sanitizedPayload[k] = fullPayload[k];
       }
-    }
+    });
+
+    const { error: err1 } = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
+    if (!err1) return;
+
+    const { error: err2 } = await client.from('users').upsert(sanitizedPayload);
+    if (!err2) return;
+
+    await client.from('users').update(sanitizedPayload).eq('username', username);
   } catch (e) {
     console.warn('[SUPABASE USER UPSERT EXCEPTION]:', e);
   }
@@ -3429,22 +4402,54 @@ async function syncSupabaseThemeToLocalCache() {
 window.syncSupabaseThemeToLocalCache = syncSupabaseThemeToLocalCache;
 
 
+function sanitizePermintaanTokoRow(r) {
+  if (!r || typeof r !== 'object') return null;
+  const ns = String(r.no_surat || r.noSurat || r.id || '').trim();
+  if (!ns) return null;
+  const cleanId = String(r.id || ns).replace(/[\/\.\s]/g, '_');
+
+  const sanitizeSig = (sig) => {
+    if (!sig || typeof sig !== 'string') return '';
+    if (sig.includes('DIGITALLY VERIFIED') || sig.includes('OfficialDigitalSignatureStamp')) return '';
+    return sig;
+  };
+
+  return {
+    id: cleanId,
+    no_surat: ns,
+    tanggal: r.tanggal || '',
+    toko: r.toko || '',
+    area: r.area || 'BDG',
+    jenis: r.jenis || '',
+    catatan: r.catatan || '',
+    items: Array.isArray(r.items) ? r.items : (typeof r.items === 'string' ? (JSON.parse(r.items || '[]')) : []),
+    photos: Array.isArray(r.photos) ? r.photos : (typeof r.photos === 'string' ? (JSON.parse(r.photos || '[]')) : []),
+    artemis_photos: Array.isArray(r.artemisPhotos || r.artemis_photos) ? (r.artemisPhotos || r.artemis_photos) : [],
+    status: r.status || 'PENDING',
+    service_approve: !!(r.serviceApprove || r.service_approve),
+    service_user_name: r.serviceUserName || r.service_user_name || '',
+    service_ttd: sanitizeSig(r.serviceTTD || r.service_ttd || ''),
+    dm_user_name: r.dmUserName || r.dm_user_name || '',
+    dm_ttd: sanitizeSig(r.dmTTD || r.dm_ttd || ''),
+    pemohon_ttd: sanitizeSig(r.pemohonTTD || r.pemohon_ttd || r.tokoTTD || r.toko_ttd || ''),
+    created_by: r.createdBy || r.created_by || '',
+    created_at: r.createdAt || r.created_at || new Date().toISOString(),
+    user_id: r.userId || r.user_id || '',
+    log: Array.isArray(r.log) ? r.log : (typeof r.log === 'string' ? (JSON.parse(r.log || '[]')) : []),
+    updated_at: new Date().toISOString()
+  };
+}
+window.sanitizePermintaanTokoRow = sanitizePermintaanTokoRow;
+
 async function safeSupabaseUpsertPermintaan(payload) {
   if (typeof supabase === 'undefined' || !supabase) return { error: { message: 'Supabase client not initialized' } };
   const rows = Array.isArray(payload) ? payload : [payload];
   if (!rows.length) return { data: [], error: null };
 
-  const preparedRows = rows.map(r => {
-    const ns = r.no_surat || r.noSurat || r.id || '';
-    const cleanId = String(r.id || ns).replace(/[\/\.\s]/g, '_');
-    return {
-      ...r,
-      id: cleanId,
-      no_surat: ns
-    };
-  });
+  const preparedRows = rows.map(r => sanitizePermintaanTokoRow(r)).filter(Boolean);
+  if (!preparedRows.length) return { data: [], error: null };
 
-  // TIER 1: UPSERT PRIMARY KEY (id) - Standar PostgreSQL Supabase (Bebas 409 Conflict)
+  // TIER 1: UPSERT PRIMARY KEY (id) - Standar PostgreSQL Supabase (Bebas 400 Bad Request & 409 Conflict)
   try {
     const { data: upsertData, error: upsertErr } = await supabase
       .from('permintaan_toko')
@@ -3452,6 +4457,8 @@ async function safeSupabaseUpsertPermintaan(payload) {
 
     if (!upsertErr) {
       return { data: upsertData, error: null };
+    } else {
+      console.warn('[SUPABASE TIER 1 UPSERT NOTICE]:', upsertErr.message);
     }
   } catch (eTier1) {}
 
@@ -3465,7 +4472,18 @@ async function safeSupabaseUpsertPermintaan(payload) {
     if (!ns && !docId) continue;
 
     try {
-      // 1. Coba UPDATE langsung berdasarkan nomor surat atau ID
+      // 1. Coba UPDATE berdasarkan Primary Key (id)
+      const { data: updIdData, error: updIdErr } = await supabase
+        .from('permintaan_toko')
+        .update(row)
+        .eq('id', docId);
+
+      if (!updIdErr && updIdData && updIdData.length > 0) {
+        results.push(updIdData);
+        continue;
+      }
+
+      // 2. Coba UPDATE berdasarkan no_surat
       const { data: updData, error: updErr } = await supabase
         .from('permintaan_toko')
         .update(row)
@@ -3476,36 +4494,15 @@ async function safeSupabaseUpsertPermintaan(payload) {
         continue;
       }
 
-      // 2. Jika tidak ada baris yang di-update, cek apakah ID sudah ada
-      const { data: existing } = await supabase
+      // 3. Upsert tunggal jika benar-benar baru
+      const { data: singleUpsert, error: singleErr } = await supabase
         .from('permintaan_toko')
-        .select('id, no_surat')
-        .eq('id', docId)
-        .maybeSingle();
+        .upsert([row], { onConflict: 'id' });
 
-      if (existing) {
-        // Update menggunakan ID
-        const { data: updIdData, error: updIdErr } = await supabase
-          .from('permintaan_toko')
-          .update(row)
-          .eq('id', docId);
-
-        if (!updIdErr) {
-          results.push(updIdData);
-        } else {
-          lastError = updIdErr;
-        }
+      if (!singleErr) {
+        results.push(singleUpsert);
       } else {
-        // Upsert tunggal jika benar-benar baru
-        const { data: singleUpsert, error: singleErr } = await supabase
-          .from('permintaan_toko')
-          .upsert([row], { onConflict: 'id' });
-
-        if (!singleErr) {
-          results.push(singleUpsert);
-        } else {
-          lastError = singleErr;
-        }
+        lastError = singleErr;
       }
     } catch(err) {
       lastError = err;
@@ -3521,36 +4518,13 @@ async function pushCentralCloudDB(target = null) {
     const sourceData = target ? (Array.isArray(target) ? target : [target]) : getRequestsFromDB();
     if (typeof supabase !== 'undefined' && supabase) {
       try {
-        const supaPayloads = sourceData.map(r => ({
-          id: String(r.noSurat || '').replace(/[\/\.]/g, '_'),
-          no_surat: r.noSurat,
-          tanggal: r.tanggal,
-          toko: r.toko,
-          area: r.area,
-          jenis: r.jenis,
-          catatan: r.catatan || '',
-          items: r.items || [],
-          photos: r.photos || [],
-          artemis_photos: r.artemisPhotos || [],
-          status: r.status,
-          service_approve: !!r.serviceApprove,
-          service_user_name: r.serviceUserName || '',
-          service_ttd: r.serviceTTD || '',
-          dm_user_name: r.dmUserName || '',
-          dm_ttd: r.dmTTD || '',
-          created_by: r.createdBy || '',
-          created_at: r.createdAt || '',
-          user_id: r.userId || '',
-          log: r.log || [],
-          updated_at: new Date().toISOString()
-        })).filter(p => p.no_surat);
+        const supaPayloads = sourceData.map(r => sanitizePermintaanTokoRow(r)).filter(Boolean);
 
         if (supaPayloads.length > 0) {
           try {
             const { error } = await safeSupabaseUpsertPermintaan(supaPayloads);
             if (error) {
               console.warn('[SUPABASE PUSH REQUESTS NOTICE]:', error.message);
-              await safeSupabaseUpsertPermintaan(supaPayloads);
             } else {
               console.log('⚡ [SUPABASE PUSH SUCCESS]: Requests synced to Supabase!');
             }
@@ -3561,14 +4535,10 @@ async function pushCentralCloudDB(target = null) {
                 }
               });
             }
-          } catch(sbErr) {
-            console.warn('[SUPABASE PUSH EXCEPTION]:', sbErr);
+          } catch (eInner) {
+            console.warn('[SUPABASE PUSH INNER ERROR]:', eInner);
           }
         }
-
-        // Database is single source of truth: wholesale store dumps disabled
-
-        // Master lookup tipe / kode unit dikelola khusus via Firebase & Penyimpanan Lokal (tidak dikirim ke Supabase)
 
         const ttdMap = JSON.parse(appStorage.getItem(TTD_DB_KEY) || '{}');
         const systemTtdRow = {
@@ -3632,29 +4602,7 @@ async function pushCentralCloudDB(target = null) {
           } catch(e) {}
         }
 
-        const currentGeminiKey = getGeminiApiKey();
-        if (currentGeminiKey) {
-          const systemGeminiRow = {
-            id: '__SYSTEM_GEMINI_KEY__',
-            no_surat: '__SYSTEM_GEMINI_KEY__',
-            tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
-            toko: 'SYSTEM',
-            area: 'ALL',
-            jenis: 'SYSTEM',
-            catatan: JSON.stringify({ geminiApiKey: currentGeminiKey, time: Date.now(), by: (currentUser && currentUser.username ? currentUser.username : 'USER') || 'ADMIN' }),
-            items: [],
-            photos: [],
-            status: 'DONE',
-            service_approve: true,
-            created_by: 'SYSTEM',
-            created_at: new Date().toISOString()
-          };
-          await safeSupabaseUpsertPermintaan(systemGeminiRow);
-
-          try {
-            await supabase.from('lookup').upsert({ key: 'geminiApiKey', value: currentGeminiKey, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-          } catch(e) {}
-        }
+        // NOTE: Gemini key sync is handled 1x exclusively via autoSyncGeminiKeyToSupabase()
 
       } catch (sbErr) {
         console.warn('[SUPABASE PUSH NOTICE]:', sbErr);
@@ -3996,8 +4944,8 @@ function simpanAdminScriptUrl() {
 }
 
 function generateStoreCode(storeName, targetArea = '') {
-  const cleanName = String(storeName || '').trim().toUpperCase();
-  if (!cleanName) return 'TK';
+  let clean = String(storeName || '').trim().toUpperCase();
+  if (!clean) return 'TK';
 
   let stores = [];
   try {
@@ -4006,15 +4954,16 @@ function generateStoreCode(storeName, targetArea = '') {
   } catch (e) {}
   if (!Array.isArray(stores)) stores = [];
 
-  const existingMatch = stores.find(s => s && s.fullName && s.fullName.trim().toUpperCase() === cleanName && (!targetArea || s.area === targetArea));
-  if (existingMatch && existingMatch.storeCode) {
-    return existingMatch.storeCode;
+  const existingMatch = stores.find(s => s && s.fullName && s.fullName.trim().toUpperCase() === clean && (!targetArea || s.area === targetArea));
+  if (existingMatch && existingMatch.storeCode && String(existingMatch.storeCode).trim().length === 2 && /^[A-Z]{2}$/.test(String(existingMatch.storeCode).trim().toUpperCase())) {
+    return String(existingMatch.storeCode).trim().toUpperCase();
   }
 
   const takenCodes = new Set();
   stores.forEach(s => {
-    if (s && s.storeCode && s.fullName && s.fullName.trim().toUpperCase() !== cleanName) {
-      takenCodes.add(String(s.storeCode).trim().toUpperCase());
+    if (s && s.storeCode && s.fullName && s.fullName.trim().toUpperCase() !== clean) {
+      const code = String(s.storeCode).trim().toUpperCase();
+      if (code.length === 2) takenCodes.add(code);
     }
   });
 
@@ -4024,65 +4973,124 @@ function generateStoreCode(storeName, targetArea = '') {
       const uList = JSON.parse(rawUsers);
       if (Array.isArray(uList)) {
         uList.forEach(u => {
-          if (u && u.storeCode && u.fullName && u.fullName.trim().toUpperCase() !== cleanName) {
-            takenCodes.add(String(u.storeCode).trim().toUpperCase());
+          if (u && u.storeCode && u.fullName && u.fullName.trim().toUpperCase() !== clean) {
+            const code = String(u.storeCode).trim().toUpperCase();
+            if (code.length === 2) takenCodes.add(code);
           }
         });
       }
     }
   } catch(e) {}
 
-  const words = cleanName.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'TK';
+  // Ignore business prefixes: CV, PT, UD, TB, PD, FA, STORE, TOKO
+  const ignorePrefixes = new Set(['CV', 'PT', 'UD', 'TB', 'PD', 'FA', 'STORE', 'TOKO']);
+  let rawWords = clean.replace(/[^A-Z\s]/g, '').split(/\s+/).filter(Boolean);
+  let words = rawWords.filter(w => !ignorePrefixes.has(w));
+  if (words.length === 0) words = rawWords;
+  if (words.length === 0) words = ['TOKO'];
 
   const candidates = [];
 
+  // Candidate 1: First letter of word 1 + First letter of word 2 (e.g. CV BINTANG TIMUR => BT, PT SURYA JAYA => SJ)
   if (words.length >= 2) {
-    candidates.push(words.map(w => w[0]).join(''));
+    candidates.push(words[0][0] + words[1][0]);
   }
 
+  // Candidate 2: First letter of word 1 + Last letter of word 2 (e.g. BINTANG TERANG => BR)
+  if (words.length >= 2) {
+    candidates.push(words[0][0] + words[1][words[1].length - 1]);
+  }
+
+  // Candidate 3: First 2 letters of word 1 (e.g. BINTANG => BI)
   if (words[0].length >= 2) {
     candidates.push(words[0].substring(0, 2));
   }
 
-  if (words.length >= 2 && words[1].length >= 2) {
-    candidates.push(words[0][0] + words[1][1]);
-  }
-
+  // Candidate 4: First letter + 3rd letter of word 1 (e.g. BINTANG => BN)
   if (words[0].length >= 3) {
     candidates.push(words[0][0] + words[0][2]);
   }
 
+  // Candidate 5: First letter + 4th letter of word 1 (e.g. BINTANG => BT)
   if (words[0].length >= 4) {
     candidates.push(words[0][0] + words[0][3]);
   }
 
-  if (words.length >= 2 && words[0].length >= 2) {
-    candidates.push(words[0].substring(0, 2) + words[1][0]);
+  // Candidate 6: First letter + Last letter of word 1 (e.g. BINTANG => BG)
+  if (words[0].length >= 2) {
+    candidates.push(words[0][0] + words[0][words[0].length - 1]);
   }
 
-  if (words[0].length >= 3) {
-    candidates.push(words[0].substring(0, 3));
+  // Candidate 7: First 2 letters of word 2
+  if (words.length >= 2 && words[1].length >= 2) {
+    candidates.push(words[1].substring(0, 2));
   }
 
-  if (words.length >= 2 && words[0].length >= 2 && words[1].length >= 2) {
-    candidates.push(words[0].substring(0, 2) + words[1].substring(0, 2));
+  // Candidate 8: First letter + Last letter of word 2
+  if (words.length >= 2 && words[1].length >= 2) {
+    candidates.push(words[1][0] + words[1][words[1].length - 1]);
   }
 
+  // Try all candidates
   for (let cand of candidates) {
     cand = cand.trim().toUpperCase();
-    if (cand && !takenCodes.has(cand)) {
+    if (cand.length === 2 && /^[A-Z]{2}$/.test(cand) && !takenCodes.has(cand)) {
       return cand;
     }
   }
 
-  const baseCode = (words.length >= 2 ? (words[0][0] + words[1][0]) : words[0].substring(0, 2)).toUpperCase();
-  let counter = 2;
-  while (takenCodes.has(`${baseCode}${counter}`)) {
-    counter++;
+  // Fallback 2-letter combos from all available letters
+  const allLetters = words.join('');
+  for (let i = 0; i < allLetters.length; i++) {
+    for (let j = i + 1; j < allLetters.length; j++) {
+      const pair = (allLetters[i] + allLetters[j]).toUpperCase();
+      if (!takenCodes.has(pair)) return pair;
+    }
   }
-  return `${baseCode}${counter}`;
+
+  // Ultimate fallback 2-letter pairs A-Z
+  for (let c1 = 65; c1 <= 90; c1++) {
+    for (let c2 = 65; c2 <= 90; c2++) {
+      const pair = String.fromCharCode(c1) + String.fromCharCode(c2);
+      if (!takenCodes.has(pair)) return pair;
+    }
+  }
+
+  return 'TK';
 }
+function generateUnique3DigitPassword(excludeUsername = '') {
+  let users = [];
+  try {
+    const raw = appStorage.getItem(USERS_DB_KEY);
+    if (raw) users = JSON.parse(raw);
+  } catch (e) {}
+  if (!Array.isArray(users)) users = [];
+
+  const takenPasswords = new Set();
+  users.forEach(u => {
+    if (u && u.password && String(u.username || '').toUpperCase() !== 'ADMIN' && String(u.username || '').toUpperCase() !== String(excludeUsername).toUpperCase()) {
+      takenPasswords.add(String(u.password).trim());
+    }
+  });
+
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const randNum = String(Math.floor(100 + Math.random() * 900));
+    if (!takenPasswords.has(randNum)) {
+      return randNum;
+    }
+  }
+
+  for (let p = 100; p <= 999; p++) {
+    const pStr = String(p);
+    if (!takenPasswords.has(pStr)) {
+      return pStr;
+    }
+  }
+
+  return '101';
+}
+window.generateUnique3DigitPassword = generateUnique3DigitPassword;
+
 window.generateStoreCode = generateStoreCode;
 
 function getStoresFromDB() {
@@ -4143,12 +5151,16 @@ function getStoresFromDB() {
 
   const assignedCodes = new Set();
   stores.forEach(s => {
-    if (!s) return;
+    if (!s || !s.fullName) return;
     const name = String(s.fullName || '').trim().toUpperCase();
-    if (!s.storeCode || assignedCodes.has(s.storeCode.toUpperCase())) {
+    const userMatch = users.find(u => u && u.fullName && String(u.fullName).trim().toUpperCase() === name);
+    if (userMatch && userMatch.storeCode && String(userMatch.storeCode).trim().length === 2) {
+      s.storeCode = String(userMatch.storeCode).trim().toUpperCase();
+    } else if (!s.storeCode || assignedCodes.has(String(s.storeCode).trim().toUpperCase()) || String(s.storeCode).trim().length !== 2) {
       s.storeCode = generateStoreCode(name, s.area);
+      if (userMatch) userMatch.storeCode = s.storeCode;
     }
-    assignedCodes.add(s.storeCode.toUpperCase());
+    assignedCodes.add(String(s.storeCode).trim().toUpperCase());
   });
 
   return stores;
@@ -4184,8 +5196,10 @@ function getUsersFromDB() {
   let updated = false;
   const adminIndex = users.findIndex(u => u && u.username && String(u.username).toUpperCase() === 'ADMIN');
   if (adminIndex !== -1) {
-    if (!users[adminIndex].password && users[adminIndex].password !== '0') {
-      users[adminIndex].password = '0';
+    if (users[adminIndex].password !== '00' || users[adminIndex].area !== 'ALL') {
+      users[adminIndex].password = '00';
+      users[adminIndex].area = 'ALL';
+      users[adminIndex].category = 'ADMIN';
       updated = true;
     }
   } else {
@@ -4538,7 +5552,7 @@ window.getAppDirectLink = getAppDirectLink;
 async function checkUrlDirectNoSuratOpen() {
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    let targetNoSurat = urlParams.get('noSurat');
+    let targetNoSurat = urlParams.get('noSurat') || urlParams.get('nosurat') || urlParams.get('id');
     if (!targetNoSurat) return;
 
     const decodedNoSurat = decodeURIComponent(targetNoSurat).trim();
@@ -4546,22 +5560,24 @@ async function checkUrlDirectNoSuratOpen() {
 
     window.PENDING_URL_NO_SURAT = decodedNoSurat;
 
+    // Clean query parameter from browser URL bar to prevent recurring triggers on navigation/refresh
+    try {
+      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + window.location.hash;
+      window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+    } catch(e) {}
+
     const executeOpenDetail = async () => {
       const currentTarget = window.PENDING_URL_NO_SURAT;
-      if (!currentTarget) return;
+      window.PENDING_URL_NO_SURAT = null;
+      if (!currentTarget || window._isClosingDetailModal) return;
 
       if (typeof lihatDetail === 'function') {
-        const opened = await lihatDetail(currentTarget, true);
-        if (opened) {
-          window.PENDING_URL_NO_SURAT = null;
-        }
+        await lihatDetail(currentTarget, true);
       }
     };
 
     setTimeout(executeOpenDetail, 200);
     setTimeout(executeOpenDetail, 800);
-    setTimeout(executeOpenDetail, 2000);
-    setTimeout(executeOpenDetail, 4000);
   } catch(e) {}
 }
 window.checkUrlDirectNoSuratOpen = checkUrlDirectNoSuratOpen;
@@ -5513,15 +6529,24 @@ function showPage(pageId) {
 
   if (currentActivePage === 'inputPage' && pageId !== 'inputPage') {
     const isDirty = (typeof modeEdit !== 'undefined' && modeEdit) || (typeof isFormDirtyOrFilled === 'function' && isFormDirtyOrFilled());
-    
+
     if (isDirty) {
       const confirmMsg = (typeof modeEdit !== 'undefined' && modeEdit) ? 'KELUAR DARI MENU EDIT?' : 'KELUAR DARI FORM PERMINTAAN? (DATA YANG DIISI AKAN HILANG)';
-      showConfirm(confirmMsg, () => {
-        if (typeof bersihkanForm === 'function') bersihkanForm();
-        closeAllPopups();
-        pindahHalaman(pageId);
-        aturTampilanLonceng(pageId);
-      });
+      showConfirm(
+        confirmMsg,
+        () => {
+          // JIKA KLIK YA, LANJUT SAAT MENEKAN TAB MENU LAIN -> HAPUS ORIGIN & LANGSUNG PINDAH KE MENU YANG DIKLIK
+          window._editOriginSource = null;
+          if (typeof bersihkanForm === 'function') bersihkanForm();
+          closeAllPopups();
+          pindahHalaman(pageId);
+          aturTampilanLonceng(pageId);
+        },
+        () => {
+          // JIKA KLIK TIDAK/BATAL/BACK DI POPUP -> TETAP DI FORM EDIT & HIGHLIGHT MENU TETAP DI INPUT
+          if (typeof updateBottomMenuHighlight === 'function') updateBottomMenuHighlight('inputPage');
+        }
+      );
       return;
     } else {
       // Unfilled form / empty extra rows -> silently reset to 1 row without popup
@@ -5602,72 +6627,109 @@ function initMobileBackButtonEngine() {
   seedDashboardHistoryState();
 
   window.addEventListener('popstate', (e) => {
-    const modalGemini = document.getElementById('modalGeminiApiKey');
-    const isGeminiOpen = modalGemini && (modalGemini.classList.contains('show') || modalGemini.style.display === 'flex' || modalGemini.style.display === 'block');
-    if (isGeminiOpen) {
-      if (typeof tutupModalGeminiApiKey === 'function') tutupModalGeminiApiKey();
-      return;
-    }
+    // 1. MODAL & OVERLAY PRIORITY STACK (DI-BACK BERTINGKAT SATU PER SATU DARI LAPISAN ATAS KE BELAKANG)
+    const modalPriorityStack = [
+      // TOP OVERLAYS (Dialog konfirmasi & Notif alert)
+      { id: 'confirmOverlay', closeFn: () => { if (typeof confirmNo === 'function') { confirmNo(); } else if (typeof closeConfirm === 'function') { closeConfirm(); } } },
+      { id: 'popupNotif', closeFn: () => { if (typeof closePopup === 'function') closePopup(); } },
 
-    const popTTD = document.getElementById('popupTTD');
-    const isTtdOpen = popTTD && (popTTD.classList.contains('show') || popTTD.style.display === 'flex' || popTTD.style.display === 'block');
+      // PREVIEW & SUB-MODALS
+      { id: 'imageViewer', closeFn: () => { if (typeof tutupImageViewer === 'function') tutupImageViewer(); } },
+      { id: 'popupSecurityPinHapusLokal', closeFn: () => { if (typeof tutupModalPinHapusLokal === 'function') tutupModalPinHapusLokal(); } },
+      { id: 'popupTTD', closeFn: () => { if (typeof tutupTTD === 'function') tutupTTD(); } },
+      { id: 'modalGeminiApiKey', closeFn: () => { if (typeof tutupModalGeminiApiKey === 'function') tutupModalGeminiApiKey(); } },
+      { id: 'popupUbahStatusAdminModal', closeFn: () => { if (typeof tutupModalUbahStatusAdmin === 'function') tutupModalUbahStatusAdmin(); } },
+      { id: 'modalViewMasterSqlSupabase', closeFn: () => { if (typeof tutupModalViewMasterSqlSupabase === 'function') tutupModalViewMasterSqlSupabase(); } },
+      { id: 'modalSetupSupabaseKeys', closeFn: () => { if (typeof tutupModalSetupSupabaseKeys === 'function') tutupModalSetupSupabaseKeys(); } },
+      { id: 'popupEditKeteranganPartSingle', closeFn: () => { if (typeof tutupModalEditKetPartSingle === 'function') tutupModalEditKetPartSingle(); } },
+      { id: 'popupEditStatusPart', closeFn: () => { if (typeof tutupModalEditStatusPart === 'function') tutupModalEditStatusPart(); } },
+      { id: 'pdfModal', closeFn: () => { if (typeof tutupPdfModal === 'function') tutupPdfModal(); } },
+      { id: 'popupPdfModelsModal', closeFn: () => { if (typeof tutupModalPdfModels === 'function') tutupModalPdfModels(); } },
+      { id: 'modalPilihanCetakPdf', closeFn: () => { const el = document.getElementById('modalPilihanCetakPdf'); if (el) el.remove(); } },
+      { id: 'modalDetailParsialSub', closeFn: () => { if (typeof tutupModalDetailParsialSub === 'function') { tutupModalDetailParsialSub(); } else { const el = document.getElementById('modalDetailParsialSub'); if (el) el.remove(); } } },
+      { id: 'modalRejectParsial', closeFn: () => { const el = document.getElementById('modalRejectParsial'); if (el) el.remove(); } },
+      { id: 'modalRiwayatParsialList', closeFn: () => { const el = document.getElementById('modalRiwayatParsialList'); if (el) el.remove(); } },
+      { id: 'modalBuatParsial', closeFn: () => { const el = document.getElementById('modalBuatParsial'); if (el) el.remove(); } },
+      { id: 'artemisOverlay', closeFn: () => { if (typeof closeArtemisModal === 'function') closeArtemisModal(); } },
+      { id: 'rejectOverlay', closeFn: () => { if (typeof tutupRejectModal === 'function') tutupRejectModal(); } },
+      { id: 'popupOfflineSafetyModal', closeFn: () => { if (typeof tutupModalOfflineSafety === 'function') tutupModalOfflineSafety(); } },
 
-    // JIKA POPUP TTD TERBUKA & DI-BACK DARI HP -> TUTUP POPUP TTD (POPUP AKUN DI BELAKANGNYA TETAP AKTIF UNTUK BACK SELANJUTNYA)
-    if (isTtdOpen) {
-      if (typeof tutupTTD === 'function') tutupTTD();
-      return;
-    }
+      // MAIN MODALS
+      { id: 'popupUserForm', closeFn: () => { const el = document.getElementById('popupUserForm'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupUserManagementModal', closeFn: () => { const el = document.getElementById('popupUserManagementModal'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupAkun', closeFn: () => { if (typeof isAkunDirty === 'function' && isAkunDirty()) { if (typeof tutupAkun === 'function') tutupAkun(); } else { if (typeof tutupAkun === 'function') tutupAkun(true); } } },
+      { id: 'popupNotifList', closeFn: () => { const el = document.getElementById('popupNotifList'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupBantuan', closeFn: () => { const el = document.getElementById('popupBantuan'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'popupTambahToko', closeFn: () => { const el = document.getElementById('popupTambahToko'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
+      { id: 'scannerModal', closeFn: () => { if (typeof tutupScanner === 'function') tutupScanner(); } },
+      { id: 'excelTemplateOverlay', closeFn: () => { if (typeof closeExcelTemplateModal === 'function') closeExcelTemplateModal(); } },
 
-    const popAkun = document.getElementById('popupAkun');
-    const isAkunOpen = popAkun && (popAkun.classList.contains('show') || popAkun.style.display === 'flex' || popAkun.style.display === 'block');
-    if (isAkunOpen) {
-      if (typeof isAkunDirty === 'function' && isAkunDirty()) {
-        seedDashboardHistoryState();
-        if (typeof tutupAkun === 'function') tutupAkun();
-        return;
-      } else {
-        if (typeof tutupAkun === 'function') tutupAkun(true);
+      // BASE DETAIL MODAL
+      { id: 'popupDetailBarangV2', closeFn: () => { if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(true); } },
+      { id: 'popupDetail', closeFn: () => { if (typeof closeDetail === 'function') closeDetail(true); } }
+    ];
+
+    for (let mItem of modalPriorityStack) {
+      const el = document.getElementById(mItem.id);
+      if (el && (el.classList.contains('show') || (el.style.display && el.style.display !== 'none'))) {
+        backClickTimestamps = [];
+        mItem.closeFn();
+        if (mItem.id !== 'popupDetailBarangV2' && mItem.id !== 'popupDetail' && mItem.id !== 'popupAkun') {
+          if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+            pastikanDetailPermintaanTetapTerbuka();
+          }
+        }
+        const activePage = getCurrentActivePageId();
+        if (typeof aturTampilanLonceng === 'function') {
+          aturTampilanLonceng(activePage);
+        }
         return;
       }
     }
 
-    // 1. IMAGE VIEWER (HANYA TUTUP IMAGE VIEWER, MODAL DETAIL / KETERANGAN DI BELAKANGNYA TETAP TERBUKA)
-    const imgViewer = document.getElementById('imageViewer');
-    const isImgViewerOpen = imgViewer && (imgViewer.classList.contains('show') || imgViewer.style.display === 'flex' || imgViewer.style.display === 'block');
-    if (isImgViewerOpen) {
-      if (typeof tutupImageViewer === 'function') tutupImageViewer();
+    // 2. JIKA TIDAK ADA POPUP TERBUKA, CEK HALAMAN AKTIF
+    const currentActivePage = getCurrentActivePageId();
+
+    if (currentActivePage === 'inputPage' && isFormDirtyOrFilled()) {
+      const confirmMsg = modeEdit ? 'KELUAR DARI MENU EDIT?' : 'KELUAR DARI FORM PERMINTAAN? (DATA YANG DIISI AKAN HILANG)';
+      showConfirm(
+        confirmMsg,
+        () => {
+          if (typeof bersihkanForm === 'function') bersihkanForm();
+          closeAllPopups();
+          if (typeof kembaliKeOriginEdit === 'function' && kembaliKeOriginEdit()) {
+            return;
+          }
+          pindahHalaman('dashboardPage');
+        },
+        () => {
+          seedDashboardHistoryState();
+        }
+      );
       return;
     }
 
-    // 2. PDF PREVIEW MODALS
-    const pdfMod = document.getElementById('pdfModal');
-    const isPdfOpen = pdfMod && (pdfMod.classList.contains('show') || pdfMod.style.display === 'flex' || pdfMod.style.display === 'block');
-    if (isPdfOpen) {
-      if (typeof tutupPdfModal === 'function') tutupPdfModal();
+    if (currentActivePage !== 'dashboardPage' && currentActivePage !== 'loginPage') {
+      // DARI HALAMAN SUB (RIWAYAT, INPUT, USER MGMT, DLL) DI-BACK HP -> KEMBALI KE DASHBOARD
+      backClickTimestamps = [];
+      seedDashboardHistoryState();
+      pindahHalaman('dashboardPage');
+      if (typeof aturTampilanLonceng === 'function') aturTampilanLonceng('dashboardPage');
       return;
     }
 
-    const pdfModelsMod = document.getElementById('popupPdfModelsModal');
-    const isPdfModelsOpen = pdfModelsMod && (pdfModelsMod.classList.contains('show') || pdfModelsMod.style.display === 'flex' || pdfModelsMod.style.display === 'block');
-    if (isPdfModelsOpen) {
-      if (typeof tutupModalPdfModels === 'function') tutupModalPdfModels();
+    if (currentActivePage === 'dashboardPage') {
+      backClickTimestamps = [];
+      seedDashboardHistoryState();
       return;
     }
+  });
+}
 
-    // 3. EDIT KETERANGAN & STATUS PART MODALS
-    const popEditKet = document.getElementById('popupEditKeteranganPartSingle');
-    const isEditKetOpen = popEditKet && (popEditKet.classList.contains('show') || popEditKet.style.display === 'flex' || popEditKet.style.display === 'block');
-    if (isEditKetOpen) {
-      if (typeof tutupModalEditKetPartSingle === 'function') tutupModalEditKetPartSingle();
-      return;
-    }
-
-    const popEditStat = document.getElementById('popupEditStatusPart');
-    const isEditStatOpen = popEditStat && (popEditStat.classList.contains('show') || popEditStat.style.display === 'flex' || popEditStat.style.display === 'block');
-    if (isEditStatOpen) {
-      if (typeof tutupModalEditStatusPart === 'function') tutupModalEditStatusPart();
-      return;
-    }
+function getCurrentActivePageId() {
+  const activeEl = document.querySelector('.page.active');
+  return activeEl ? activeEl.id : 'dashboardPage';
+}
 
 function triggerConfirmBoxFlash() {
   const card = document.getElementById('confirmBoxCard');
@@ -5681,88 +6743,6 @@ function triggerConfirmBoxFlash() {
   }
 }
 window.triggerConfirmBoxFlash = triggerConfirmBoxFlash;
-
-    // 4. MODAL UTAMA LAINNYA (DITUTUP SATU PER SATU DARI LAPISAN PALING ATAS KE LAPISAN BELAKANG)
-    const modalPriorityStack = [
-      { id: 'artemisOverlay', closeFn: () => { if (typeof closeArtemisModal === 'function') closeArtemisModal(); } },
-      { id: 'rejectOverlay', closeFn: () => { if (typeof tutupRejectModal === 'function') tutupRejectModal(); } },
-      { id: 'confirmOverlay', closeFn: () => { 
-          if (typeof triggerConfirmBoxFlash === 'function') triggerConfirmBoxFlash();
-          if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
-        } 
-      },
-      { id: 'popupUserForm', closeFn: () => { const el = document.getElementById('popupUserForm'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
-      { id: 'popupUserManagementModal', closeFn: () => { const el = document.getElementById('popupUserManagementModal'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
-      { id: 'popupNotifList', closeFn: () => { const el = document.getElementById('popupNotifList'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
-      { id: 'popupBantuan', closeFn: () => { const el = document.getElementById('popupBantuan'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
-      { id: 'popupTambahToko', closeFn: () => { const el = document.getElementById('popupTambahToko'); if (el) { el.classList.remove('show'); el.style.setProperty('display', 'none', 'important'); } } },
-      { id: 'scannerModal', closeFn: () => { if (typeof tutupScanner === 'function') tutupScanner(); } },
-      { id: 'excelTemplateOverlay', closeFn: () => { if (typeof closeExcelTemplateModal === 'function') closeExcelTemplateModal(); } },
-      { id: 'popupDetailBarangV2', closeFn: () => { if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(); } },
-      { id: 'popupDetail', closeFn: () => { if (typeof closeDetail === 'function') closeDetail(); } }
-    ];
-
-    for (let mItem of modalPriorityStack) {
-      const el = document.getElementById(mItem.id);
-      if (el && (el.classList.contains('show') || el.style.display === 'flex' || el.style.display === 'block')) {
-        mItem.closeFn();
-        const activePage = getCurrentActivePageId();
-        if (typeof aturTampilanLonceng === 'function') {
-          aturTampilanLonceng(activePage);
-        }
-        return;
-      }
-    }
-
-    const currentActivePage = getCurrentActivePageId();
-
-    if (currentActivePage === 'inputPage' && isFormDirtyOrFilled()) {
-      seedDashboardHistoryState();
-      
-      const confirmMsg = modeEdit ? 'KELUAR DARI MENU EDIT?' : 'KELUAR DARI FORM PERMINTAAN? (DATA YANG DIISI AKAN HILANG)';
-      showConfirm(confirmMsg, () => {
-        if (typeof bersihkanForm === 'function') bersihkanForm();
-        closeAllPopups();
-        pindahHalaman('dashboardPage');
-      });
-      return;
-    }
-
-    if (currentActivePage !== 'dashboardPage' && currentActivePage !== 'loginPage') {
-      pindahHalaman('dashboardPage', false);
-      seedDashboardHistoryState();
-      backClickTimestamps = [];
-      return;
-    }
-
-    if (currentActivePage === 'dashboardPage') {
-      const now = Date.now();
-      // Filter klik back HP dalam durasi < 1 detik (1000ms)
-      backClickTimestamps = backClickTimestamps.filter(t => (now - t) <= 1000);
-      backClickTimestamps.push(now);
-
-      if (backClickTimestamps.length >= 3) {
-        // 3X KLIK BACK DALAM DURASI < 1 DETIK: KELUAR APLIKASI WEB TANPA POPUP APAPUN
-        console.log('[APP EXIT] 3x Rapid back press <1s detected on Dashboard. Exiting Web App...');
-        backClickTimestamps = [];
-        try {
-          if (window.navigator && window.navigator.app && typeof window.navigator.app.exitApp === 'function') {
-            window.navigator.app.exitApp();
-          }
-        } catch(e) {}
-        // Tanpa pushState agar browser secara alami keluar dari aplikasi web
-      } else {
-        // Kurang dari 3x klik dalam 1 detik: Tetap di Dashboard
-        seedDashboardHistoryState();
-      }
-    }
-  });
-}
-
-function getCurrentActivePageId() {
-  const activeEl = document.querySelector('.page.active');
-  return activeEl ? activeEl.id : 'dashboardPage';
-}
 
 function checkIsAdminUser() {
   if (!currentUser) return false;
@@ -5808,7 +6788,9 @@ function updateBottomMenuHighlight(pageId) {
     'inputPage': "showPage('inputPage')",
     'riwayatPage': "bukaMenuRiwayat()",
     'masterDbPage': "showPage('masterDbPage')",
-    'userManagementPage': "showPage('userManagementPage')"
+    'userManagementPage': "showPage('userManagementPage')",
+    'popupAkun': "bukaAkun()",
+    'akun': "bukaAkun()"
   };
 
   const buttons = bottomNav.querySelectorAll('button');
@@ -5828,16 +6810,19 @@ let lastScrollTopPosition = 0;
 function setupBottomMenuAutoHide() {
   const bottomMenu = document.getElementById('bottomMenu');
   if (!bottomMenu) return;
-  const isLoginPage = (document.getElementById('loginPage') && document.getElementById('loginPage').classList.contains('active')) || (typeof currentUser === 'undefined' || !currentUser);
-  if (isLoginPage) {
+  const loginPage = document.getElementById('loginPage');
+  const isLoginPageActive = loginPage && (loginPage.classList.contains('active') || loginPage.style.display !== 'none');
+  const isLoggedIn = (typeof currentUser !== 'undefined' && currentUser !== null && !isLoginPageActive);
+
+  if (!isLoggedIn) {
     bottomMenu.classList.add('login-hidden');
     bottomMenu.classList.add('hide-bottom-menu');
     bottomMenu.style.setProperty('display', 'none', 'important');
-    return;
+  } else {
+    bottomMenu.classList.remove('login-hidden');
+    bottomMenu.classList.remove('hide-bottom-menu');
+    bottomMenu.style.setProperty('display', 'flex', 'important');
   }
-  bottomMenu.classList.remove('login-hidden');
-  bottomMenu.classList.remove('hide-bottom-menu');
-  bottomMenu.style.display = 'flex';
 }
 
 function pindahHalaman(pageId, pushHistory = true) {
@@ -5954,34 +6939,47 @@ function loadDashboard() {
   const pending = data.filter(r => r.status === 'PENDING').length;
   const approve = data.filter(r => r.status === 'APPROVE').length;
   const reject = data.filter(r => r.status === 'REJECT').length;
+  const batal = data.filter(r => r.status === 'BATAL').length;
   const done = data.filter(r => r.status === 'DONE').length;
   const total = data.length || 1;
 
   const elPending = document.getElementById('pending');
   const elApprove = document.getElementById('approve');
   const elReject = document.getElementById('reject');
+  const elBatal = document.getElementById('batal');
   const elDone = document.getElementById('done');
 
   if (elPending) elPending.textContent = pending;
   if (elApprove) elApprove.textContent = approve;
   if (elReject) elReject.textContent = reject;
+  if (elBatal) elBatal.textContent = batal;
   if (elDone) elDone.textContent = done;
 
   const barPending = document.getElementById('barPending');
   const barApprove = document.getElementById('barApprove');
   const barReject = document.getElementById('barReject');
+  const barBatal = document.getElementById('barBatal');
   const barDone = document.getElementById('barDone');
 
   if (barPending) barPending.style.width = `${data.length ? Math.max(12, Math.round((pending / total) * 100)) : 15}%`;
   if (barApprove) barApprove.style.width = `${data.length ? Math.max(12, Math.round((approve / total) * 100)) : 15}%`;
   if (barReject) barReject.style.width = `${data.length ? Math.max(12, Math.round((reject / total) * 100)) : 15}%`;
+  if (barBatal) barBatal.style.width = `${data.length ? Math.max(12, Math.round((batal / total) * 100)) : 15}%`;
   if (barDone) barDone.style.width = `${data.length ? Math.max(12, Math.round((done / total) * 100)) : 15}%`;
 
+  // TOGGLE ACTIVE CLASS ON CARDSTAT FOR THE BOTTOM ACCENT INDICATOR BAR (-)
+  document.querySelectorAll('.cardStat').forEach(card => {
+    if (card.classList.contains(dashboardFilterStatus.toLowerCase())) {
+      card.classList.add('active');
+    } else {
+      card.classList.remove('active');
+    }
+  });
+
+  // HIDE TITLE ABOVE DASHBOARD TABLE AS REQUESTED
   const titleEl = document.getElementById('dashboardRecentTitle');
   if (titleEl) {
-    const iconName = dashboardFilterStatus === 'PENDING' ? 'hourglass_top' : (dashboardFilterStatus === 'APPROVE' ? 'verified' : (dashboardFilterStatus === 'REJECT' ? 'cancel' : 'task_alt'));
-    titleEl.innerHTML = `<span class="material-symbols-rounded" style="color: var(--primary); font-size: 22px;">${iconName}</span> PERMINTAAN ${dashboardFilterStatus}`;
-    if (typeof applyAdaptiveTextColors === 'function') applyAdaptiveTextColors();
+    titleEl.style.display = 'none';
   }
 
   const lastDataContainer = document.getElementById('lastData');
@@ -6021,10 +7019,10 @@ function loadDashboard() {
     tr.title = `KLIK BARIS INI UNTUK MEMBUKA PERMINTAAN #${r.noSurat}`;
     tr.onclick = () => bukaDetailDariDashboard(r.noSurat);
     tr.innerHTML = `
-      <td style="width: 18%; text-align: left; white-space: nowrap;">${formatDateDDMMYYYYString(r.tanggal)}</td>
-      <td style="width: 32%; text-align: left;">${r.noSurat}</td>
-      <td style="width: 30%; text-align: left;">${r.toko} <small>(${r.area})</small></td>
-      <td style="width: 20%; text-align: left !important;">${getBadgeStatus(r)}</td>
+      <td style="width: 18%; text-align: left; white-space: nowrap; font-weight: 600; color: var(--text-muted); font-size: 12px;">${formatDateDDMMYYYYString(r.tanggal)}</td>
+      <td style="width: 32%; text-align: left; font-weight: 700; color: var(--primary); letter-spacing: 0.3px;">${r.noSurat}</td>
+      <td style="width: 30%; text-align: left; font-weight: 600; color: var(--text-main);">${r.toko} <small style="background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; opacity: 0.85; margin-left: 4px;">(${r.area})</small></td>
+      <td style="width: 20%; text-align: left !important; font-weight: 600; color: var(--text-main);">${getBadgeStatus(r)}</td>
     `;
     lastDataContainer.appendChild(tr);
   });
@@ -6042,7 +7040,10 @@ function loadDashboard() {
   }
 }
 
+let _isClosingDetailModal = false;
+
 function bukaDetailDariDashboard(noSurat) {
+  if (_isClosingDetailModal) return;
   lihatDetail(noSurat, true);
 }
 
@@ -6059,6 +7060,35 @@ function shouldRowBlinkRed(r) {
   if ((cat === 'DM' || isAdm) && isWaitingDM) return true;
 
   return false;
+}
+
+function getBadgeStatusHTML(r) {
+  if (!r) return '-';
+  let st = (typeof r === 'string') ? r : r.status;
+  const serviceAppv = (typeof r === 'object' && r) ? r.serviceApprove : false;
+
+  if (st === 'DONE') {
+    return `<span class="badge-status badge-done"><span class="material-symbols-rounded" style="font-size: 13px;">task_alt</span> SUDAH DIPENUHI</span>`;
+  }
+  if (st === 'REJECT') {
+    return `<span class="badge-status badge-reject"><span class="material-symbols-rounded" style="font-size: 13px;">cancel</span> DITOLAK</span>`;
+  }
+  if (st === 'APPROVE') {
+    return `<span class="badge-status badge-approve"><span class="material-symbols-rounded" style="font-size: 13px;">verified</span> DISETUJUI</span>`;
+  }
+  if (st === 'BATAL') {
+    return `<span class="badge-status badge-batal"><span class="material-symbols-rounded" style="font-size: 13px;">block</span> BATAL</span>`;
+  }
+
+  if (st === 'PENDING') {
+    if (!serviceAppv) {
+      return `<span class="badge-status badge-tunggu-service"><span class="material-symbols-rounded" style="font-size: 13px;">schedule</span> TUNGGU SERVICE</span>`;
+    } else {
+      return `<span class="badge-status badge-tunggu-dm"><span class="material-symbols-rounded" style="font-size: 13px;">hourglass_top</span> TUNGGU DM</span>`;
+    }
+  }
+
+  return `<span class="badge-status badge-tunggu-service">${st}</span>`;
 }
 
 function getBadgeStatus(r) {
@@ -6719,18 +7749,14 @@ function updateFotoUploadLimitDisplay() {
   const photoCount = Array.isArray(currentPhotos) ? currentPhotos.length : 0;
 
   if (lbl) {
-    if (itemCount === 0) {
-      lbl.textContent = 'FOTO BARANG PENDUKUNG (INPUT BARANG TERLEBIH DAHULU)';
-    } else {
-      lbl.textContent = `FOTO BARANG PENDUKUNG (${photoCount} DARI MAKSIMAL ${itemCount} FOTO)`;
-    }
+    lbl.textContent = 'FOTO BARANG PENDUKUNG (Opsional)';
   }
 
   if (pText && photoCount === 0) {
     if (itemCount === 0) {
       pText.innerHTML = '<span class="material-symbols-rounded uploadIcon">info</span> INPUT DATA BARANG TERLEBIH DAHULU UNTUK MEMBUKA UPLOAD FOTO';
     } else {
-      pText.innerHTML = `<span class="material-symbols-rounded uploadIcon">add_a_photo</span> TAP / PILIH FOTO DI SINI (MAKSIMAL ${itemCount} FOTO SESUAI JUMLAH ITEM)`;
+      pText.innerHTML = `<span class="material-symbols-rounded uploadIcon">add_a_photo</span> TAP / PILIH FOTO DI SINI (Opsional)`;
     }
   }
 }
@@ -7098,6 +8124,7 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       dmTTD: '',
       tokoTTD: pemohonTTD,
       pemohonTTD: pemohonTTD,
+      isGBJ: isLoginGBJ,
       createdBy: currentUser.fullName,
       createdAt: `${getFormattedDateDDMMYYYY(now)} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,
       log: initialLog
@@ -7261,11 +8288,7 @@ function filterRiwayat() {
   }
 
   if (search) {
-    data = data.filter(r =>
-      r.noSurat.toLowerCase().includes(search) ||
-      r.toko.toLowerCase().includes(search) ||
-      r.items.some(i => i.type.toLowerCase().includes(search) || i.seri.toLowerCase().includes(search) || i.barang.toLowerCase().includes(search))
-    );
+    data = data.filter(r => matchesRequestSearchFilter(r, search));
   }
 
   const thead = document.querySelector('.historyTable thead');
@@ -7276,12 +8299,12 @@ function filterRiwayat() {
 
   thead.innerHTML = `
     <tr>
-      <th>AKSI</th>
+      <th class="th-aksi-col">AKSI</th>
+      <th>STATUS</th>
       <th>TGL</th>
       <th>NO SURAT</th>
       <th>TOKO</th>
       <th>JENIS</th>
-      <th>STATUS</th>
       <th>CATATAN</th>
     </tr>
   `;
@@ -7290,7 +8313,7 @@ function filterRiwayat() {
 
   if (data.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted); border-bottom: 1px solid var(--border-color) !important;">BELUM ADA DATA PERMINTAAN.</td></tr>`;
-    for (let k = 1; k < 12; k++) {
+    for (let k = 0; k < 20; k++) {
       const emptyTr = document.createElement('tr');
       emptyTr.className = 'empty-grid-row';
       emptyTr.innerHTML = `
@@ -7304,6 +8327,10 @@ function filterRiwayat() {
       `;
       tbody.appendChild(emptyTr);
     }
+    const spacerTr = document.createElement('tr');
+    spacerTr.className = 'table-spacer-fill-row';
+    spacerTr.innerHTML = `<td colspan="7">&nbsp;</td>`;
+    tbody.appendChild(spacerTr);
     return;
   }
 
@@ -7434,18 +8461,18 @@ function filterRiwayat() {
       tr.className = 'blink-row-red';
     }
     tr.innerHTML = `
-      <td><div style="display:flex; gap:4px; align-items:center;">${aksi}</div></td>
+      <td style="width: 6cm !important; min-width: 6cm !important; max-width: 6cm !important; box-sizing: border-box !important;"><div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap; justify-content:flex-start;">${aksi}</div></td>
+      <td>${getBadgeStatus(r)}</td>
       <td style="white-space:nowrap;">${formatDateDDMMYYYYString(r.tanggal)}</td>
       <td>${r.noSurat}</td>
       <td>${r.toko} <div style="font-size:11px; opacity:0.8;">${r.area}</div></td>
       <td style="white-space:nowrap;">${r.jenis || 'DEFAULT'}</td>
-      <td>${getBadgeStatus(r)}</td>
       <td style="word-break:break-word; white-space:normal;">${r.catatan || '-'}</td>
     `;
     tbody.appendChild(tr);
   });
 
-  const emptyRowsNeeded = Math.max(2, 12 - data.length);
+  const emptyRowsNeeded = Math.max(2, 20 - data.length);
   if (emptyRowsNeeded > 0) {
     for (let k = 0; k < emptyRowsNeeded; k++) {
       const emptyTr = document.createElement('tr');
@@ -7462,6 +8489,11 @@ function filterRiwayat() {
       tbody.appendChild(emptyTr);
     }
   }
+
+  const spacerTr = document.createElement('tr');
+  spacerTr.className = 'table-spacer-fill-row';
+  spacerTr.innerHTML = `<td colspan="7">&nbsp;</td>`;
+  tbody.appendChild(spacerTr);
 }
 
 function lihatFotoByNoSurat(noSurat) {
@@ -7657,7 +8689,11 @@ function gantiFotoViewer(arah) {
 }
 
 function approveService(noSurat) {
-  showConfirm(`APPROVE PERMINTAAN #${noSurat}?`, () => {
+  showConfirm(`APPROVE PERMINTAAN #${noSurat}?`, async () => {
+    showLoading('MOHON TUNGGU...');
+    const isValid = await validatePreApprovalData(noSurat, 'SERVICE');
+    hideLoading();
+    if (!isValid) return;
     const requests = getRequestsFromDB();
     const idx = requests.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
     if (idx !== -1) {
@@ -7678,10 +8714,11 @@ function approveService(noSurat) {
 
       // 1. SIMPAN LOKAL & UPDATE UI INSTAN (0 ms)
       saveRequestsToDB(requests, requests[idx], 'UPDATE');
-      showNotif(`APPROVE BERHASIL`, 'info');
+      showNotif(`NO SURAT #${noSurat} BERHASIL DI APPROVE`, 'success');
       loadRiwayat();
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
+      if (typeof refreshDetailModalIfOpen === 'function') refreshDetailModalIfOpen(noSurat);
 
       // 2. PROSES SYNC SUPABASE & BROADCAST REALTIME TERLEBIH DAHULU
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
@@ -7745,7 +8782,11 @@ function approveDM(noSurat) {
     return;
   }
 
-  showConfirm(`APPROVE PERMINTAAN #${noSurat}?`, () => {
+  showConfirm(`APPROVE PERMINTAAN #${noSurat}?`, async () => {
+    showLoading('MOHON TUNGGU...');
+    const isValid = await validatePreApprovalData(noSurat, 'DM');
+    hideLoading();
+    if (!isValid) return;
     const requests = getRequestsFromDB();
     const idx = requests.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
     if (idx !== -1) {
@@ -7770,10 +8811,11 @@ function approveDM(noSurat) {
 
       // 1. SIMPAN LOKAL & UPDATE UI INSTAN (0 ms)
       saveRequestsToDB(requests, requests[idx], 'UPDATE');
-      showNotif(`APPROVE BERHASIL`, 'info');
+      showNotif(`NO SURAT #${noSurat} BERHASIL DI APPROVE`, 'success');
       loadRiwayat();
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
+      if (typeof refreshDetailModalIfOpen === 'function') refreshDetailModalIfOpen(noSurat);
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
     if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
       if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
@@ -7838,10 +8880,32 @@ let tempArtemisPhotos = [];
 
 function doneService(noSurat) {
   if (!noSurat) return;
+  window._activeDonePartialId = null; // Reset partial breakdown DONE flag for main request
   const requests = getRequestsFromDB();
   const req = requests.find(r => r && (r.noSurat === noSurat || String(r.noSurat) === String(noSurat) || r.id === noSurat));
   if (!req) {
     showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  // CHECK UN-DONE PARTIAL BREAKDOWNS FIRST
+  const partialsCheck = typeof getPartialBreakdownsFromDB === 'function' ? getPartialBreakdownsFromDB(noSurat) : [];
+  if (Array.isArray(partialsCheck) && partialsCheck.length > 0) {
+    const unDonePartials = partialsCheck.filter(p => p && p.status !== 'DONE' && p.status !== 'REJECT');
+    if (unDonePartials.length > 0) {
+      const pids = unDonePartials.map(p => p.partial_id || p.partialId).join(', ');
+      if (typeof showNotif === 'function') {
+        showNotif(`TIDAK DAPAT SET DONE INDUK! MASIH ADA SURAT PARSIAL (${pids}) YANG BELUM BERSTATUS DONE.`, 'warning');
+      }
+      return;
+    }
+  }
+
+  // VALIDASI KETAT BRAKDOWN PARSIAL TERGANTUNG
+  if (typeof isRequestReadyForDone === 'function' && !isRequestReadyForDone(req)) {
+    if (typeof showNotif === 'function') {
+      showNotif('TIDAK DAPAT MENYELESAIKAN (DONE)! MASIH TERDAPAT BARANG DENGAN SISA QTY YANG BELUM DIBREAKDOWN / BELUM DITANDAI "TIDAK DIPENUHI".', 'warning');
+    }
     return;
   }
 
@@ -7851,7 +8915,26 @@ function doneService(noSurat) {
   if (inputKet) inputKet.value = '';
 
   const artemisSubTitle = document.getElementById('artemisSubTitle');
-  if (artemisSubTitle) artemisSubTitle.textContent = `UPLOAD FOTO BUKTI PROSES ARTEMIS UNTUK MENYELESAIKAN PERMINTAAN #${noSurat}:`;
+  const pasteBox = document.getElementById('artemisPasteBox');
+  const previewGrid = document.getElementById('artemisPhotoPreviewGrid');
+  const hasPartials = Array.isArray(partialsCheck) && partialsCheck.length > 0;
+
+  if (hasPartials) {
+    if (pasteBox) pasteBox.style.display = 'none';
+    if (previewGrid) previewGrid.style.display = 'none';
+    if (artemisSubTitle) {
+      artemisSubTitle.textContent = `KONFIRMASI PENYELESAIKAN SURAT INDUK #${noSurat} (FOTO BUKTI SUDAH DISERAHKAN DI SURAT PARSIAL):`;
+    }
+  } else {
+    if (pasteBox) pasteBox.style.display = 'block';
+    if (previewGrid) previewGrid.style.display = 'flex';
+    if (artemisSubTitle) {
+      artemisSubTitle.textContent = `UPLOAD FOTO BUKTI PROSES ARTEMIS UNTUK MENYELESAIKAN PERMINTAAN #${noSurat}:`;
+    }
+  }
+
+  const titleEl = document.getElementById('artemisTitle');
+  if (titleEl) titleEl.innerText = `PROSES ARTEMIS / CONSOLATION DONE`;
 
   tempArtemisPhotos = [];
   renderArtemisPhotoPreviews();
@@ -7859,6 +8942,7 @@ function doneService(noSurat) {
   const overlay = document.getElementById('artemisOverlay');
   if (overlay) {
     overlay.classList.add('show');
+    overlay.style.setProperty('z-index', '99999999', 'important');
     overlay.style.setProperty('display', 'flex', 'important');
     overlay.style.setProperty('visibility', 'visible', 'important');
     overlay.style.setProperty('opacity', '1', 'important');
@@ -7867,25 +8951,26 @@ function doneService(noSurat) {
   }
 }
 window.doneService = doneService;
+window.bukaArtemisModal = doneService;
 
 function closeArtemisModal() {
+  window._activeDonePartialId = null;
+  const titleEl = document.getElementById('artemisTitle');
+  if (titleEl) titleEl.innerText = 'PROSES ARTEMIS / UPLOAD BUKTI FOTO';
+
+  const pasteBox = document.getElementById('artemisPasteBox');
+  const previewGrid = document.getElementById('artemisPhotoPreviewGrid');
+  if (pasteBox) pasteBox.style.display = 'block';
+  if (previewGrid) previewGrid.style.display = 'flex';
+
   const overlay = document.getElementById('artemisOverlay');
   if (overlay) {
     overlay.style.setProperty('display', 'none', 'important');
     overlay.classList.remove('show');
   }
 
-  // SANGAT PENTING: Hanya jika Popup Detail sebelumnya memang aktif/terbuka, pastikan tetap tampil!
-  const popupDetailV2 = document.getElementById('popupDetailBarangV2');
-  if (popupDetailV2 && popupDetailV2.dataset.active === "true" && popupDetailV2.style.display !== 'none') {
-    popupDetailV2.style.setProperty('display', 'flex', 'important');
-    popupDetailV2.classList.add('show');
-  }
-
-  const popupDetail = document.getElementById('popupDetail');
-  if (popupDetail && popupDetail.dataset.active === "true" && popupDetail.style.display !== 'none') {
-    popupDetail.style.setProperty('display', 'flex', 'important');
-    popupDetail.classList.add('show');
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
   }
 }
 window.closeArtemisModal = closeArtemisModal;
@@ -8018,9 +9103,84 @@ function prosesSimpanDoneDenganBuktiArtemis() {
     return;
   }
 
-  if (!Array.isArray(tempArtemisPhotos) || tempArtemisPhotos.length === 0) {
-    showNotif('TIDAK ADA FOTO BUKTI PROSES ARTEMIS YANG DIUPLOAD!', 'warning');
+  const partialId = window._activeDonePartialId;
+
+  // JIKA DONE ADALAH UNTUK CARD SURAT JALAN PARSIAL (BREAKDOWN CARD)
+  if (partialId) {
+    if (!Array.isArray(tempArtemisPhotos) || tempArtemisPhotos.length === 0) {
+      showNotif('TIDAK ADA FOTO BUKTI PROSES ARTEMIS YANG DIUPLOAD!', 'warning');
+      return;
+    }
+
+    showConfirm(`SELESAIKAN SURAT JALAN PARSIAL #${noSurat}-${partialId} DAN SIMPAN BUKTI FOTO?`, () => {
+      try {
+        const partials = getPartialBreakdownsFromDB(noSurat);
+        const pIdx = partials.findIndex(p => p && (p.partial_id === partialId || p.partialId === partialId || String(p.id).endsWith(`_${partialId}`)));
+
+        if (pIdx !== -1) {
+          partials[pIdx].status = 'DONE';
+          partials[pIdx].done_by = currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE';
+          partials[pIdx].done_at = new Date().toISOString();
+
+          const existingPhotos = parsePhotosArray(partials[pIdx].photos);
+          const newPhotos = Array.isArray(tempArtemisPhotos) ? tempArtemisPhotos : [];
+          partials[pIdx].photos = [...existingPhotos, ...newPhotos];
+
+          savePartialBreakdownsToDB(partials, noSurat);
+          pushPartialBreakdownsToCloud(partials, noSurat);
+
+          // Update item main request yang diserahkan di parsial ini
+          const requests = getRequestsFromDB();
+          const targetNo = String(noSurat).trim().toUpperCase();
+          const mainIdx = requests.findIndex(r => r && String(r.noSurat || '').trim().toUpperCase() === targetNo);
+          if (mainIdx !== -1 && Array.isArray(partials[pIdx].items)) {
+            partials[pIdx].items.forEach(pItem => {
+              const itemIdx = pItem.itemIdx;
+              if (itemIdx >= 0 && itemIdx < requests[mainIdx].items.length) {
+                requests[mainIdx].items[itemIdx].statusPart = 'SUDAH DISERAHKAN';
+                requests[mainIdx].items[itemIdx].keteranganPart = 'SUDAH DISERAHKAN';
+              }
+            });
+            saveRequestsToDB(requests);
+            if (typeof safeSupabaseUpsertPermintaan === 'function') safeSupabaseUpsertPermintaan(requests[mainIdx]);
+          }
+
+          window._activeDonePartialId = null;
+          closeArtemisModal();
+          showNotif(`SURAT JALAN PARSIAL #${noSurat}-${partialId} SELESAI (DONE) & BUKTI FOTO DISIMPAN!`, 'success');
+
+          if (typeof bukaModalRiwayatParsialList === 'function') {
+            bukaModalRiwayatParsialList(noSurat);
+          }
+          if (typeof loadRiwayat === 'function') loadRiwayat();
+          if (typeof loadDashboard === 'function') loadDashboard();
+        }
+      } catch(err) {
+        console.warn('Error done partial breakdown:', err);
+      }
+    });
     return;
+  }
+
+  // VALIDASI UNTUK DONE SURAT UTAMA / INDUK:
+  const partialsCheck = getPartialBreakdownsFromDB(noSurat);
+  const hasBreakdownSubmissions = Array.isArray(partialsCheck) && partialsCheck.length > 0;
+
+  if (hasBreakdownSubmissions) {
+    // 1. SEMUA CARD PARSIAL HARUS SUDAH DONE / REJECT
+    const unDonePartials = partialsCheck.filter(p => p && p.status !== 'DONE' && p.status !== 'REJECT');
+    if (unDonePartials.length > 0) {
+      const pids = unDonePartials.map(p => p.partial_id || p.partialId).join(', ');
+      showNotif(`GAGAL SET DONE INDUK! MASIH ADA SURAT PARSIAL (${pids}) YANG BELUM BERSTATUS DONE.`, 'warning');
+      return;
+    }
+    // UPLOAD FOTO INDUK TIDAK WAJIB KARENA SUDAH MEMILIKI SURAT JALAN PARSIAL!
+  } else {
+    // TRANSAKSI BIASA (TIDAK ADA BREAKDOWN): UPLOAD FOTO PROSES WAJIB!
+    if (!Array.isArray(tempArtemisPhotos) || tempArtemisPhotos.length === 0) {
+      showNotif('TIDAK ADA FOTO BUKTI PROSES ARTEMIS YANG DIUPLOAD!', 'warning');
+      return;
+    }
   }
 
   showConfirm(`SELESAIKAN PERMINTAAN #${noSurat} DAN SIMPAN BUKTI PROSES ARTEMIS?`, () => {
@@ -8130,6 +9290,7 @@ function batalApproveService(noSurat) {
       loadRiwayat();
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
+      if (typeof refreshDetailModalIfOpen === 'function') refreshDetailModalIfOpen(noSurat);
 
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
       if (typeof safeSupabaseUpsertPermintaan === 'function') {
@@ -8175,6 +9336,7 @@ function batalApproveDM(noSurat) {
       loadRiwayat();
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
+      if (typeof refreshDetailModalIfOpen === 'function') refreshDetailModalIfOpen(noSurat);
 
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
       if (typeof safeSupabaseUpsertPermintaan === 'function') {
@@ -8190,24 +9352,42 @@ function batalApproveDM(noSurat) {
   });
 }
 
+function tolakServiceModal(noSurat, roleType) {
+  if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+  const overlay = document.getElementById('rejectOverlay');
+  const elNo = document.getElementById('rejectNoSurat');
+  const elRole = document.getElementById('rejectRoleType');
+  const elTitle = document.getElementById('rejectTitle');
+  const elReason = document.getElementById('rejectReason') || document.getElementById('rejectAlasan');
+
+  if (elNo) elNo.value = noSurat;
+  if (elRole) elRole.value = roleType || 'DM';
+  if (elTitle) elTitle.innerText = `TOLAK PERMINTAAN (${roleType || 'DM'})`;
+  if (elReason) elReason.value = '';
+
+  if (overlay) {
+    overlay.style.setProperty('z-index', '2147483640', 'important');
+    overlay.style.setProperty('display', 'flex', 'important');
+    overlay.classList.add('show');
+  }
+}
+window.tolakServiceModal = tolakServiceModal;
+
+function kirimReject() {
+  const elRole = document.getElementById('rejectRoleType');
+  const roleType = elRole && elRole.value ? elRole.value : 'DM';
+  prosesReject(roleType);
+}
+window.kirimReject = kirimReject;
+
 function tutupRejectModal() {
   const overlay = document.getElementById('rejectOverlay');
   if (overlay) {
     overlay.style.setProperty('display', 'none', 'important');
     overlay.classList.remove('show');
   }
-
-  // SANGAT PENTING: Hanya jika Popup Detail sebelumnya memang aktif/terbuka, pastikan tetap tampil!
-  const popupDetailV2 = document.getElementById('popupDetailBarangV2');
-  if (popupDetailV2 && popupDetailV2.dataset.active === "true" && popupDetailV2.style.display !== 'none') {
-    popupDetailV2.style.setProperty('display', 'flex', 'important');
-    popupDetailV2.classList.add('show');
-  }
-
-  const popupDetail = document.getElementById('popupDetail');
-  if (popupDetail && popupDetail.dataset.active === "true" && popupDetail.style.display !== 'none') {
-    popupDetail.style.setProperty('display', 'flex', 'important');
-    popupDetail.classList.add('show');
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
   }
 }
 window.tutupRejectModal = tutupRejectModal;
@@ -8216,7 +9396,7 @@ window.closeRejectModal = tutupRejectModal;
 
 function prosesReject(roleType) {
   const elNo = document.getElementById('rejectNoSurat');
-  const elAlasan = document.getElementById('rejectAlasan');
+  const elAlasan = document.getElementById('rejectReason') || document.getElementById('rejectAlasan');
   const noSurat = elNo ? elNo.value.trim() : '';
   const alasan = elAlasan ? elAlasan.value.trim() : '';
 
@@ -8224,8 +9404,6 @@ function prosesReject(roleType) {
     showNotif('ALASAN PENOLAKAN WAJIB DIISI!', 'warning');
     return;
   }
-
-  tutupRejectModal();
 
   const requests = getRequestsFromDB();
   const idx = requests.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
@@ -8242,12 +9420,29 @@ function prosesReject(roleType) {
 
     // 1. SIMPAN LOKAL & UPDATE UI INSTAN (0 ms)
     saveRequestsToDB(requests);
-    showNotif(`PERMINTAAN BERHASIL DITOLAK`, 'info');
+    tutupRejectModal();
+    showNotif(`NO SURAT #${noSurat} BERHASIL DI TOLAK`, 'info');
     loadRiwayat();
     loadDashboard();
     if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
 
+    // Force re-render detail modal with updated REJECT status
+    _isClosingDetailModal = false;
+    window._isClosingDetailModal = false;
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(noSurat, true);
+    }
+
     // 2. PROSES SYNC SUPABASE & BROADCAST REALTIME TERLEBIH DAHULU
+    const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : window.supabaseClient;
+    if (sb) {
+      sb.from('permintaan_toko').update({
+        status: 'REJECT',
+        catatan: `DITOLAK ${roleType}: ${alasan}`,
+        updated_at: new Date().toISOString()
+      }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn(e));
+    }
+
     const docId = String(noSurat).replace(/[\/\.]/g, '_');
     if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
       dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
@@ -8329,7 +9524,7 @@ function prosesReject(roleType) {
 
 function editPermintaan(noSurat) {
   const requests = getRequestsFromDB();
-  const req = requests.find(r => r.noSurat === noSurat);
+  const req = requests.find(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
   if (!req) return;
 
   const isAdminUser = currentUser && (currentUser.category === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
@@ -8338,6 +9533,41 @@ function editPermintaan(noSurat) {
     return;
   }
 
+  // RECORD ORIGIN WHERE EDIT WAS CLICKED (DETAIL MODAL OR SPECIFIC ACTIVE PAGE)
+  const currentActivePage = typeof getCurrentActivePageId === 'function' ? getCurrentActivePageId() : 'dashboardPage';
+  const popDetailV2 = document.getElementById('popupDetailBarangV2');
+  const isDetailV2Open = popDetailV2 && (popDetailV2.classList.contains('show') || popDetailV2.style.display === 'flex' || popDetailV2.style.display === 'block');
+  const popDetail = document.getElementById('popupDetail');
+  const isDetailOldOpen = popDetail && (popDetail.classList.contains('show') || popDetail.style.display === 'flex' || popDetail.style.display === 'block');
+
+  if (isDetailV2Open || isDetailOldOpen) {
+    window._editOriginSource = { type: 'detail', noSurat: req.noSurat, pageId: currentActivePage };
+  } else {
+    window._editOriginSource = { type: 'page', pageId: currentActivePage };
+  }
+
+  // RESET PREVIOUS EDIT & DIRTY STATE SILENTLY TO PREVENT CONFIRMATION POPUP STRIKE
+  modeEdit = false;
+  editNoSurat = null;
+
+  // CLOSE ANY OPEN DETAIL MODALS SILENTLY
+  if (popDetailV2) {
+    popDetailV2.classList.remove('show');
+    popDetailV2.style.setProperty('display', 'none', 'important');
+    popDetailV2.dataset.active = "false";
+  }
+  if (popDetail) {
+    popDetail.classList.remove('show');
+    popDetail.style.setProperty('display', 'none', 'important');
+    popDetail.dataset.active = "false";
+  }
+  const confirmOverlay = document.getElementById('confirmOverlay');
+  if (confirmOverlay) {
+    confirmOverlay.classList.remove('show');
+    confirmOverlay.style.setProperty('display', 'none', 'important');
+  }
+
+  // SET EDIT MODE AND SWITCH PAGE DIRECTLY
   modeEdit = true;
   editNoSurat = req.noSurat;
 
@@ -8426,22 +9656,28 @@ function hapusData(noSurat) {
         saveRequestsToDB(currentReqs);
         deleteRequestFromSupabase(noSurat);
         showNotif(`PERMINTAAN #${noSurat} BERHASIL DIHAPUS!`, 'warning');
+        
+        // Close detail popup modal if open
+        const popDetailV2 = document.getElementById('popupDetailBarangV2');
+        if (popDetailV2 && (popDetailV2.dataset.noSurat === noSurat || window._currentDetailNoSurat === noSurat)) {
+          if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(false);
+          if (typeof closeDetail === 'function') closeDetail(false);
+        }
+
         if (typeof loadRiwayat === 'function') loadRiwayat();
         if (typeof loadDashboard === 'function') loadDashboard();
         if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
+        if (typeof refreshOpenPopupsUI === 'function') refreshOpenPopupsUI();
 
         // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
         const docId = String(noSurat).replace(/[\/\.]/g, '_');
         if (typeof safeSupabaseUpsertPermintaan === 'function') {
         safeSupabaseUpsertPermintaan(currentReqs[idx]);
       } else if (typeof supabase !== 'undefined' && supabase) {
-        supabase.from('permintaan_toko').upsert({
-          no_surat: noSurat,
-          status: 'BATAL',
-          items: currentReqs[idx].items,
-          log: currentReqs[idx].log,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'no_surat' }).then(() => {}, (e) => console.warn(e));
+        const cleanRow = sanitizePermintaanTokoRow(currentReqs[idx]);
+        if (cleanRow) {
+          supabase.from('permintaan_toko').upsert(cleanRow, { onConflict: 'id' }).then(() => {}, (e) => console.warn(e));
+        }
       }
         if (typeof dbFirestore !== 'undefined' && dbFirestore) {
           dbFirestore.collection('requests').doc(docId).set(currentReqs[idx], { merge: true }).catch(e => console.warn(e));
@@ -8458,30 +9694,81 @@ function hapusData(noSurat) {
 }
 window.hapusData = hapusData;
 
-function tutupDetailBarangV2() {
+function tutupDetailBarangV2(fromPopState = false) {
+  _isClosingDetailModal = true;
+  window._isClosingDetailModal = true;
+  window.PENDING_URL_NO_SURAT = null;
+  window._currentDetailNoSurat = null;
+
+  try {
+    if (window.location && window.location.search && (window.location.search.includes('noSurat') || window.location.search.includes('nosurat') || window.location.search.includes('id'))) {
+      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + window.location.hash;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  } catch(e) {}
+
   const detailModal = document.getElementById('popupDetailBarangV2');
   if (detailModal) {
-    detailModal.style.display = 'none';
+    detailModal.style.setProperty('display', 'none', 'important');
     detailModal.classList.remove('show');
     detailModal.dataset.active = "false";
+    detailModal.dataset.noSurat = "";
   }
 
   const oldDetailModal = document.getElementById('popupDetail');
   if (oldDetailModal) {
-    oldDetailModal.style.display = 'none';
+    oldDetailModal.style.setProperty('display', 'none', 'important');
     oldDetailModal.classList.remove('show');
     oldDetailModal.dataset.active = "false";
+    oldDetailModal.dataset.noSurat = "";
+  }
+
+  // Jika ditutup manual via tombol X / overlay (bukan tombol Back HP/Browser), bersihkan history state
+  if (!fromPopState && window.history.state && window.history.state.popupDetailOpen) {
+    try {
+      window.history.back();
+    } catch(e) {}
   }
 
   setTimeout(() => {
+    _isClosingDetailModal = false;
+    window._isClosingDetailModal = false;
     const activePageId = typeof getCurrentActivePageId === 'function' ? getCurrentActivePageId() : 'dashboardPage';
     if (typeof aturTampilanLonceng === 'function') {
       aturTampilanLonceng(activePageId);
     }
-  }, 100);
+  }, 500);
 }
 window.tutupDetailBarangV2 = tutupDetailBarangV2;
 window.closeDetail = tutupDetailBarangV2;
+
+function refreshDetailModalIfOpen(noSurat) {
+  _isClosingDetailModal = false;
+  window._isClosingDetailModal = false;
+  const modalV2 = document.getElementById('popupDetailBarangV2');
+  const modalOld = document.getElementById('popupDetail');
+
+  let activeNoSurat = noSurat;
+  if (!activeNoSurat) {
+    if (modalV2 && modalV2.dataset && modalV2.dataset.noSurat) activeNoSurat = modalV2.dataset.noSurat;
+    else if (modalOld && modalOld.dataset && modalOld.dataset.noSurat) activeNoSurat = modalOld.dataset.noSurat;
+    else if (window._currentDetailNoSurat) activeNoSurat = window._currentDetailNoSurat;
+  }
+
+  const isV2Open = modalV2 && (modalV2.classList.contains('show') || (modalV2.style.display && modalV2.style.display !== 'none') || modalV2.dataset.active === "true");
+  const isOldOpen = modalOld && (modalOld.classList.contains('show') || (modalOld.style.display && modalOld.style.display !== 'none') || modalOld.dataset.active === "true");
+
+  if ((isV2Open || isOldOpen) && activeNoSurat) {
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(activeNoSurat, true);
+    } else if (typeof openDetail === 'function') {
+      openDetail(activeNoSurat);
+    } else if (typeof bukaDetailDariDashboard === 'function') {
+      bukaDetailDariDashboard(activeNoSurat);
+    }
+  }
+}
+window.refreshDetailModalIfOpen = refreshDetailModalIfOpen;
 
 let isItemModifiedMap = {};
 
@@ -8631,6 +9918,8 @@ async function simpanPerubahanDetailAdmin(noSurat) {
 window.simpanPerubahanDetailAdmin = simpanPerubahanDetailAdmin;
 
 async function lihatDetail(noSuratOrObj, fromDashboard = false) {
+  _isClosingDetailModal = false;
+  window._isClosingDetailModal = false;
   let req = null;
   if (typeof noSuratOrObj === 'object' && noSuratOrObj !== null) {
     req = noSuratOrObj;
@@ -8638,7 +9927,12 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     const targetStr = String(noSuratOrObj || '').trim();
     if (!targetStr) return false;
     const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
-    req = requests.find(r => r && (r.noSurat === targetStr || decodeURIComponent(r.noSurat || '') === targetStr || r.noSurat === decodeURIComponent(targetStr)));
+    const upperTarget = targetStr.toUpperCase();
+    req = requests.find(r => r && (
+      String(r.noSurat || '').trim().toUpperCase() === upperTarget ||
+      String(r.id || '').trim().toUpperCase() === upperTarget ||
+      decodeURIComponent(String(r.noSurat || '')).trim().toUpperCase() === upperTarget
+    ));
 
     if (!req && typeof supabase !== 'undefined' && supabase) {
       try {
@@ -8674,14 +9968,11 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   const bodyBox = document.getElementById('popupBodyV2');
   if (!bodyBox) return;
 
-  let headerInfoHtml = `
-    <div class="detailHeaderInfoV2" style="display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; justify-content: flex-start !important; align-items: center !important; width: 100% !important; padding: 6px 12px !important; box-sizing: border-box !important; background: transparent !important;">
-      <div class="noSuratWrapV2" style="display: inline-flex !important; align-items: center !important; text-align: left !important; white-space: nowrap !important; flex: 0 0 auto !important; background: transparent !important;">
-        <span style="opacity: 0.85; font-weight: 500; color: var(--text-main);">NO SURAT : </span>
-        <span class="noSuratValV2" style="color: var(--primary) !important; font-weight: 700 !important; margin-left: 4px; background: transparent !important;">${req.noSurat || '-'}</span>
-      </div>
-    </div>
-  `;
+  const userCatUpper = currentUser ? String(currentUser.category || '').toUpperCase() : '';
+  const userRoleUpper = currentUser ? String(currentUser.role || '').toUpperCase() : '';
+  const isStrictDMUser = currentUser && (userCatUpper.includes('DM') || userRoleUpper.includes('DM'));
+  const isStrictServiceUser = currentUser && (userCatUpper.includes('SERVICE') || userRoleUpper.includes('SERVICE'));
+  const isStrictAdminUser = currentUser && (userCatUpper === 'ADMIN' || userRoleUpper === 'ADMIN' || String(currentUser.username).toUpperCase() === 'ADMIN');
 
   let rawItems = req.items;
   let itemsList = [];
@@ -8690,6 +9981,54 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   } else if (typeof rawItems === 'string') {
     try { itemsList = JSON.parse(rawItems || '[]'); } catch (e) { itemsList = []; }
   }
+
+  const hasEligibleBreakdownItem = Array.isArray(itemsList) && itemsList.some((it, idx) => {
+    const remQty = typeof calcItemRemainingQty === 'function' ? calcItemRemainingQty(req, idx) : Number(it.qty || 1);
+    const isUnfulfilled = it.isUnfulfilled || String(it.keterangan || '').toUpperCase() === 'TIDAK DIPENUHI' || String(it.keteranganPart || '').toUpperCase() === 'TIDAK DIPENUHI';
+    return remQty > 0 && !isUnfulfilled;
+  });
+
+  const partialsList = typeof getPartialBreakdownsFromDB === 'function' ? getPartialBreakdownsFromDB(req.noSurat) : [];
+  
+  let topBreakdownButtonsHtml = '';
+  if (req.status !== 'BATAL') {
+    let btnAjukanHtml = '';
+    if (!isStrictDMUser && (isStrictServiceUser || isStrictAdminUser) && hasEligibleBreakdownItem) {
+      btnAjukanHtml = `
+        <button type="button" onclick="bukaModalBuatParsial('${req.noSurat}')" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; border: none; border-radius: 5px; padding: 6px 14px; font-size: 12px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 3px 10px rgba(2,132,199,0.3); transition: transform 0.2s;">
+          <span class="material-symbols-rounded" style="font-size: 16px;">add_circle</span> + AJUKAN BREAKDOWN
+        </button>
+      `;
+    }
+
+    let btnPermintaanParsialHtml = '';
+    if (partialsList.length > 0) {
+      btnPermintaanParsialHtml = `
+        <button type="button" onclick="bukaModalRiwayatParsialList('${req.noSurat}')" style="background: linear-gradient(135deg, #059669, #047857); color: #ffffff; border: none; border-radius: 5px; padding: 6px 14px; font-size: 12px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 3px 10px rgba(5,150,105,0.3);">
+          <span class="material-symbols-rounded" style="font-size: 16px;">call_split</span> PERMINTAAN BREAKDOWN (${partialsList.length})
+        </button>
+      `;
+    }
+
+    topBreakdownButtonsHtml = `
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        ${btnAjukanHtml}
+        ${btnPermintaanParsialHtml}
+      </div>
+    `;
+  }
+
+  let headerInfoHtml = `
+    <div class="detailHeaderInfoV2" style="display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; padding: 8px 14px !important; box-sizing: border-box !important; background: transparent !important; border-bottom: 1px solid var(--border-color) !important; margin-bottom: 8px !important;">
+      <div class="noSuratWrapV2" style="display: inline-flex !important; align-items: center !important; text-align: left !important; white-space: nowrap !important; flex: 0 0 auto !important; background: transparent !important;">
+        <span style="opacity: 0.85; font-weight: 500; color: var(--text-main);">NO SURAT : </span>
+        <span class="noSuratValV2" style="color: var(--primary) !important; font-weight: 700 !important; margin-left: 4px; background: transparent !important;">${req.noSurat || '-'}</span>
+      </div>
+      ${topBreakdownButtonsHtml}
+    </div>
+  `;
+
+
 
   const thBase = "background: var(--primary) !important; color: #ffffff !important; padding: 8px 12px !important; border: none !important; border-right: 1px solid rgba(255,255,255,0.35) !important; border-bottom: 2px solid rgba(0,0,0,0.18) !important; border-radius: 0 !important; border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; position: sticky !important; top: 0 !important; z-index: 100 !important; font-size: 11.5px !important; font-weight: 700 !important; letter-spacing: 0.3px !important; text-align: center !important; vertical-align: middle !important; white-space: nowrap !important; word-break: keep-all !important; overflow-wrap: normal !important; box-shadow: none !important; text-shadow: none !important; -webkit-clip-path: none !important; clip-path: none !important;";
   const thStyleAutofit = `${thBase} width: 1% !important; white-space: nowrap !important; text-align: center !important;`;
@@ -8701,9 +10040,9 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
 
   const getTdBorder = (idx, total) => "border-bottom: 1px solid var(--border-color) !important;";
 
-  const tdBase = "padding: 8px 12px !important; border-top: none !important; border-left: none !important; border-right: none !important; background: var(--bg-box) !important; color: var(--text-main) !important; font-size: 12px !important; vertical-align: middle !important; white-space: nowrap !important; word-break: keep-all !important; overflow-wrap: normal !important;";
+  const tdBase = "padding: 8px 12px !important; border-top: none !important; border-left: none !important; border-right: none !important; background: var(--bg-box) !important; color: var(--text-main) !important; font-size: 12px !important; vertical-align: middle !important;";
   const getTdStyleAutofit = (idx, total) => `${tdBase} ${getTdBorder(idx, total)} width: 1% !important; white-space: nowrap !important; text-align: center !important;`;
-  const getTdStyleLeft = (idx, total) => `${tdBase} ${getTdBorder(idx, total)} text-align: left !important; white-space: nowrap !important; word-break: keep-all !important; overflow-wrap: normal !important;`;
+  const getTdStyleLeft = (idx, total) => `${tdBase} ${getTdBorder(idx, total)} text-align: left !important;`;
 
   const role = currentUser ? (currentUser.category || '').toUpperCase() : '';
   const isAdminUser = currentUser && (role === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
@@ -8726,54 +10065,39 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     const alasanVal = i.alasan || i.keterangan || '-';
     const qtyVal = i.qty || i.jumlah || 1;
 
+    const activePartialsList = (typeof getPartialBreakdownsFromDB === 'function' ? getPartialBreakdownsFromDB(req.noSurat) : []).filter(p => p && (p.status === 'PENDING' || p.status === 'APPROVE' || p.status === 'DONE'));
+    const partialMatch = activePartialsList.find(p => Array.isArray(p.items) && p.items.some(pi => {
+      if (pi.itemIdx !== undefined && pi.itemIdx !== null) {
+        return Number(pi.itemIdx) === idx;
+      }
+      return pi.type && String(pi.type || pi.tipe || '').trim().toUpperCase() === String(typeVal).trim().toUpperCase() && String(typeVal).trim() !== '-';
+    }));
+    const isLockedByBreakdown = !!partialMatch;
+
     let statusPartVal = (i.statusPart || i.keteranganPart || i.noPart || '').trim();
-    if (req.status === 'DONE' && !isUnfulfilled && !statusPartVal) {
+    if (isLockedByBreakdown && partialMatch) {
+      const pId = partialMatch.partial_id || partialMatch.partialId || 'P1';
+      statusPartVal = `${req.noSurat}/${pId}`;
+    } else if (req.status === 'DONE' && !isUnfulfilled && !statusPartVal) {
       statusPartVal = 'DIPENUHI';
     }
 
-    let statusPartBadgeHtml = '<span style="color: var(--text-muted); font-size: 11px;">-</span>';
+    let statusPartBadgeHtml = '<span style="color: var(--text-muted); font-size: 11.5px; font-weight: 700;">-</span>';
     if (isUnfulfilled) {
-      statusPartBadgeHtml = `<span style="display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 11px; line-height: 1; height: 26px; box-sizing: border-box; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;">TIDAK DIPENUHI</span>`;
+      statusPartBadgeHtml = `<span style="font-weight: 800; font-size: 11.5px; color: var(--text-main);">TIDAK DIPENUHI</span>`;
     } else if (statusPartVal) {
-      const up = statusPartVal.toUpperCase();
-      let badgeBg = 'rgba(2, 132, 199, 0.12)';
-      let badgeColor = '#0284c7';
-      let badgeBorder = '#0284c7';
-      if (up.includes('DIPENUHI') || up.includes('READY') || up.includes('TERSEDIA') || up.includes('TERPASANG')) {
-        badgeBg = 'rgba(16, 185, 129, 0.15)';
-        badgeColor = '#10b981';
-        badgeBorder = '#10b981';
-      } else if (up.includes('TIDAK') || up.includes('KOSONG') || up.includes('REJECT') || up.includes('HABIS')) {
-        badgeBg = 'rgba(239, 68, 68, 0.15)';
-        badgeColor = '#ef4444';
-        badgeBorder = '#ef4444';
-      } else if (up.includes('PROSES') || up.includes('PENDING') || up.includes('ORDER')) {
-        badgeBg = 'rgba(245, 158, 11, 0.15)';
-        badgeColor = '#f59e0b';
-        badgeBorder = '#f59e0b';
-      }
-      statusPartBadgeHtml = `<span style="display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 11px; line-height: 1; height: 26px; box-sizing: border-box; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">${statusPartVal}</span>`;
+      statusPartBadgeHtml = `<span style="font-weight: 800; font-size: 11.5px; color: var(--text-main);">${statusPartVal}</span>`;
     }
 
-    const isHandedOver = !!(statusPartVal.toUpperCase().includes('SUDAH DISERAHKAN') || i.isHandedOver === true);
+    const isHandedOver = isLockedByBreakdown;
     const isAdmUserRole = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (currentUser && ((currentUser.category || '').toUpperCase() === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN')));
     const fotoProofUrl = i.fotoBuktiPart || i.fotoPart || '';
-
-    let fotoProofBtnHtml = '';
-    if (fotoProofUrl) {
-      fotoProofBtnHtml = `
-        <button type="button" onclick="event.stopPropagation(); bukaFotoBuktiPartSingleItem('${req.noSurat}', ${idx});" title="Lihat Foto Bukti Part" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid #0284c7; font-size: 11px; font-weight: 800; cursor: pointer; text-transform: uppercase; line-height: 1; height: 26px; box-sizing: border-box;">
-          <span class="material-symbols-rounded" style="font-size: 15px;">image</span>
-          <span>LIHAT FOTO</span>
-        </button>
-      `;
-    }
+    const hasPhoto = isPhotoUrlValid(fotoProofUrl);
 
     let ketPartTdHtml = showKetPartCol ? `
       <td style="${tdStyleLeft} ${strikeStyle}">
         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
           ${statusPartBadgeHtml}
-          ${fotoProofBtnHtml}
         </div>
       </td>
     ` : '';
@@ -8794,7 +10118,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
           `;
           actionTdHtml = `
             <td style="${tdStyleAutofit}">
-              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+              <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px;">
                 ${unlockBtnAdmin}
               </div>
             </td>
@@ -8823,14 +10147,14 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
         }
 
         editPartBtn = `
-          <button type="button" class="btnIcon btnEditPartRow" onclick="bukaModalEditKetPartSingle('${req.noSurat}', ${idx})" title="EDIT KETERANGAN / NO PART (FREE TEXT)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #0284c7 !important; color: #ffffff !important; border: none !important; cursor: pointer !important; margin-left: 4px !important;">
+          <button type="button" class="btnIcon btnEditPartRow" onclick="bukaModalEditKetPartSingle('${req.noSurat}', ${idx})" title="EDIT KETERANGAN / NO PART (FREE TEXT)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: ${isUnfulfilled ? '#9ca3af' : '#0284c7'} !important; color: #ffffff !important; border: none !important; cursor: ${isUnfulfilled ? 'not-allowed' : 'pointer'} !important; margin-left: 4px !important; ${isUnfulfilled ? 'opacity: 0.6;' : ''}">
             <span class="material-symbols-rounded" style="font-size: 15px !important;">edit_note</span>
           </button>
         `;
 
         actionTdHtml = `
           <td style="${tdStyleAutofit}">
-            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+            <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px;">
               ${unfulfilledBtn}
               ${editPartBtn}
             </div>
@@ -8870,7 +10194,9 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   }).join('');
 
   const totalDetailCols = (isDus ? 7 : 6) + (showKetPartCol ? 1 : 0) + (canServiceRowActions ? 1 : 0);
-  const emptyRowsCount = 2;
+  const minDetailRows = 10;
+  const actualCount = itemsList ? itemsList.length : 0;
+  const emptyRowsCount = Math.max(2, minDetailRows - actualCount);
   let emptyGridRowsHtml = '';
   for (let e = 0; e < emptyRowsCount; e++) {
     emptyGridRowsHtml += `
@@ -8879,6 +10205,11 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       </tr>
     `;
   }
+  emptyGridRowsHtml += `
+    <tr class="table-spacer-fill-row" style="background: var(--bg-box) !important;">
+      <td colspan="${totalDetailCols}" style="border: none !important; border-bottom: none !important; padding: 0 !important; background: var(--bg-box) !important;">&nbsp;</td>
+    </tr>
+  `;
   itemsHtml += emptyGridRowsHtml;
 
   let bottomActionsHtml = '';
@@ -8891,7 +10222,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       if (role === 'SERVICE' || isAdminUser) {
         if (!req.serviceApprove) {
           actionButtons.push(`
-            <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="tutupDetailBarangV2(); approveService('${req.noSurat}');">
+            <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="approveService('${req.noSurat}');">
               <span class="material-symbols-rounded">check_circle</span>
             </button>
           `);
@@ -8902,7 +10233,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
           `);
         } else if (isAdminUser) {
           actionButtons.push(`
-            <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="tutupDetailBarangV2(); approveDM('${req.noSurat}');">
+            <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="approveDM('${req.noSurat}');">
               <span class="material-symbols-rounded">check_circle</span>
             </button>
           `);
@@ -8916,7 +10247,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       
       if (role === 'DM' && req.serviceApprove) {
         actionButtons.push(`
-          <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="tutupDetailBarangV2(); approveDM('${req.noSurat}');">
+          <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="approveDM('${req.noSurat}');">
             <span class="material-symbols-rounded">check_circle</span>
           </button>
         `);
@@ -8951,14 +10282,14 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     if (isAdminUser) {
       if (req.serviceApprove) {
         actionButtons.push(`
-          <button type="button" class="btnIcon btnIconOnly" title="BATAL APPROVE SERVICE" onclick="tutupDetailBarangV2(); batalApproveService('${req.noSurat}');" style="background: #eab308 !important; color: #ffffff !important;">
+          <button type="button" class="btnIcon btnIconOnly" title="BATAL APPROVE SERVICE" onclick="batalApproveService('${req.noSurat}');" style="background: #eab308 !important; color: #ffffff !important;">
             <span class="material-symbols-rounded">undo</span>
           </button>
         `);
       }
       if (req.status === 'APPROVE' || req.dmUserName || req.dmTTD) {
         actionButtons.push(`
-          <button type="button" class="btnIcon btnIconOnly" title="BATAL APPROVE DM" onclick="tutupDetailBarangV2(); batalApproveDM('${req.noSurat}');" style="background: #f97316 !important; color: #ffffff !important;">
+          <button type="button" class="btnIcon btnIconOnly" title="BATAL APPROVE DM" onclick="batalApproveDM('${req.noSurat}');" style="background: #f97316 !important; color: #ffffff !important;">
             <span class="material-symbols-rounded">undo</span>
           </button>
         `);
@@ -8972,12 +10303,12 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
 
     if (canCreatorEditDelete || canServiceEditDelete || canAdminEditDelete) {
       actionButtons.push(`
-        <button type="button" class="btnIcon btnEdit btnIconOnly" title="EDIT" onclick="tutupDetailBarangV2(); editPermintaan('${req.noSurat}');">
+        <button type="button" class="btnIcon btnEdit btnIconOnly" title="EDIT" onclick="editPermintaan('${req.noSurat}');">
           <span class="material-symbols-rounded">edit</span>
         </button>
       `);
       actionButtons.push(`
-        <button type="button" class="btnIcon btnDelete btnIconOnly" title="HAPUS PERMINTAAN" onclick="tutupDetailBarangV2(); hapusData('${req.noSurat}');">
+        <button type="button" class="btnIcon btnDelete btnIconOnly" title="HAPUS PERMINTAAN" onclick="hapusData('${req.noSurat}');">
           <span class="material-symbols-rounded">delete</span>
         </button>
       `);
@@ -8989,6 +10320,14 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
           <span class="material-symbols-rounded">file_download</span>
         </button>
       `);
+
+    if (isAdminUser) {
+      actionButtons.push(`
+        <button type="button" class="btnIcon btnIconOnly" title="UBAH STATUS SUPABASE (ADMIN ONLY)" onclick="bukaModalUbahStatusAdmin('${req.noSurat}');" style="background: #8b5cf6 !important; color: #ffffff !important;">
+          <span class="material-symbols-rounded">published_with_changes</span>
+        </button>
+      `);
+    }
 
   const allReqPhotos = [
     ...(Array.isArray(req.photos) ? req.photos : []),
@@ -9013,7 +10352,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   }
 
   const thKetPartHtml = showKetPartCol ? `<th style="${canServiceRowActions ? thStyleLeft : thStyleLeftLast}">KETERANGAN PART</th>` : '';
-  const thActionHtml = canServiceRowActions ? `<th style="${thStyleAutofitLast}">AKSI</th>` : '';
+  const thActionHtml = canServiceRowActions ? `<th class="th-aksi-col">AKSI</th>` : '';
 
   const tableHeaderHtml = isDus ? `
     <thead>
@@ -9062,15 +10401,29 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   `;
 
   const popupDetailV2 = document.getElementById('popupDetailBarangV2');
+  const isAlreadyOpen = popupDetailV2 && (
+    popupDetailV2.classList.contains('show') ||
+    (popupDetailV2.style.display && popupDetailV2.style.display !== 'none') ||
+    popupDetailV2.dataset.active === "true"
+  );
+
   if (popupDetailV2) {
-    popupDetailV2.style.display = 'flex';
+    popupDetailV2.style.setProperty('display', 'flex', 'important');
     popupDetailV2.classList.add('show');
     popupDetailV2.dataset.active = "true";
+    popupDetailV2.dataset.noSurat = req.noSurat;
+    window._currentDetailNoSurat = req.noSurat;
   }
 
-  try {
-    history.pushState({ popupDetailOpen: true }, '');
-  } catch(e) {}
+  // Clear any pending URL noSurat trigger since popup is now successfully displayed
+  window.PENDING_URL_NO_SURAT = null;
+
+  // Hanya pushState jika modal BELUM terbuka sebelumnya (mencegah penumpukan pushState berulang saat refresh data/action)
+  if (!isAlreadyOpen && (!window.history.state || !window.history.state.popupDetailOpen)) {
+    try {
+      history.pushState({ popupDetailOpen: true }, '');
+    } catch(e) {}
+  }
 
   const activePageId = typeof getCurrentActivePageId === 'function' ? getCurrentActivePageId() : 'dashboardPage';
   if (typeof aturTampilanLonceng === 'function') {
@@ -9153,7 +10506,8 @@ function bukaModalEditStatusPart(noSurat) {
 
   const modal = document.getElementById('popupEditStatusPart');
   if (modal) {
-    modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('z-index', '2147483648', 'important');
     modal.classList.add('show');
     try { history.pushState({ modal: 'partStatus' }, '', location.href); } catch(e) {}
   }
@@ -9165,6 +10519,9 @@ function tutupModalEditStatusPart() {
   if (modal) {
     modal.style.setProperty('display', 'none', 'important');
     modal.classList.remove('show');
+  }
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
   }
 }
 window.tutupModalEditStatusPart = tutupModalEditStatusPart;
@@ -9417,6 +10774,9 @@ function bukaModalEditKetPartSingle(noSurat, itemIndex) {
   }
 
   const item = items[itemIndex];
+  if (item && item.unfulfilled === true) {
+    return;
+  }
   const typeVal = item.type || item.tipe || '-';
   const seriVal = item.seri || item.sn || '-';
   const barangVal = item.barang || item.permintaan || '-';
@@ -9453,7 +10813,8 @@ function bukaModalEditKetPartSingle(noSurat, itemIndex) {
 
   const modal = document.getElementById('popupEditKeteranganPartSingle');
   if (modal) {
-    modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('z-index', '2147483648', 'important');
     modal.classList.add('show');
     try { history.pushState({ modal: 'partKet' }, '', location.href); } catch(e) {}
   }
@@ -9465,6 +10826,9 @@ function tutupModalEditKetPartSingle() {
   if (modal) {
     modal.style.setProperty('display', 'none', 'important');
     modal.classList.remove('show');
+  }
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
   }
 }
 window.tutupModalEditKetPartSingle = tutupModalEditKetPartSingle;
@@ -9529,9 +10893,7 @@ function simpanKeteranganPartSingle() {
       items[itemIndex].fotoBuktiPart = finalFotoUrl || '';
       items[itemIndex].fotoPart = finalFotoUrl || '';
 
-      if (newKet.includes('SUDAH DISERAHKAN')) {
-        items[itemIndex].isHandedOver = true;
-      }
+      items[itemIndex].isHandedOver = false;
 
       requests[idx].items = items;
 
@@ -9597,7 +10959,7 @@ function bukaKunciSerahPartAdmin(noSurat, itemIndex) {
     return;
   }
 
-  showConfirm(`ADMIN: BUKA KUNCI STATUS SERAH BARIS ${itemIndex + 1}?`, function() {
+  showConfirm(`ADMIN: BUKA KUNCI STATUS SERAH BARIS ${itemIndex + 1}?`, async function() {
     try {
       const requests = getRequestsFromDB();
       const targetNo = String(noSurat).trim().toUpperCase();
@@ -9610,7 +10972,12 @@ function bukaKunciSerahPartAdmin(noSurat, itemIndex) {
       const items = Array.isArray(requests[idx].items) ? requests[idx].items : [];
       if (itemIndex >= items.length) return;
 
-      // Reset status diserahkan & foto bukti
+      const targetItem = items[itemIndex];
+      const targetType = String(targetItem.type || targetItem.tipe || '').trim().toUpperCase();
+      const targetSeri = String(targetItem.seri || targetItem.sn || '').trim().toUpperCase();
+      const targetBarang = String(targetItem.barang || targetItem.permintaan || '').trim().toUpperCase();
+
+      // Reset status diserahkan & foto bukti di objek barang Surat Induk
       items[itemIndex].statusPart = '';
       items[itemIndex].keteranganPart = '';
       items[itemIndex].fotoBuktiPart = '';
@@ -9618,6 +10985,43 @@ function bukaKunciSerahPartAdmin(noSurat, itemIndex) {
       items[itemIndex].isHandedOver = false;
 
       requests[idx].items = items;
+
+      // KUNCI PERBAIKAN: Bersihkan data item dari tabel breakdown_parsial (Lokal & Supabase)
+      let partials = getPartialBreakdownsFromDB(noSurat);
+      let partialsChanged = false;
+
+      if (Array.isArray(partials) && partials.length > 0) {
+        partials.forEach(p => {
+          if (!p || !Array.isArray(p.items)) return;
+          const origLen = p.items.length;
+          p.items = p.items.filter(pi => {
+            if (!pi) return false;
+            const piType = String(pi.type || pi.tipe || '').trim().toUpperCase();
+            const piSeri = String(pi.seri || pi.sn || '').trim().toUpperCase();
+            const piBarang = String(pi.barang || pi.permintaan || '').trim().toUpperCase();
+
+            const isMatch = (pi.itemIdx !== undefined && pi.itemIdx !== null) ?
+              (Number(pi.itemIdx) === itemIndex) :
+              ((targetSeri && piSeri && targetSeri !== '-' && piSeri !== '-' && targetSeri === piSeri) ||
+               (targetType && piType && targetType !== '-' && piType !== '-' && targetType === piType && targetBarang === piBarang) ||
+               (targetBarang && piBarang && targetBarang === piBarang && (!targetType || targetType === '-')));
+
+            return !isMatch;
+          });
+
+          if (p.items.length !== origLen) {
+            partialsChanged = true;
+          }
+        });
+
+        // Hapus breakdown parsial yang menjadi kosong setelah barangnya dibuka kuncinya
+        const filteredPartials = partials.filter(p => p && Array.isArray(p.items) && p.items.length > 0);
+
+        if (partialsChanged || filteredPartials.length !== partials.length) {
+          savePartialBreakdownsToDB(filteredPartials, noSurat);
+          pushPartialBreakdownsToCloud(filteredPartials, noSurat).catch(() => {});
+        }
+      }
 
       if (!requests[idx].log) requests[idx].log = [];
       requests[idx].log.push({
@@ -9631,7 +11035,7 @@ function bukaKunciSerahPartAdmin(noSurat, itemIndex) {
       if (typeof syncRealtimeToCentral === 'function') syncRealtimeToCentral(requests[idx]);
 
       if (typeof lihatDetail === 'function') {
-        lihatDetail(noSurat);
+        lihatDetail(noSurat, true);
       }
       if (typeof renderRequestsTable === 'function') {
         renderRequestsTable();
@@ -9713,19 +11117,42 @@ function renderSafeTtdImageTag(sigUrl, styleAttr = 'max-height: 52px; max-width:
 window.renderSafeTtdImageTag = renderSafeTtdImageTag;
 
 function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', targetFullName = '') {
-  const allUsers = getUsersFromDB();
   const role = String(targetRole || '').toUpperCase();
   const area = String(targetArea || '').toUpperCase();
   const uname = String(targetUsername || '').toUpperCase();
   const fname = String(targetFullName || '').toUpperCase();
 
-  // 1. PENCARIAN PRESISI LANGSUNG DI USER BERDASARKAN USERNAME / ID / FULLNAME
+  const isValid = (s) => (typeof isValidSig === 'function' ? isValidSig(s) : (s && typeof s === 'string' && (s.startsWith('data:image/') || s.startsWith('http://') || s.startsWith('https://'))));
+
+  // 1. CEK DARI STORE CENTRAL TTD MAP (ttdMap / TTD_DB_KEY)
+  let ttdMap = {};
+  try {
+    const dbKey = typeof TTD_DB_KEY !== 'undefined' ? TTD_DB_KEY : 'STORE_TTD_DB_V7_CLEAN';
+    const rawMap = (typeof appStorage !== 'undefined' ? appStorage.getItem(dbKey) : null) || 
+                   (typeof localStorage !== 'undefined' ? localStorage.getItem(dbKey) : null) || 
+                   (typeof localStorage !== 'undefined' ? localStorage.getItem('APP_USER_TTD_MAP') : null);
+    if (rawMap) ttdMap = JSON.parse(rawMap);
+  } catch (e) {}
+
+  // A. Match Username / ID di ttdMap
+  if (uname) {
+    if (isValid(ttdMap[uname])) return ttdMap[uname];
+    if (isValid(ttdMap[targetUsername])) return ttdMap[targetUsername];
+  }
+  // B. Match FullName di ttdMap
+  if (fname) {
+    if (isValid(ttdMap[fname])) return ttdMap[fname];
+    if (isValid(ttdMap[targetFullName])) return ttdMap[targetFullName];
+  }
+
+  // 2. CEK LANGSUNG DI AKUN USER DATABASE (getUsersFromDB)
+  const allUsers = (typeof getUsersFromDB === 'function') ? getUsersFromDB() : [];
   if (uname) {
     const u = allUsers.find(x => x && (
       String(x.username || '').toUpperCase() === uname ||
       String(x.id || '').toUpperCase() === uname
     ));
-    if (u && isValidSig(u.ttd)) return u.ttd;
+    if (u && isValid(u.ttd)) return u.ttd;
   }
 
   if (fname) {
@@ -9733,37 +11160,54 @@ function getUserRealSignature(targetRole, targetArea = '', targetUsername = '', 
       String(x.fullName || '').toUpperCase() === fname ||
       String(x.full_name || '').toUpperCase() === fname
     ));
-    if (u && isValidSig(u.ttd)) return u.ttd;
+    if (u && isValid(u.ttd)) return u.ttd;
   }
 
-  // 2. PENCARIAN LANGSUNG DI AKUN USER BERDASARKAN ROLE & AREA
-  if (role === 'SERVICE' || role === 'HODS') {
-    if (area) {
-      const srvAreaUsers = allUsers.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && isAreaMatch(u.area, area));
-      for (let srv of srvAreaUsers) {
-        if (isValidSig(srv.ttd)) return srv.ttd;
+  // 3. CEK DARIPADA USER SAAAT INI (currentUser) JIKA MATCH ROLE / AREA
+  if (typeof currentUser !== 'undefined' && currentUser && isValid(currentUser.ttd)) {
+    const cCat = String(currentUser.category || '').toUpperCase();
+    const cUname = String(currentUser.username || '').toUpperCase();
+    if (uname && cUname === uname) return currentUser.ttd;
+    if (role && (cCat === role || (role === 'HODS' && cCat === 'SERVICE') || (role === 'SERVICE' && cCat === 'HODS'))) {
+      if (!area || (typeof isAreaMatch === 'function' ? isAreaMatch(currentUser.area, area) : currentUser.area === area)) {
+        return currentUser.ttd;
       }
     }
-    return '';
+  }
+
+  // 4. PENCARIAN PRESISI DENGAN ROLE & AREA BERDASARKAN USER DATABASE & CENTRAL MAP
+  if (role === 'SERVICE' || role === 'HODS') {
+    if (area) {
+      if (isValid(ttdMap[`SERVICE_${area}`])) return ttdMap[`SERVICE_${area}`];
+      if (isValid(ttdMap[`HODS_${area}`])) return ttdMap[`HODS_${area}`];
+      const srvAreaUsers = allUsers.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && (typeof isAreaMatch === 'function' ? isAreaMatch(u.area, area) : u.area === area));
+      for (let srv of srvAreaUsers) {
+        if (isValid(srv.ttd)) return srv.ttd;
+      }
+    }
+    if (isValid(ttdMap['SERVICE'])) return ttdMap['SERVICE'];
+    if (isValid(ttdMap['HODS'])) return ttdMap['HODS'];
+    const anySrv = allUsers.find(u => u && (u.category === 'SERVICE' || u.category === 'HODS') && isValid(u.ttd));
+    if (anySrv) return anySrv.ttd;
   } else if (role === 'DM' || role === 'DISTRICT_MANAGER') {
-    const dmUser = allUsers.find(u => u && (u.category === 'DM' || u.category === 'ADMIN'));
-    if (dmUser && isValidSig(dmUser.ttd)) return dmUser.ttd;
-    return '';
+    if (isValid(ttdMap['DM'])) return ttdMap['DM'];
+    const dmUser = allUsers.find(u => u && (u.category === 'DM' || u.category === 'ADMIN') && isValid(u.ttd));
+    if (dmUser) return dmUser.ttd;
   } else if (role === 'GBJ') {
+    if (isValid(ttdMap['GBJ'])) return ttdMap['GBJ'];
     const gbjUser = allUsers.find(u => u && (
       u.category === 'GBJ' ||
       String(u.username || '').toUpperCase().includes('GBJ') ||
       String(u.fullName || '').toUpperCase().includes('GBJ')
-    ));
-    if (gbjUser && isValidSig(gbjUser.ttd)) return gbjUser.ttd;
-    return '';
+    ) && isValid(u.ttd));
+    if (gbjUser) return gbjUser.ttd;
   } else if (role === 'TOKO') {
     const tokoUser = allUsers.find(u => u && (
       String(u.username || '').toUpperCase() === uname ||
-      String(u.fullName || '').toUpperCase() === fname
-    ));
-    if (tokoUser && isValidSig(tokoUser.ttd)) return tokoUser.ttd;
-    return '';
+      String(u.fullName || '').toUpperCase() === fname ||
+      (area && u.category === 'TOKO' && (typeof isAreaMatch === 'function' ? isAreaMatch(u.area, area) : u.area === area))
+    ) && isValid(u.ttd));
+    if (tokoUser) return tokoUser.ttd;
   }
 
   return '';
@@ -9965,7 +11409,12 @@ function renderFullPdfPreviewDocument(modelId) {
           <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">PEMOHON</div>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 48px;">
             ${(() => {
-              const tokoSig = (currentUser && currentUser.category === 'TOKO' && isValidSig(currentUser.ttd)) ? currentUser.ttd : getUserRealSignature('TOKO');
+              const isGBJDemo = currentUser && (
+                currentUser.category === 'GBJ' || 
+                String(currentUser.username || '').toUpperCase().includes('GBJ') || 
+                String(currentUser.fullName || '').toUpperCase().includes('GBJ')
+              );
+              const tokoSig = isGBJDemo ? ((currentUser && isValidSig(currentUser.ttd)) ? currentUser.ttd : getUserRealSignature('GBJ')) : '';
               return renderSafeTtdImageTag(tokoSig, 'max-height: 46px; max-width: 90%; object-fit: contain;');
             })()}
           </div>
@@ -10023,8 +11472,7 @@ function tutupPilihanCetakPdf() {
 }
 window.tutupPilihanCetakPdf = tutupPilihanCetakPdf;
 
-function tampilkanPilihanCetakPdf(noSurat) {
-  if (!noSurat) return;
+function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
   const requests = getRequestsFromDB();
   const targetNo = String(noSurat || '').trim().toUpperCase();
   const req = requests.find(r => r && (
@@ -10047,110 +11495,8 @@ function tampilkanPilihanCetakPdf(noSurat) {
   }
 
   const validPhotos = getReqPhotosList(req);
-  if (validPhotos.length === 0) {
-    // Dokumen tidak memiliki foto, langsung buka cetak tanpa foto
-    bukaPdfModal(noSurat, false);
-    return;
-  }
-
-  // Tampilkan modal pilihan cetak dengan foto atau tanpa foto
-  tutupPilihanCetakPdf();
-
-  const modalHtml = `
-    <div id="pdfPrintChoiceModal" onclick="if (event.target === this) tutupPilihanCetakPdf()" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.15s ease; box-sizing: border-box;">
-      <style>
-        #pdfPrintChoiceModal .pdfChoiceCard {
-          background: var(--bg-box);
-          color: var(--text-main);
-          width: 100%;
-          max-width: 430px;
-          border-radius: 4px;
-          border: 1px solid var(--border-color);
-          box-shadow: 0 16px 36px rgba(0,0,0,0.35);
-          overflow: hidden;
-          box-sizing: border-box;
-        }
-        @media (max-width: 600px) {
-          #pdfPrintChoiceModal {
-            align-items: flex-start !important;
-            padding: 1mm 8px 8px 8px !important;
-          }
-          #pdfPrintChoiceModal .pdfChoiceCard {
-            margin-top: 1mm !important;
-            max-width: 100% !important;
-            border-radius: 4px !important;
-          }
-        }
-      </style>
-      <div class="pdfChoiceCard">
-        <div style="background: var(--primary); color: #ffffff; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-top-left-radius: 4px; border-top-right-radius: 4px;">
-          <div style="font-size: 14px; font-weight: 800; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-rounded" style="font-size: 20px;">print</span>
-            OPSI CETAK DOKUMEN PDF
-          </div>
-          <button type="button" onclick="tutupPilihanCetakPdf()" style="background: rgba(255,255,255,0.2); border: none; color: #ffffff; width: 28px; height: 28px; border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; font-size: 14px;">✕</button>
-        </div>
-        <div style="padding: 18px 20px; background: var(--bg-box); color: var(--text-main);">
-          <div style="font-size: 13px; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-            Nomor Surat: <span style="color: var(--primary);">#${req.noSurat}</span>
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 18px; line-height: 1.5;">
-            Dokumen ini memiliki <b>${validPhotos.length} lampiran foto</b>. Silakan tentukan format cetak yang Anda inginkan:
-          </div>
-
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            <button type="button" onclick="tutupPilihanCetakPdf(); bukaPdfModal('${req.noSurat}', true);" style="background: var(--primary); color: #ffffff; border: 1px solid var(--primary); padding: 12px 16px; border-radius: 4px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: 0.15s;">
-              <span style="display: flex; align-items: center; gap: 8px;">
-                <span class="material-symbols-rounded" style="font-size: 20px;">photo_library</span>
-                CETAK DENGAN FOTO (${validPhotos.length} FOTO)
-              </span>
-              <span class="material-symbols-rounded">chevron_right</span>
-            </button>
-
-            <button type="button" onclick="tutupPilihanCetakPdf(); bukaPdfModal('${req.noSurat}', false);" style="background: var(--bg-header); color: var(--text-main); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 4px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: 0.15s;">
-              <span style="display: flex; align-items: center; gap: 8px;">
-                <span class="material-symbols-rounded" style="font-size: 20px; color: var(--text-muted);">description</span>
-                CETAK TANPA FOTO (DOKUMEN SAJA)
-              </span>
-              <span class="material-symbols-rounded" style="color: var(--text-muted);">chevron_right</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.insertAdjacentHTML('beforeend', modalHtml);
-  if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
-}
-window.tampilkanPilihanCetakPdf = tampilkanPilihanCetakPdf;
-
-function bukaPdfModal(noSurat, includePhotos = null) {
-  const requests = getRequestsFromDB();
-  const targetNo = String(noSurat || '').trim().toUpperCase();
-  const req = requests.find(r => r && (
-    String(r.noSurat || '').trim().toUpperCase() === targetNo ||
-    String(r.id || '').trim().toUpperCase() === targetNo
-  ));
-  if (!req) {
-    showNotif('DOKUMEN TIDAK DITEMUKAN!', 'warning');
-    return;
-  }
-  window._currentActivePdfNoSurat = req.noSurat;
-
-  const userCat = (currentUser && currentUser.category) ? String(currentUser.category).toUpperCase() : '';
-  const isAdmUser = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (userCat === 'ADMIN' || (currentUser && currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
-  if (!isAdmUser && typeof isPdfButtonAllowed === 'function' && !isPdfButtonAllowed(req)) {
-    if (userCat === 'TOKO' || userCat === 'SALES') {
-      showNotif('DOKUMEN BELUM SELESAI DISETUJUI / DIVERIFIKASI OLEH DM!', 'warning');
-      return;
-    }
-  }
-
-  const validPhotos = getReqPhotosList(req);
-  // JIKA includePhotos BELUM DIPILIH & DOKUMEN MEMILIKI FOTO -> TAMPILKAN POPUP PILIHAN
-  if (includePhotos === null && validPhotos.length > 0) {
-    tampilkanPilihanCetakPdf(noSurat);
-    return;
+  if (includePhotos === null) {
+    includePhotos = true;
   }
 
   const pdfContainer = document.getElementById('pdfDocumentContent');
@@ -10227,34 +11573,35 @@ function bukaPdfModal(noSurat, includePhotos = null) {
     dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD
   }
 
+  const creatorUser = users.find(u => u && (
+    (req.userId && (String(u.id).toUpperCase() === String(req.userId).toUpperCase() || String(u.username).toUpperCase() === String(req.userId).toUpperCase())) ||
+    (req.createdBy && (String(u.username).toUpperCase() === String(req.createdBy).toUpperCase() || String(u.fullName).toUpperCase() === String(req.createdBy).toUpperCase())) ||
+    (req.toko && (String(u.username).toUpperCase() === String(req.toko).toUpperCase() || String(u.fullName).toUpperCase() === String(req.toko).toUpperCase()))
+  ));
+
   const isReqFromGBJ = (
+    req.isGBJ === true ||
+    (creatorUser && (
+      creatorUser.category === 'GBJ' ||
+      String(creatorUser.username || '').toUpperCase().includes('GBJ') ||
+      String(creatorUser.fullName || '').toUpperCase().includes('GBJ') ||
+      String(creatorUser.storeCode || '').toUpperCase().includes('GBJ')
+    )) ||
     (req.createdBy && String(req.createdBy).toUpperCase().includes('GBJ')) ||
-    (req.toko && String(req.toko).toUpperCase().includes('GBJ')) ||
-    req.isGBJ === true
+    (req.toko && String(req.toko).toUpperCase().includes('GBJ'))
   );
 
   let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
-  let pemohonName = req.toko || req.createdBy || 'PEMOHON';
+  let pemohonName = req.toko || req.createdBy || (creatorUser ? (creatorUser.fullName || creatorUser.username) : 'PEMOHON');
   let pemohonRoleTitle = 'PEMOHON (TOKO)';
 
   if (isReqFromGBJ) {
-    const gbjUser = users.find(u => u && (
-      (u.id && String(u.id).toUpperCase() === String(req.createdBy || '').toUpperCase()) ||
-      (u.username && String(u.username).toUpperCase() === String(req.createdBy || '').toUpperCase()) ||
-      (u.fullName && String(u.fullName).toUpperCase() === String(req.createdBy || '').toUpperCase()) ||
-      u.category === 'GBJ'
-    ));
-
-    pemohonName = (gbjUser ? (gbjUser.fullName || gbjUser.username) : '') || req.createdBy || req.toko || 'GBJ';
     pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
-
     if (!isValidSig(pemohonTTD)) {
-      pemohonTTD = (gbjUser && isValidSig(gbjUser.ttd)) ? gbjUser.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
+      pemohonTTD = (creatorUser && isValidSig(creatorUser.ttd)) ? creatorUser.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
     }
   } else {
-    if (!isValidSig(pemohonTTD)) {
-      pemohonTTD = getUserRealSignature('TOKO', req.area, req.createdBy, req.toko);
-    }
+    pemohonTTD = '';
   }
 
   if (!isValidSig(pemohonTTD)) {
@@ -10446,11 +11793,19 @@ function bukaPdfModal(noSurat, includePhotos = null) {
     </div>
   `;
 
-  const pdfModal = document.getElementById('pdfModal');
-  if (pdfModal) {
-    pdfModal.style.setProperty('display', 'flex', 'important');
-    pdfModal.classList.add('show');
-    if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+  if (autoPrint) {
+    if (typeof cetakDokumenPdf === 'function') {
+      cetakDokumenPdf();
+    } else {
+      window.print();
+    }
+  } else {
+    const pdfModal = document.getElementById('pdfModal');
+    if (pdfModal) {
+      pdfModal.style.setProperty('display', 'flex', 'important');
+      pdfModal.classList.add('show');
+      if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+    }
   }
 }
 window.bukaPdfModal = bukaPdfModal;
@@ -10479,9 +11834,17 @@ function tutupPdfModal() {
 }
 window.tutupPdfModal = tutupPdfModal;
 
-function cetakDokumenPdf() {
+async function cetakDokumenPdf() {
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MOHON TUNGGU...');
+  }
+  
+  // Jeda persis 4 detik (4000ms) sebelum memunculkan dialog cetak PDF
+  await new Promise(resolve => setTimeout(resolve, 4000));
+
   const content = document.getElementById('pdfDocumentContent');
   if (!content) {
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
     window.print();
     return;
   }
@@ -10491,71 +11854,104 @@ function cetakDokumenPdf() {
   const docTitle = String(rawNoSurat).replace(/[\/\-]/g, '').trim() || 'PERMINTAAN_TOKO';
 
   try {
-    const printWindow = window.open('', '_blank', 'width=900,height=800');
-    if (printWindow) {
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>${docTitle}</title>
-            <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-            <style>
-              * {
-                box-sizing: border-box;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-                color-adjust: exact !important;
-              }
-              @page {
-                size: A4 portrait;
-                margin: 0;
-              }
-              body {
-                margin: 0;
-                padding: 8mm;
-                background: #ffffff;
-                color: #0f172a;
-                font-family: 'Poppins', sans-serif;
-              }
-              .pdf-paper {
-                width: 100% !important;
-                padding-left: 0 !important;
-                padding-right: 0 !important;
-              }
-              .pdf-info-table td {
-                border: none !important;
-              }
-              .pdf-info-table {
-                width: 100% !important;
-                border: none !important;
-                box-shadow: none !important;
-                padding: 0 !important;
-                background: #ffffff !important;
-              }
-              table {
-                width: 100% !important;
-                border-collapse: collapse !important;
-              }
-            </style>
-          </head>
-          <body>
-            ${content.innerHTML}
-          </body>
-        </html>
-      `);
-
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-      }, 350);
-      return;
+    let printIframe = document.getElementById('hiddenPdfPrintIframe');
+    if (printIframe) {
+      printIframe.remove();
     }
+
+    printIframe = document.createElement('iframe');
+    printIframe.id = 'hiddenPdfPrintIframe';
+    printIframe.style.setProperty('position', 'fixed', 'important');
+    printIframe.style.setProperty('right', '0', 'important');
+    printIframe.style.setProperty('bottom', '0', 'important');
+    printIframe.style.setProperty('width', '0px', 'important');
+    printIframe.style.setProperty('height', '0px', 'important');
+    printIframe.style.setProperty('border', 'none', 'important');
+    printIframe.style.setProperty('opacity', '0', 'important');
+    printIframe.style.setProperty('visibility', 'hidden', 'important');
+    printIframe.style.setProperty('pointer-events', 'none', 'important');
+    printIframe.style.setProperty('z-index', '-999999', 'important');
+
+    document.body.appendChild(printIframe);
+
+    const priWindow = printIframe.contentWindow || printIframe.contentDocument;
+    const priDoc = printIframe.contentDocument || printIframe.contentWindow.document;
+
+    priDoc.open();
+    priDoc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${docTitle}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+          <style>
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              color-adjust: exact !important;
+            }
+            @page {
+              size: A4 portrait;
+              margin: 0;
+            }
+            body {
+              margin: 0;
+              padding: 8mm;
+              background: #ffffff;
+              color: #0f172a;
+              font-family: 'Poppins', sans-serif;
+            }
+            .pdf-paper {
+              width: 100% !important;
+              padding-left: 0 !important;
+              padding-right: 0 !important;
+            }
+            .pdf-info-table td {
+              border: none !important;
+            }
+            .pdf-info-table {
+              width: 100% !important;
+              border: none !important;
+              box-shadow: none !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+            }
+            table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${content.innerHTML}
+        </body>
+      </html>
+    `);
+    priDoc.close();
+
+    setTimeout(() => {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      try {
+        priWindow.focus();
+        priWindow.print();
+      } catch (err) {
+        console.warn('Iframe print fallback error:', err);
+        window.print();
+      } finally {
+        setTimeout(() => {
+          if (printIframe && printIframe.parentNode) {
+            printIframe.remove();
+          }
+        }, 1500);
+      }
+    }, 200);
+    return;
   } catch (e) {
-    console.warn('[PRINT WINDOW NOTICE]: Fallback ke window.print()', e);
+    console.warn('[PRINT IFRAME NOTICE]: Fallback ke window.print()', e);
   }
 
+  if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
   window.print();
 }
 
@@ -10567,7 +11963,8 @@ function bukaTTD() {
   const modal = document.getElementById('popupTTD');
   if (modal) {
     modal.classList.add('show');
-    modal.style.display = 'flex';
+    modal.style.setProperty('display', 'flex', 'important');
+    modal.style.setProperty('z-index', '2147483648', 'important');
   }
   pushPopupHistoryState();
   setTimeout(() => {
@@ -11313,7 +12710,7 @@ window.rebuildRoomsFromChats = rebuildRoomsFromChats;
 
 async function bukaBantuan() {
   if (!currentUser) return;
-  
+
   // SERVICE TSM or ADMIN acts as Customer Service Support Receiver
   isAdminChat = isServiceTSMUser();
 
@@ -11327,45 +12724,32 @@ async function bukaBantuan() {
   }
 
   const popup = document.getElementById('popupBantuan');
-  const btnHelp = document.getElementById('helpButton');
-  if (btnHelp) btnHelp.style.display = 'none';
   if (popup) {
-    popup.style.display = 'block';
+    popup.style.setProperty('display', 'flex', 'important');
     popup.classList.add('show');
-    try { history.pushState({ popup: 'bantuan' }, '', location.href); } catch(e) {}
   }
 
-  const chatList = document.getElementById('chatList');
-  const chatUserPicker = document.getElementById('chatUserPicker');
-  const chatBroadcastModal = document.getElementById('chatBroadcastModal');
-  const chatBody = document.getElementById('chatBody');
-  const chatFooter = document.getElementById('chatFooter');
-  const btnBack = document.getElementById('btnBackAdmin');
-  const headerTitle = document.getElementById('chatHeaderTitle');
-
-  if (chatUserPicker) chatUserPicker.style.display = 'none';
-  if (chatBroadcastModal) chatBroadcastModal.style.display = 'none';
-
   if (isAdminChat) {
-    // TAMPILAN ADMIN & SERVICE TSM: DAFTAR CHAT MASUK DARI SEMUA TOKO
-    if (chatList) chatList.style.display = 'block';
-    if (chatBody) chatBody.style.display = 'none';
-    if (chatFooter) chatFooter.style.display = 'none';
-    if (btnBack) btnBack.style.display = 'none';
-    if (headerTitle) headerTitle.innerText = 'CHAT MASUK - ADMIN & SERVICE TSM';
+    // ADMIN / SERVICE SUPPORT VIEW
+    document.getElementById('chatHeaderTitle').textContent = 'PUSAT SUPPORT ADMIN / SERVICE';
+    document.getElementById('chatList').style.display = 'block';
+    document.getElementById('chatBody').style.display = 'none';
+    document.getElementById('chatFooter').style.display = 'none';
+    const btnBackAdmin = document.getElementById('btnBackAdmin');
+    if (btnBackAdmin) btnBackAdmin.style.display = 'none';
     loadDaftarChatAdmin();
   } else {
-    // TAMPILAN USER / TOKO: LANGSUNG KE RUANG CHAT PRIVATE DENGAN ADMIN & SERVICE TSM
-    if (chatList) chatList.style.display = 'none';
-    if (chatBody) chatBody.style.display = 'block';
-    if (chatFooter) chatFooter.style.display = 'flex';
-    if (btnBack) btnBack.style.display = 'none';
-    if (headerTitle) headerTitle.innerText = 'PUSAT BANTUAN ADMIN & SERVICE TSM';
+    // USER / TOKO VIEW
+    document.getElementById('chatHeaderTitle').textContent = 'ADMIN SUPPORT';
+    document.getElementById('chatList').style.display = 'none';
+    document.getElementById('chatBody').style.display = 'flex';
+    document.getElementById('chatFooter').style.display = 'flex';
+    const btnBackAdmin = document.getElementById('btnBackAdmin');
+    if (btnBackAdmin) btnBackAdmin.style.display = 'none';
     loadChatUser();
   }
 
-  // AKTIFKAN REFRESH CHAT REALTIME JIKA KOLOM CHAT SEDANG DIBUKA
-  startActiveChatRefresh();
+  pushPopupHistoryState();
 }
 window.bukaBantuan = bukaBantuan;
 
@@ -11386,10 +12770,10 @@ function tutupBantuan(forceClose = false) {
 
   const popup = document.getElementById('popupBantuan');
   if (popup) {
-    popup.classList.remove('show'); 
-    setTimeout(() => popup.style.display = 'none', 250); 
+    popup.classList.remove('show');
+    popup.style.setProperty('display', 'none', 'important');
   }
-  
+
   const activePage = typeof getCurrentActivePageId === 'function' ? getCurrentActivePageId() : 'dashboardPage';
   if (typeof aturTampilanLonceng === 'function') {
     aturTampilanLonceng(activePage);
@@ -11399,6 +12783,7 @@ function tutupBantuan(forceClose = false) {
     cekUnreadNotif();
   }
 }
+window.tutupBantuan = tutupBantuan;
 
 function loadDaftarChatAdmin() {
   const chatList = document.getElementById('chatList');
@@ -12359,6 +13744,38 @@ window.startGlobalRealtimeLoop = startGlobalRealtimeLoop;
 
 // GLOBAL EVENT LISTENER: CLICK OUTSIDE BACKDROP TO CLOSE POPUPS (PC / LAPTOP / MOBILE)
 window.addEventListener('click', function (e) {
+  // Backdrop click for popupUbahStatusAdminModal -> trigger tutupModalUbahStatusAdmin()
+  const popupUbahStatusAdminModal = document.getElementById('popupUbahStatusAdminModal');
+  if (popupUbahStatusAdminModal && e.target === popupUbahStatusAdminModal) {
+    if (typeof tutupModalUbahStatusAdmin === 'function') {
+      tutupModalUbahStatusAdmin();
+    }
+  }
+  // Backdrop click for confirmOverlay -> trigger confirmNo() (select TIDAK / BATAL)
+  const confirmOverlay = document.getElementById('confirmOverlay');
+  if (confirmOverlay && e.target === confirmOverlay) {
+    if (typeof confirmNo === 'function') {
+      confirmNo();
+    } else if (typeof closeConfirm === 'function') {
+      closeConfirm();
+    }
+  }
+
+  // Backdrop click for popupNotif -> trigger closePopup()
+  const popupNotif = document.getElementById('popupNotif');
+  if (popupNotif && e.target === popupNotif) {
+    if (typeof closePopup === 'function') {
+      closePopup();
+    }
+  }
+
+  // Backdrop click for popupSecurityPinHapusLokal -> trigger tutupModalPinHapusLokal()
+  const pinModal = document.getElementById('popupSecurityPinHapusLokal');
+  if (pinModal && e.target === pinModal) {
+    if (typeof tutupModalPinHapusLokal === 'function') {
+      tutupModalPinHapusLokal();
+    }
+  }
   // 1. Detail Barang Popup (#popupDetail)
   const popupDetail = document.getElementById('popupDetail');
   if (popupDetail && e.target === popupDetail && typeof closeDetail === 'function') {
@@ -12584,7 +14001,7 @@ async function hapusMultiUser(btnElement = null) {
 
   const usernamesStr = selectedUsers.map(u => u.username).join(', ');
 
-  showConfirm(`YAKIN INGIN MENGHAPUS ${selectedUsers.length} USER TERPILIH? (${usernamesStr})`, () => {
+  showConfirm('HAPUS USER TERPILIH?', () => {
     const btn = (btnElement && btnElement instanceof HTMLElement) ? btnElement : (typeof event !== 'undefined' && event ? event.currentTarget : document.getElementById('btnHapusMultiUserModal'));
     setBtnLoading(btn, true, 'MENGHAPUS...');
     showPopupInnerLoading('popupUserManagementModal', 'MENGHAPUS USER TERPILIH...');
@@ -12814,7 +14231,8 @@ function bukaUserModal(userId = null, btnElement = null) {
 
       const modal = document.getElementById('popupUserForm');
       if (modal) {
-        modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('z-index', '2147483648', 'important');
         modal.style.setProperty('z-index', '10000005', 'important');
         modal.classList.add('show');
         pushPopupHistoryState();
@@ -13152,6 +14570,7 @@ async function simpanUserData(btnElement = null) {
               id: newUser.id,
               full_name: newUser.fullName,
               area: newUser.area,
+              store_code: newUser.storeCode || generateStoreCode(newUser.fullName, newUser.area),
               created_by: currentUser ? currentUser.fullName : 'ADMIN'
             }).catch(e => console.warn(e));
           }
@@ -13268,7 +14687,7 @@ async function hapusUser(userId, btnElement = null) {
     return;
   }
 
-  showConfirm(`HAPUS USER '${u.fullName || u.username}' (${u.username})?`, () => {
+  showConfirm('HAPUS USER TERPILIH?', () => {
     const btn = (btnElement && btnElement instanceof HTMLElement) ? btnElement : (typeof event !== 'undefined' && event ? event.currentTarget : null);
     setBtnLoading(btn, true, 'HAPUS...');
     showPopupInnerLoading('popupUserManagementModal', 'MENGHAPUS USER...');
@@ -13416,19 +14835,26 @@ function loadMasterDbTable() {
   let requests = getRequestsFromDB();
 
   if (search) {
-    requests = requests.filter(r =>
-      r.noSurat.toLowerCase().includes(search) ||
-      r.toko.toLowerCase().includes(search) ||
-      r.createdBy.toLowerCase().includes(search) ||
-      r.catatan.toLowerCase().includes(search) ||
-      r.items.some(i => i.type.toLowerCase().includes(search) || i.seri.toLowerCase().includes(search) || i.barang.toLowerCase().includes(search))
-    );
+    requests = requests.filter(r => matchesRequestSearchFilter(r, search));
   }
 
   tbody.innerHTML = '';
 
   if (requests.length === 0) {
     tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:30px; color:var(--text-muted);">BELUM ADA DATA PERMINTAAN TERDAFTAR.</td></tr>`;
+    for (let k = 0; k < 20; k++) {
+      const emptyTr = document.createElement('tr');
+      emptyTr.className = 'empty-grid-row';
+      emptyTr.innerHTML = `
+        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+      `;
+      tbody.appendChild(emptyTr);
+    }
+    const spacerTr = document.createElement('tr');
+    spacerTr.className = 'table-spacer-fill-row';
+    spacerTr.innerHTML = `<td colspan="10">&nbsp;</td>`;
+    tbody.appendChild(spacerTr);
     updateMultiMasterDbBtnState();
     return;
   }
@@ -13458,22 +14884,33 @@ function loadMasterDbTable() {
       <td style="max-width:320px; word-break:break-word;">${itemsDetailText}</td>
       <td>${getBadgeStatus(r.status)}</td>
       <td style="word-break:break-word; max-width:200px;">${r.catatan || '-'}</td>
-      <td style="text-align:center;">
-        <button class="btnIcon btnDelete" onclick="hapusDataMaster('${r.noSurat}')" title="HAPUS DATA"><span class="material-symbols-rounded">delete</span></button>
+      <td style="text-align:center; white-space:nowrap; vertical-align:middle;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px; vertical-align: middle;">
+          <button type="button" class="btnIcon btnDelete" onclick="hapusDataMaster('${r.noSurat}')" title="HAPUS DATA" style="padding: 4px 6px !important; line-height: 1 !important; height: auto !important;"><span class="material-symbols-rounded" style="font-size: 16px;">delete</span></button>
+          <button type="button" class="btnIcon btnEdit" onclick="bukaModalUbahStatusAdmin('${r.noSurat}')" title="UBAH STATUS SUPABASE (ADMIN ONLY)" style="background: #8b5cf6 !important; color: #ffffff !important; padding: 4px 6px !important; line-height: 1 !important; height: auto !important;"><span class="material-symbols-rounded" style="font-size: 16px;">published_with_changes</span></button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
   });
 
-  for (let k = 0; k < 2; k++) {
-    const emptyTr = document.createElement('tr');
-    emptyTr.className = 'empty-grid-row';
-    emptyTr.innerHTML = `
-      <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-      <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-    `;
-    tbody.appendChild(emptyTr);
+  const emptyRowsNeeded = Math.max(2, 20 - requests.length);
+  if (emptyRowsNeeded > 0) {
+    for (let k = 0; k < emptyRowsNeeded; k++) {
+      const emptyTr = document.createElement('tr');
+      emptyTr.className = 'empty-grid-row';
+      emptyTr.innerHTML = `
+        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+      `;
+      tbody.appendChild(emptyTr);
+    }
   }
+
+  const spacerTr = document.createElement('tr');
+  spacerTr.className = 'table-spacer-fill-row';
+  spacerTr.innerHTML = `<td colspan="10">&nbsp;</td>`;
+  tbody.appendChild(spacerTr);
   updateMultiMasterDbBtnState();
 }
 
@@ -13633,6 +15070,12 @@ function hapusDataMaster(noSurat) {
       hideLoading();
       showNotif(`PERMINTAAN #${noSurat} BERHASIL DIHAPUS!`, 'info');
       
+      const popDetailV2 = document.getElementById('popupDetailBarangV2');
+      if (popDetailV2 && (popDetailV2.dataset.noSurat === noSurat || window._currentDetailNoSurat === noSurat)) {
+        if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(false);
+        if (typeof closeDetail === 'function') closeDetail(false);
+      }
+
       if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
       if (typeof loadRiwayat === 'function') loadRiwayat();
       if (typeof loadDashboard === 'function') loadDashboard();
@@ -13644,6 +15087,86 @@ function hapusDataMaster(noSurat) {
   });
 }
 
+function getBreakdownSuratExportValue(r, item) {
+  if (!r || (!r.noSurat && !r.id)) return '-';
+  const targetNs = String(r.noSurat || r.id).trim();
+  
+  const partials = typeof getPartialBreakdownsFromDB === 'function' ? getPartialBreakdownsFromDB(targetNs) : [];
+  if (!Array.isArray(partials) || partials.length === 0) {
+    return '-';
+  }
+
+  if (!item) {
+    return partials.map(p => {
+      const pId = p.partial_id || p.partialId || 'P1';
+      const pStat = p.status || 'PENDING';
+      return `${targetNs}-${pId} (${pStat})`;
+    }).join(', ');
+  }
+
+  // 1. Cari breakdown (p) mana saja yang benar-benar memuat item ini di dalam p.items
+  const matchedPartials = [];
+  const itemType = String(item.type || item.tipe || '').trim().toUpperCase();
+  const itemSeri = String(item.seri || item.sn || '').trim().toUpperCase();
+  const itemBarang = String(item.barang || item.permintaan || '').trim().toUpperCase();
+
+  partials.forEach(p => {
+    let pItems = p.items;
+    if (typeof pItems === 'string') {
+      try { pItems = JSON.parse(pItems || '[]'); } catch (e) { pItems = []; }
+    }
+    if (!Array.isArray(pItems)) pItems = [];
+
+    const pId = p.partial_id || p.partialId || 'P1';
+    const pStat = p.status || 'PENDING';
+
+    const isMatchInP = pItems.some(pi => {
+      if (!pi) return false;
+      const piType = String(pi.type || pi.tipe || '').trim().toUpperCase();
+      const piSeri = String(pi.seri || pi.sn || '').trim().toUpperCase();
+      const piBarang = String(pi.barang || pi.permintaan || '').trim().toUpperCase();
+
+      if (itemSeri && piSeri && itemSeri !== '-' && piSeri !== '-') {
+        return itemSeri === piSeri && (itemType === piType || itemBarang === piBarang);
+      }
+      if (itemType && piType && itemType !== '-' && piType !== '-') {
+        return itemType === piType && itemBarang === piBarang;
+      }
+      return itemBarang && piBarang && itemBarang === piBarang;
+    });
+
+    if (isMatchInP) {
+      matchedPartials.push(`${targetNs}-${pId} (${pStat})`);
+    }
+  });
+
+  if (matchedPartials.length > 0) {
+    return matchedPartials.join(', ');
+  }
+
+  // 2. Cek rujukan dari item.statusPart jika tidak ketemu di p.items
+  const itemKet = String(item.statusPart || item.keteranganPart || item.updatePart || '').trim();
+  if (itemKet) {
+    const matchP = itemKet.match(/(P\d+)/i) || itemKet.match(/([A-Za-z0-9\/\._\-]+-P\d+)/i);
+    if (matchP) {
+      const targetPid = matchP[1].toUpperCase();
+      const foundP = partials.find(p => {
+        const pId = String(p.partial_id || p.partialId || p.id || '').toUpperCase();
+        return pId.includes(targetPid) || targetPid.includes(pId);
+      });
+      if (foundP) {
+        const pLabel = foundP.partial_id || foundP.partialId || targetPid;
+        const pStat = foundP.status || 'PENDING';
+        return `${targetNs}-${pLabel} (${pStat})`;
+      }
+      return `${targetNs}-${targetPid}`;
+    }
+  }
+
+  return '-';
+}
+window.getBreakdownSuratExportValue = getBreakdownSuratExportValue;
+
 function downloadMasterExcel() {
   const data = getRequestsFromDB();
   if (data.length === 0) {
@@ -13651,14 +15174,14 @@ function downloadMasterExcel() {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX) MASTER LENGKAP...');
+  showLoading('MOHON TUNGGU...');
   setTimeout(() => {
     hideLoading();
     const rows = [];
     rows.push([
       'NO SURAT', 'TANGGAL', 'TOKO / PEMOHON', 'AREA', 'JENIS',
       'TIPE BARANG', 'NO SERI', 'NO SERI DUS', 'PERMINTAAN',
-      'ALASAN', 'QTY', 'STATUS PART', 'STATUS', 'CATATAN', 'LOG APPROVAL'
+      'ALASAN', 'QTY', 'STATUS PART', 'BREAKDOWN SURAT', 'STATUS', 'CATATAN', 'LOG APPROVAL'
     ]);
 
     data.forEach(r => {
@@ -13706,6 +15229,7 @@ function downloadMasterExcel() {
           it.alasan || '-',
           it.qty || it.jumlah || 1,
           statusPartVal,
+          getBreakdownSuratExportValue(r, it),
           isUnfulfilled ? `${r.status} (TIDAK DIPENUHI)` : r.status,
           r.catatan || '',
           logStr
@@ -13830,6 +15354,7 @@ function prosesUploadExcelLookup(event) {
 }
 
 function bukaAkun() {
+  if (typeof updateBottomMenuHighlight === "function") updateBottomMenuHighlight("popupAkun");
   if (!currentUser) return;
 
   if (typeof tutupPdfModal === 'function') tutupPdfModal();
@@ -13893,23 +15418,12 @@ function prosesBukaAkun() {
   if (elPass) elPass.value = '';
 
   const isToko = (currentUser.category === 'TOKO' || currentUser.category === 'GBJ');
-  const showTTD = (currentUser.category === 'SERVICE' || currentUser.category === 'DM' || currentUser.category === 'GBJ');
-  const showKelolaToko = !isToko;
-
   const menuTTD = document.getElementById('menuTTD');
-  if (menuTTD) {
-    menuTTD.style.display = showTTD ? 'block' : 'none';
-  }
-  
+  if (menuTTD) { menuTTD.style.display = 'flex'; }
   const menuKelolaTokoAkun = document.getElementById('menuKelolaTokoAkun');
-  if (menuKelolaTokoAkun) {
-    menuKelolaTokoAkun.style.display = showKelolaToko ? 'block' : 'none';
-  }
-
+  if (menuKelolaTokoAkun) { menuKelolaTokoAkun.style.display = 'flex'; }
   const containerKelolaTokoTTD = document.getElementById('containerKelolaTokoTTD');
-  if (containerKelolaTokoTTD) {
-    containerKelolaTokoTTD.style.display = (showTTD || showKelolaToko) ? 'flex' : 'none';
-  }
+  if (containerKelolaTokoTTD) { containerKelolaTokoTTD.style.display = 'flex'; }
 
   const adminWrap = document.getElementById('adminHapusNotifWrap');
   if (adminWrap) {
@@ -13932,7 +15446,8 @@ function prosesBukaAkun() {
   const modal = document.getElementById('popupAkun');
   if (modal) {
     modal.classList.add('show');
-    modal.style.display = 'flex';
+    modal.style.setProperty('display', 'flex', 'important');
+    modal.style.setProperty('z-index', '2147483648', 'important');
   }
   if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
 }
@@ -13964,9 +15479,9 @@ function isAkunDirty() {
 window.isAkunDirty = isAkunDirty;
 
 function tutupAkun(force = false) {
-  if (force !== true && isAkunDirty()) {
+  if (force !== true && typeof isAkunDirty === 'function' && isAkunDirty()) {
     showConfirm(
-      'SIMPAN PERUBAHAN AKUN?',
+      'APAKAH ANDA INGIN MENYIMPAN PERUBAHAN AKUN?',
       () => {
         simpanAkun(true);
       },
@@ -13982,7 +15497,7 @@ function tutupAkun(force = false) {
   const modal = document.getElementById('popupAkun');
   if (modal) {
     modal.classList.remove('show');
-    modal.style.display = 'none';
+    modal.style.setProperty('display', 'none', 'important');
   }
 }
 window.tutupAkun = tutupAkun;
@@ -14379,6 +15894,7 @@ async function simpanTokoBaru(btnElement = null) {
               id: editStoreId,
               full_name: namaToko,
               area: targetArea,
+              store_code: newCode || generateStoreCode(namaToko, targetArea),
               created_by: currentUser.fullName
             });
           } catch (e) {
@@ -14445,7 +15961,7 @@ async function simpanTokoBaru(btnElement = null) {
           newUserAcc = {
             id: newId,
             username: safeUsername,
-            password: '123',
+            password: generateUnique3DigitPassword(safeUsername),
             fullName: namaToko,
             storeCode: generatedCode,
             phone: '-',
@@ -14464,6 +15980,7 @@ async function simpanTokoBaru(btnElement = null) {
               id: newId,
               full_name: newStore.fullName,
               area: newStore.area,
+              store_code: newStore.storeCode || generateStoreCode(newStore.fullName, newStore.area),
               created_by: newStore.createdBy
             });
             if (newUserAcc && typeof simpanUserKeSupabase === 'function') {
@@ -14747,7 +16264,7 @@ async function prosesUploadExcelToko(event) {
           const userAcc = {
             id: newId,
             username: safeUsername,
-            password: '123',
+            password: generateUnique3DigitPassword(safeUsername),
             fullName: storeNameVal,
             storeCode: generatedCode,
             phone: '-',
@@ -14814,6 +16331,7 @@ async function prosesUploadExcelToko(event) {
             id: s.id,
             full_name: s.fullName,
             area: s.area,
+            store_code: s.storeCode || generateStoreCode(s.fullName, s.area),
             created_by: s.createdBy
           }));
           await supabase.from('toko_list').upsert(supaStoresPayload);
@@ -14867,14 +16385,14 @@ function downloadExcel() {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
+  showLoading('MOHON TUNGGU...');
   setTimeout(() => {
     hideLoading();
     const rows = [];
     rows.push([
       'NO SURAT', 'TANGGAL', 'TOKO', 'AREA', 'JENIS PERMINTAAN', 'STATUS',
       'NO', 'TYPE BARANG', 'NO SERI', 'DUS BARANG', 'PERMINTAAN DETAIL', 'ALASAN', 'QTY',
-      'STATUS PART',
+      'STATUS PART', 'BREAKDOWN SURAT',
       'PEMOHON', 'CATATAN'
     ]);
 
@@ -14925,6 +16443,7 @@ function downloadExcel() {
             item.alasan || '-',
             item.qty || item.jumlah || 1,
             statusPartVal,
+            getBreakdownSuratExportValue(r, item),
             r.createdBy,
             r.catatan || ''
           ]);
@@ -14945,6 +16464,7 @@ function downloadExcel() {
           '-',
           1,
           '-',
+          getBreakdownSuratExportValue(r, null),
           r.createdBy,
           r.catatan || ''
         ]);
@@ -14998,7 +16518,7 @@ function showConfirm(msg, callback, cancelCallback = null, customYesText = 'YA, 
     btnBatal.innerText = customNoText;
     btnBatal.onclick = function(e) {
       if (e) { e.preventDefault(); e.stopPropagation(); }
-      closeConfirm();
+      confirmNo();
     };
   }
   if (btnOk) {
@@ -15009,7 +16529,11 @@ function showConfirm(msg, callback, cancelCallback = null, customYesText = 'YA, 
     };
   }
 
-  modal.style.setProperty('z-index', '2000000000', 'important');
+  modal.style.setProperty('z-index', '2147483647', 'important');
+  const confirmCard = modal.querySelector('.confirmBoxCard') || modal.querySelector('.popupNotifCard') || modal.querySelector('.popupBox');
+  if (confirmCard) {
+    confirmCard.style.setProperty('z-index', '2147483648', 'important');
+  }
   modal.style.setProperty('display', 'flex', 'important');
   modal.style.setProperty('pointer-events', 'auto', 'important');
   modal.classList.add('show');
@@ -15023,14 +16547,29 @@ function closeConfirm() {
     modal.style.setProperty('display', 'none', 'important');
     modal.classList.remove('show');
   }
-  const ccb = confirmCancelCallback;
   confirmCallback = null;
   confirmCancelCallback = null;
-  if (typeof ccb === 'function') {
-    try { ccb(); } catch(e) {}
-  }
 }
 window.closeConfirm = closeConfirm;
+
+function confirmNo() {
+  const cancelCb = confirmCancelCallback;
+  confirmCallback = null;
+  confirmCancelCallback = null;
+  const modal = document.getElementById('confirmOverlay');
+  if (modal) {
+    modal.style.setProperty('display', 'none', 'important');
+    modal.classList.remove('show');
+  }
+  if (typeof cancelCb === 'function') {
+    try {
+      cancelCb();
+    } catch(err) {
+      console.error('Error in confirmCancelCallback:', err);
+    }
+  }
+}
+window.confirmNo = confirmNo;
 
 function confirmYes() {
   const cb = confirmCallback;
@@ -15123,8 +16662,11 @@ function showNotif(msg, type = 'info') {
   }
 
   if (notifOverlay) {
-    notifOverlay.style.setProperty('z-index', '2147483646', 'important');
+    notifOverlay.style.setProperty('z-index', '2147483648', 'important');
     notifOverlay.style.setProperty('display', 'flex', 'important');
+  }
+  if (notifCard) {
+    notifCard.style.setProperty('z-index', '2147483649', 'important');
   }
 }
 
@@ -15443,7 +16985,8 @@ function bukaViewGambar(src, startIdx = 0) {
   }
 
   if (modal) {
-    modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('z-index', '2147483648', 'important');
     modal.style.setProperty('z-index', '2147483646', 'important');
     modal.classList.add('show');
   }
@@ -15963,7 +17506,8 @@ window.triggerUploadExcelAutoFill = triggerUploadExcelAutoFill;
 function downloadTemplateExcelPermintaan() {
   const modal = document.getElementById('excelTemplateOverlay');
   if (modal) {
-    modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('z-index', '2147483648', 'important');
     modal.classList.add('show');
     if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
   } else {
@@ -16545,14 +18089,10 @@ function aturGeminiApiKey() {
   };
   if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
 
-  const isDesktop = window.innerWidth > 768;
-  const alignStyle = isDesktop ? 'align-items: center !important; padding: 12px !important;' : 'align-items: flex-start !important; padding-top: 1mm !important; padding-bottom: 2mm !important; padding-left: 2mm !important; padding-right: 2mm !important;';
-  const marginStyle = isDesktop ? 'margin: auto !important;' : 'margin: 0 auto !important;';
-
-  modal.style.cssText = `display: flex !important; position: fixed !important; top: 0px !important; left: 0px !important; right: 0px !important; bottom: 0px !important; width: 100vw !important; height: 100vh !important; background: rgba(0, 0, 0, 0.85) !important; z-index: 1000000000 !important; justify-content: center !important; ${alignStyle} box-sizing: border-box !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; backdrop-filter: blur(4px) !important; -webkit-backdrop-filter: blur(4px) !important;`;
+  modal.style.cssText = 'display: flex !important; position: fixed !important; top: 0px !important; left: 0px !important; right: 0px !important; bottom: 0px !important; width: 100vw !important; height: 100vh !important; height: 100dvh !important; background: rgba(0, 0, 0, 0.85) !important; z-index: 2147483647 !important; justify-content: center !important; align-items: center !important; padding: 1mm !important; padding-left: 1mm !important; padding-right: 1mm !important; box-sizing: border-box !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; backdrop-filter: blur(4px) !important; -webkit-backdrop-filter: blur(4px) !important;';
 
   modal.innerHTML = `
-    <div onclick="event.stopPropagation()" style="background: #ffffff !important; color: #0f172a !important; border-radius: 4px !important; width: 100% !important; max-width: 480px !important; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important; border: 2.5px solid #f59e0b !important; overflow: hidden !important; box-sizing: border-box !important; ${marginStyle} font-family: system-ui, -apple-system, sans-serif !important;">
+    <div class="modalKeyBox" onclick="event.stopPropagation()" style="background: #ffffff !important; color: #0f172a !important; border-radius: 6px !important; width: calc(100vw - 2mm) !important; max-width: 380px !important; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important; border: 2.5px solid #f59e0b !important; overflow: hidden !important; box-sizing: border-box !important; margin: auto !important; font-family: system-ui, -apple-system, sans-serif !important;">
       <div style="background: linear-gradient(135deg, #f59e0b, #d97706) !important; padding: 14px 18px !important; color: #ffffff !important; display: flex !important; justify-content: space-between !important; align-items: center !important;">
         <div style="display: flex !important; align-items: center !important; gap: 8px !important; font-weight: 800 !important; font-size: 14px !important; letter-spacing: 0.5px !important;">
           <span class="material-symbols-rounded" style="font-size: 22px !important; color: #ffffff !important;">key</span>
@@ -16560,7 +18100,7 @@ function aturGeminiApiKey() {
         </div>
         <button type="button" onclick="tutupModalGeminiApiKey()" style="color: #ffffff !important; font-weight: 900 !important; font-size: 28px !important; background: transparent !important; border: none !important; cursor: pointer !important; line-height: 1 !important; padding: 0 4px !important;" title="TUTUP">&times;</button>
       </div>
-      <div style="padding: 18px !important; display: flex !important; flex-direction: column !important; gap: 14px !important; box-sizing: border-box !important; background: #ffffff !important;">
+      <div class="modalKeyBody" style="padding: 16px !important; display: flex !important; flex-direction: column !important; gap: 14px !important; box-sizing: border-box !important; background: #ffffff !important;">
         <p style="margin: 0 !important; font-size: 12px !important; color: #475569 !important; line-height: 1.5 !important;">
           Masukan KEY AI. Buat key gratis di <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" style="color: #d97706 !important; font-weight: 700 !important; text-decoration: underline !important;">https://aistudio.google.com/</a>
         </p>
@@ -16575,18 +18115,13 @@ function aturGeminiApiKey() {
             <input type="text" id="inputGeminiApiKeyVal" value="${currentKey}" placeholder="Tempel API Key di sini (Contoh: AIzaSy...)" style="width: 100% !important; height: 44px !important; padding: 8px 12px !important; border-radius: 3px !important; border: 1.5px solid #cbd5e1 !important; background: #f8fafc !important; color: #0f172a !important; font-family: monospace !important; font-size: 13px !important; outline: none !important; box-sizing: border-box !important;">
           </div>
         </div>
-        <div style="display: flex !important; gap: 8px !important; justify-content: space-between !important; align-items: center !important; margin-top: 6px !important; flex-wrap: wrap !important;">
-          <button type="button" onclick="hapusGeminiApiKeyPermanen()" style="background: #fee2e2 !important; color: #dc2626 !important; border: 1px solid #fca5a5 !important; border-radius: 3px !important; padding: 10px 14px !important; font-weight: 700 !important; font-size: 12px !important; cursor: pointer !important;">
-            KOSONGKAN KEY
+        <div style="display: flex !important; gap: 8px !important; justify-content: flex-end !important; align-items: center !important; margin-top: 8px !important; width: 100% !important;">
+          <button type="button" onclick="tutupModalGeminiApiKey()" style="flex: 1 !important; height: 36px !important; background: var(--bg-body, #f1f5f9) !important; color: var(--text-main, #334155) !important; border: 1px solid var(--border-color, #cbd5e1) !important; border-radius: 6px !important; padding: 0 14px !important; font-weight: 700 !important; font-size: 12px !important; cursor: pointer !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 4px !important;">
+            BATAL
           </button>
-          <div style="display: flex !important; gap: 8px !important; align-items: center !important;">
-            <button type="button" onclick="tutupModalGeminiApiKey()" style="background: #f1f5f9 !important; color: #334155 !important; border: 1px solid #cbd5e1 !important; border-radius: 3px !important; padding: 10px 16px !important; font-weight: 700 !important; font-size: 12px !important; cursor: pointer !important;">
-              BATAL
-            </button>
-            <button type="button" onclick="simpanGeminiApiKeyDariModal()" style="background: linear-gradient(135deg, #f59e0b, #d97706) !important; color: #ffffff !important; border: none !important; border-radius: 3px !important; padding: 10px 20px !important; font-weight: 800 !important; font-size: 12px !important; cursor: pointer !important; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.35) !important;">
-              SIMPAN PERUBAHAN
-            </button>
-          </div>
+          <button type="button" onclick="simpanGeminiApiKeyDariModal()" style="flex: 1 !important; height: 36px !important; background: linear-gradient(135deg, #f59e0b, #d97706) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 0 16px !important; font-weight: 800 !important; font-size: 12px !important; cursor: pointer !important; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.35) !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 4px !important;">
+            <span class="material-symbols-rounded" style="font-size: 16px;">save</span> SIMPAN
+          </button>
         </div>
       </div>
     </div>
@@ -16651,11 +18186,18 @@ function syncGeminiApiKeyToLocalCache(keyVal) {
 }
 window.syncGeminiApiKeyToLocalCache = syncGeminiApiKeyToLocalCache;
 
-async function autoSyncGeminiKeyToSupabase() {
-  const supa = (typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : ((typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') ? supabase : (window.supabase && typeof window.supabase.from === 'function' ? window.supabase : null));
-  
+let __lastSyncedGeminiKeyVal = null;
+let __isSyncingGeminiKeyNow = false;
+
+async function autoSyncGeminiKeyToSupabase(force = false) {
+  if (__isSyncingGeminiKeyNow) return false;
   const key = getGeminiApiKey();
   if (!key) return false;
+
+  // Jika kunci tidak berubah dan tidak dipaksa (force), panggil 1x saja
+  if (!force && __lastSyncedGeminiKeyVal === key) {
+    return true;
+  }
 
   // Hanya Admin / Pusat yang berhak memperbarui Kunci Utama Terpusat di Supabase
   const isAdmin = !currentUser || currentUser.role === 'ADMIN' || currentUser.category === 'ADMIN' || (currentUser.username && String(currentUser.username).toLowerCase().includes('admin'));
@@ -16664,57 +18206,58 @@ async function autoSyncGeminiKeyToSupabase() {
     return false;
   }
 
-  const systemGeminiRow = {
-    id: '__SYSTEM_GEMINI_KEY__',
-    no_surat: '__SYSTEM_GEMINI_KEY__',
-    tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
-    toko: 'SYSTEM',
-    area: 'ALL',
-    jenis: 'SYSTEM',
-    catatan: JSON.stringify({ geminiApiKey: key, time: Date.now(), by: (currentUser && currentUser.username ? currentUser.username : 'USER') || 'ADMIN' }),
-    items: [],
-    photos: [],
-    status: 'DONE',
-    service_approve: true,
-    created_by: 'SYSTEM',
-    created_at: new Date().toISOString()
-  };
-
+  __isSyncingGeminiKeyNow = true;
   let success = false;
 
-  if (typeof safeSupabaseUpsertPermintaan === 'function') {
-    try {
+  try {
+    const systemGeminiRow = {
+      id: '__SYSTEM_GEMINI_KEY__',
+      no_surat: '__SYSTEM_GEMINI_KEY__',
+      tanggal: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '',
+      toko: 'SYSTEM',
+      area: 'ALL',
+      jenis: 'SYSTEM',
+      catatan: JSON.stringify({ geminiApiKey: key, time: Date.now(), by: (currentUser && currentUser.username ? currentUser.username : 'USER') || 'ADMIN' }),
+      items: [],
+      photos: [],
+      status: 'DONE',
+      service_approve: true,
+      created_by: 'SYSTEM',
+      created_at: new Date().toISOString()
+    };
+
+    if (typeof safeSupabaseUpsertPermintaan === 'function') {
       const res = await safeSupabaseUpsertPermintaan(systemGeminiRow);
       if (res && !res.error) {
         console.log('⚡ [SUPABASE SUCCESS]: __SYSTEM_GEMINI_KEY__ pushed to permintaan_toko!');
         success = true;
+        __lastSyncedGeminiKeyVal = key;
       }
-    } catch(e) {}
-  }
-
-  if (supa) {
-    try {
-      await supa.from('permintaan_toko').upsert([systemGeminiRow], { onConflict: 'id' });
-      success = true;
-    } catch(e) {}
-
-    try {
-      await supa.from('lookup').upsert({ key: 'geminiApiKey', value: key, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-    } catch(eLook) {}
+    } else {
+      const supa = (typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : ((typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') ? supabase : (window.supabase && typeof window.supabase.from === 'function' ? window.supabase : null));
+      if (supa) {
+        await supa.from('permintaan_toko').upsert([systemGeminiRow], { onConflict: 'id' });
+        console.log('⚡ [SUPABASE SUCCESS]: __SYSTEM_GEMINI_KEY__ pushed to permintaan_toko!');
+        success = true;
+        __lastSyncedGeminiKeyVal = key;
+      }
+    }
+  } catch(e) {
+    console.warn('[SUPABASE GEMINI KEY SYNC ERROR]:', e);
+  } finally {
+    __isSyncingGeminiKeyNow = false;
   }
 
   return success;
 }
 window.autoSyncGeminiKeyToSupabase = autoSyncGeminiKeyToSupabase;
 
-// JALANKAN PROTUSI ULANG SINKRONISASI PADA INTERVAL 1s, 3s, 5s, 10s, 15s UNTUK MENJAMIN MASUK SUPABASE
-[1000, 3000, 5000, 10000, 15000].forEach(delay => {
-  setTimeout(() => {
-    if (typeof autoSyncGeminiKeyToSupabase === 'function') {
-      autoSyncGeminiKeyToSupabase().catch(() => {});
-    }
-  }, delay);
-});
+// JALANKAN 1X SAJA PADA STARTUP
+setTimeout(() => {
+  if (typeof autoSyncGeminiKeyToSupabase === 'function') {
+    autoSyncGeminiKeyToSupabase().catch(() => {});
+  }
+}, 1000);
 
 function simpanGeminiApiKeyDariModal() {
   const input = document.getElementById('inputGeminiApiKeyVal');
@@ -16732,9 +18275,7 @@ function simpanGeminiApiKeyDariModal() {
   tutupModalGeminiApiKey();
 
   if (typeof autoSyncGeminiKeyToSupabase === 'function') {
-    autoSyncGeminiKeyToSupabase().catch(() => {});
-    setTimeout(autoSyncGeminiKeyToSupabase, 1000);
-    setTimeout(autoSyncGeminiKeyToSupabase, 3000);
+    autoSyncGeminiKeyToSupabase(true).catch(() => {});
   }
   if (typeof pushCentralCloudDB === 'function') {
     pushCentralCloudDB().catch(() => {});
@@ -17379,13 +18920,23 @@ function saveStoresToDB(stores, targetStore = null) {
   if (isSupabaseConfigured && typeof supabase !== 'undefined' && supabase) {
     try {
       const sourceStores = targetStore ? (Array.isArray(targetStore) ? targetStore : [targetStore]) : stores;
-      const supaStores = sourceStores.map(s => ({
-        id: s.id,
-        full_name: s.fullName,
-        area: s.area,
-        created_by: s.createdBy || 'ADMIN',
-        updated_at: new Date().toISOString()
-      })).filter(s => s.id);
+      const usersList = (typeof getUsersFromDB === 'function' ? getUsersFromDB() : []);
+      const supaStores = sourceStores.map(s => {
+        const sNameUpper = String(s.fullName || '').trim().toUpperCase();
+        const uMatch = usersList.find(u => u && u.fullName && String(u.fullName).trim().toUpperCase() === sNameUpper);
+        const finalCode = (uMatch && uMatch.storeCode && String(uMatch.storeCode).trim().length === 2)
+          ? String(uMatch.storeCode).trim().toUpperCase()
+          : (s.storeCode || generateStoreCode(s.fullName, s.area));
+        s.storeCode = finalCode;
+        return {
+          id: s.id,
+          full_name: s.fullName,
+          area: s.area,
+          store_code: finalCode,
+          created_by: s.createdBy || 'ADMIN',
+          updated_at: new Date().toISOString()
+        };
+      }).filter(s => s.id);
 
       if (supaStores.length > 0) {
         supabase.from('toko_list').upsert(supaStores, { onConflict: 'id' }).then(({ error }) => {
@@ -17526,7 +19077,8 @@ function hapusPenyimpananLokalAkun() {
     inputPin.style.borderColor = 'var(--border-color)';
   }
   if (modal) {
-    modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('display', 'flex', 'important');
+modal.style.setProperty('z-index', '2147483648', 'important');
     modal.classList.add('show');
     setTimeout(() => {
       if (inputPin) {
@@ -17542,6 +19094,18 @@ function tutupModalPinHapusLokal() {
   if (modal) {
     modal.style.setProperty('display', 'none', 'important');
     modal.classList.remove('show');
+  }
+  const inputPin = document.getElementById('inputPinHapusLokal');
+  if (inputPin) inputPin.value = '';
+  const errEl = document.getElementById('pinHapusLokalError');
+  if (errEl) errEl.style.display = 'none';
+
+  const popupAkun = document.getElementById('popupAkun');
+  if (popupAkun) {
+    popupAkun.style.setProperty('display', 'flex', 'important');
+    popupAkun.classList.add('show');
+    popupAkun.dataset.active = 'true';
+    if (typeof updateBottomMenuHighlight === 'function') updateBottomMenuHighlight('popupAkun');
   }
 }
 window.tutupModalPinHapusLokal = tutupModalPinHapusLokal;
@@ -17713,14 +19277,14 @@ function downloadSingleDetailExcel(noSurat) {
     return;
   }
 
-  showLoading('MEMBUAT FILE EXCEL (.XLSX)...');
+  showLoading('MOHON TUNGGU...');
   setTimeout(() => {
     hideLoading();
     const rows = [];
     rows.push([
       'NO', 'NO SURAT', 'TANGGAL', 'TOKO', 'AREA', 'JENIS PERMINTAAN',
       'TIPE BARANG', 'NO SERI', 'DUS BARANG', 'PERMINTAAN DETAIL', 'ALASAN', 'QTY',
-      'STATUS PART', 'STATUS SURAT', 'PEMOHON', 'CATATAN'
+      'STATUS PART', 'BREAKDOWN SURAT', 'STATUS SURAT', 'PEMOHON', 'CATATAN'
     ]);
 
     let rawItems = req.items;
@@ -17775,6 +19339,7 @@ function downloadSingleDetailExcel(noSurat) {
           it.alasan || '-',
           it.qty || it.jumlah || 1,
           statusPartVal,
+          getBreakdownSuratExportValue(req, it),
           isUnfulfilled ? `${req.status || 'PENDING'} (TIDAK DIPENUHI)` : (req.status || '-'),
           req.createdBy || '-',
           req.catatan || ''
@@ -17783,7 +19348,7 @@ function downloadSingleDetailExcel(noSurat) {
     } else {
       rows.push([
         1, req.noSurat || '-', req.tanggal || '-', req.toko || '-', req.area || '-', req.jenis || '-',
-        '-', '-', '-', '-', '-', 1, '-', req.status || '-', req.createdBy || '-', req.catatan || ''
+        '-', '-', '-', '-', '-', 1, '-', getBreakdownSuratExportValue(req, null), req.status || '-', req.createdBy || '-', req.catatan || ''
       ]);
     }
 
@@ -17806,3 +19371,2273 @@ window.addEventListener('focus', () => {
     if (typeof syncSupabaseIncremental === 'function') syncSupabaseIncremental();
   }
 });
+
+// =======================================================================
+// DEDICATED HELPER TABLE (breakdown_parsial) ARCHITECTURE & WORKFLOW
+// =======================================================================
+
+const BREAKDOWN_PARSIAL_KEY = 'APP_BREAKDOWN_PARSIAL_DB_V2';
+
+function getAllPartialBreakdownsFromDB() {
+  try {
+    const data = appStorage.getItem(BREAKDOWN_PARSIAL_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(BREAKDOWN_PARSIAL_KEY) : null);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function getPartialBreakdownsFromDB(noSurat) {
+  if (!noSurat) return [];
+  const targetNs = String(noSurat).trim().toUpperCase();
+  const allPartials = getAllPartialBreakdownsFromDB();
+  
+  let list = allPartials.filter(p => p && String(p.no_surat_induk || p.noSurat || '').trim().toUpperCase() === targetNs);
+
+  if (list.length === 0 && typeof getRequestsFromDB === 'function') {
+    const reqs = getRequestsFromDB();
+    const req = reqs.find(r => r && (String(r.noSurat).trim().toUpperCase() === targetNs || String(r.id).trim().toUpperCase() === targetNs));
+    if (req && Array.isArray(req.partialBreakdowns) && req.partialBreakdowns.length > 0) {
+      list = req.partialBreakdowns.map(p => ({
+        id: p.id || `${String(noSurat).replace(/[\/\.]/g, '_')}_${p.partialId || 'P1'}`,
+        no_surat_induk: noSurat,
+        partial_id: p.partialId || p.id || 'P1',
+        items: Array.isArray(p.items) ? p.items : [],
+        photos: parsePhotosArray(p.photos),
+        status: p.status || 'PENDING',
+        created_by: p.createdBy || p.created_by || '',
+        created_at: p.createdAt || p.created_at || `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`,
+        approved_by: p.approvedBy || p.approved_by || '',
+        approved_at: p.approvedAt || p.approved_at || null,
+        reject_reason: p.reason || p.reject_reason || ''
+      }));
+    }
+  }
+
+  return list;
+}
+window.getPartialBreakdownsFromDB = getPartialBreakdownsFromDB;
+
+function savePartialBreakdownsToDB(newPartials, targetNoSurat) {
+  try {
+    const all = getAllPartialBreakdownsFromDB();
+    const targetNs = String(targetNoSurat).trim().toUpperCase();
+    
+    const cleanNewPartials = [];
+    const seenPIds = new Set();
+    if (Array.isArray(newPartials)) {
+      newPartials.forEach(p => {
+        if (p) {
+          const pidKey = String(p.partial_id || p.partialId || p.id || '').toUpperCase();
+          if (pidKey && !seenPIds.has(pidKey)) {
+            seenPIds.add(pidKey);
+            cleanNewPartials.push(p);
+          }
+        }
+      });
+    }
+
+    let updated = all.filter(p => p && String(p.no_surat_induk || p.noSurat || '').trim().toUpperCase() !== targetNs);
+    updated.push(...cleanNewPartials);
+    
+    appStorage.setItem(BREAKDOWN_PARSIAL_KEY, JSON.stringify(updated));
+    if (typeof localStorage !== 'undefined') {
+      try { localStorage.setItem(BREAKDOWN_PARSIAL_KEY, JSON.stringify(updated)); } catch(e) {}
+    }
+
+    const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+    const rIdx = reqs.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === targetNs);
+    if (rIdx !== -1) {
+      reqs[rIdx].partialBreakdowns = cleanNewPartials;
+      saveRequestsToDB(reqs, reqs[rIdx], 'UPDATE');
+    }
+
+    pushPartialBreakdownsToCloud(cleanNewPartials, targetNoSurat).catch(() => {});
+
+  } catch(e) {
+    console.warn('[SAVE PARTIAL BREAKDOWNS ERROR]:', e);
+  }
+}
+window.savePartialBreakdownsToDB = savePartialBreakdownsToDB;
+
+function formatValidIsoTimestamp(dateVal) {
+  if (!dateVal) return new Date().toISOString();
+  if (dateVal instanceof Date) return isNaN(dateVal.getTime()) ? new Date().toISOString() : dateVal.toISOString();
+  
+  const str = String(dateVal).trim();
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d.toISOString();
+
+  if (str.includes('/')) {
+    const parts = str.split(' ');
+    const dateParts = parts[0].split('/');
+    if (dateParts.length === 3) {
+      const day = dateParts[0].padStart(2, '0');
+      const month = dateParts[1].padStart(2, '0');
+      const year = dateParts[2].length === 4 ? dateParts[2] : `20${dateParts[2]}`;
+      const timeStr = (parts[1] || '00:00:00').replace(/\./g, ':');
+      const isoCandidate = `${year}-${month}-${day}T${timeStr}`;
+      const d2 = new Date(isoCandidate);
+      if (!isNaN(d2.getTime())) return d2.toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
+async function pushPartialBreakdownsToCloud(partials, noSurat) {
+  if (!noSurat) return;
+  const nsKey = String(noSurat).replace(/[\/\.]/g, '_');
+
+  try {
+    const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
+    if (rtdb) {
+      await rtdb.ref('partial_breakdowns/' + nsKey).set(partials || []).catch(() => {});
+    }
+  } catch(rtErr) {}
+
+  if (typeof supabase !== 'undefined' && supabase) {
+    try {
+      if (!Array.isArray(partials) || partials.length === 0) {
+        const { error: delErr } = await supabase.from('breakdown_parsial').delete().eq('no_surat_induk', noSurat);
+        if (delErr) console.warn('[SUPABASE DELETE BREAKDOWN ERROR]:', delErr);
+      } else {
+        const rowsMap = new Map();
+        partials.forEach(p => {
+          if (p) {
+            const pId = p.partial_id || p.partialId || 'P1';
+            const rowId = p.id || `${nsKey}_${pId}`;
+            rowsMap.set(rowId, {
+              id: rowId,
+              no_surat_induk: noSurat,
+              partial_id: pId,
+              items: Array.isArray(p.items) ? p.items : [],
+              photos: parsePhotosArray(p.photos),
+              status: p.status || 'PENDING',
+              created_by: p.created_by || p.createdBy || '',
+              created_at: formatValidIsoTimestamp(p.created_at || p.createdAt),
+              approved_by: p.approved_by || p.approvedBy || '',
+              approved_at: (p.approved_at || p.approvedAt) ? formatValidIsoTimestamp(p.approved_at || p.approvedAt) : null,
+              reject_reason: p.reject_reason || p.reason || ''
+            });
+          }
+        });
+
+        const rows = Array.from(rowsMap.values());
+        if (rows.length > 0) {
+          const { error: upErr } = await supabase.from('breakdown_parsial').upsert(rows, { onConflict: 'id' });
+          if (upErr) {
+            console.error('[SUPABASE BREAKDOWN UPSERT ERROR]:', upErr);
+            if (upErr.code === '42P01' || String(upErr.message || '').includes('does not exist')) {
+              if (typeof showNotif === 'function') {
+                showNotif('TABEL breakdown_parsial BELUM DIBUAT DI SUPABASE! Silakan jalankan DDL SQL yang disediakan.', 'warning');
+              }
+            }
+          } else {
+            console.log('[SUPABASE BREAKDOWN SUCCESS]: Saved', rows.length, 'partial breakdown rows to cloud.');
+          }
+        }
+      }
+    } catch(spErr) {
+      console.error('[SUPABASE BREAKDOWN EXCEPTION]:', spErr);
+    }
+  }
+}
+
+async function syncSupabaseBreakdownParsialToLocalCache() {
+  if (typeof supabase === 'undefined' || !supabase) return;
+  try {
+    const { data, error } = await supabase.from('breakdown_parsial').select('*');
+    if (!error && Array.isArray(data)) {
+      const formatted = data.map(p => ({
+        id: p.id,
+        no_surat_induk: p.no_surat_induk,
+        partial_id: p.partial_id,
+        items: Array.isArray(p.items) ? p.items : (typeof p.items === 'string' ? JSON.parse(p.items || '[]') : []),
+        photos: parsePhotosArray(p.photos),
+        status: p.status || 'PENDING',
+        created_by: p.created_by || '',
+        created_at: p.created_at || '',
+        approved_by: p.approved_by || '',
+        approved_at: p.approved_at || null,
+        reject_reason: p.reject_reason || ''
+      }));
+
+      appStorage.setItem(BREAKDOWN_PARSIAL_KEY, JSON.stringify(formatted));
+      if (typeof localStorage !== 'undefined') {
+        try { localStorage.setItem(BREAKDOWN_PARSIAL_KEY, JSON.stringify(formatted)); } catch(e) {}
+      }
+    }
+  } catch (err) {
+    console.warn('[SYNC BREAKDOWN PARSIAL FROM SUPABASE NOTICE]:', err);
+  }
+}
+window.syncSupabaseBreakdownParsialToLocalCache = syncSupabaseBreakdownParsialToLocalCache;
+
+function kirimNotifDanWaBreakdown(noSurat, partialId, statusType, extra = {}) {
+  if (!noSurat || !partialId) return;
+
+  // JIKA APPROVAL DM DIMATIKAN (TANPA APPROVAL DM), JANGAN KIRIM NOTIFIKASI PENDING APPROVAL KE DM
+  if (statusType === 'PENDING' && window.REQUIRE_DM_APPROVAL_PARSIAL === false) {
+    return;
+  }
+  
+  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  const targetArea = req ? (req.area || 'ALL') : 'ALL';
+  const tokoName = req ? (req.toko || 'TOKO') : 'TOKO';
+
+  let msg = '';
+  let targetRoles = ['SERVICE', 'ADMIN', 'DM'];
+
+  if (statusType === 'PENDING') {
+    targetRoles = ['DM', 'ADMIN'];
+    msg = `[BREAKDOWN PARSIAL] MOHON APPROVAL DM - Surat Jalan Parsial #${noSurat}-${partialId} (${tokoName}) telah diajukan.`;
+  } else if (statusType === 'APPROVE') {
+    targetRoles = ['SERVICE', 'ADMIN', 'TOKO', 'GBJ'];
+    msg = `[BREAKDOWN PARSIAL] DISETUJUI DM - Surat Jalan Parsial #${noSurat}-${partialId} (${tokoName}) telah disetujui!`;
+  } else if (statusType === 'REJECT') {
+    targetRoles = ['SERVICE', 'ADMIN', 'TOKO', 'GBJ'];
+    msg = `[BREAKDOWN PARSIAL] DITOLAK DM - Surat Jalan Parsial #${noSurat}-${partialId} (${tokoName}) ditolak DM. Alasan: ${extra.reason || '-'}`;
+  }
+
+  if (msg && typeof tambahNotifikasiSistem === 'function') {
+    tambahNotifikasiSistem(targetRoles, targetArea, msg, noSurat);
+  }
+}
+window.kirimNotifDanWaBreakdown = kirimNotifDanWaBreakdown;
+
+function tampilkanLoadingProses(pesan = 'MOHON TUNGGU...') {
+  if (typeof showLoading === 'function') {
+    showLoading(pesan);
+  } else {
+    const existing = document.getElementById('loadingProsesOverlay');
+    if (existing) existing.remove();
+
+    const loadingHtml = `
+      <div id="loadingProsesOverlay" class="modal-overlay active" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(5px); z-index: 2147483647 !important; align-items: center; justify-content: center;">
+        <div style="background: rgba(15, 23, 42, 0.95); color: #f8fafc; padding: 22px 28px !important; border-radius: 12px !important; border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 12px 36px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; gap: 12px !important; text-align: center; max-width: 320px;">
+          <div style="width: 48px; height: 48px; border: 4px solid rgba(255,255,255,0.15); border-top-color: #38bdf8; border-right-color: #818cf8; border-radius: 50%; animation: spin 0.8s linear infinite; filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.9));"></div>
+          <div style="font-size: 13px; font-weight: 700; color: #f8fafc; letter-spacing: 0.5px; text-transform: uppercase;">${pesan}</div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', loadingHtml);
+  }
+}
+window.tampilkanLoadingProses = tampilkanLoadingProses;
+
+function tutupLoadingProses() {
+  if (typeof hideLoading === 'function') {
+    hideLoading();
+  }
+  const el = document.getElementById('loadingProsesOverlay');
+  if (el) el.remove();
+}
+window.tutupLoadingProses = tutupLoadingProses;
+
+function calcItemDeliveredQty(req, itemIdx) {
+  if (!req || !Array.isArray(req.items) || itemIdx < 0 || itemIdx >= req.items.length) return 0;
+  const partials = getPartialBreakdownsFromDB(req.noSurat);
+  const approvedPartials = partials.filter(p => p && (p.status === 'APPROVE' || p.status === 'DONE'));
+  
+  let delivered = 0;
+  approvedPartials.forEach(p => {
+    if (Array.isArray(p.items)) {
+      p.items.forEach(pi => {
+        if (pi.itemIdx !== undefined && pi.itemIdx !== null) {
+          if (Number(pi.itemIdx) === itemIdx) {
+            delivered += Number(pi.qtyDiserahkan || pi.qty || pi.jumlah || 0);
+          }
+        } else if (String(pi.type || pi.tipe || '').trim() === String(req.items[itemIdx].type || req.items[itemIdx].tipe || '').trim()) {
+          delivered += Number(pi.qtyDiserahkan || pi.qty || pi.jumlah || 0);
+        }
+      });
+    }
+  });
+
+  return delivered;
+}
+window.calcItemDeliveredQty = calcItemDeliveredQty;
+
+function calcItemAllocatedQty(req, itemIdx) {
+  if (!req || !Array.isArray(req.items) || itemIdx < 0 || itemIdx >= req.items.length) return 0;
+  const partials = getPartialBreakdownsFromDB(req.noSurat);
+  const activePartials = partials.filter(p => p && (p.status === 'APPROVE' || p.status === 'DONE' || p.status === 'PENDING'));
+  
+  let allocated = 0;
+  activePartials.forEach(p => {
+    if (Array.isArray(p.items)) {
+      p.items.forEach(pi => {
+        if (pi.itemIdx !== undefined && pi.itemIdx !== null) {
+          if (Number(pi.itemIdx) === itemIdx) {
+            allocated += Number(pi.qtyDiserahkan || pi.qty || pi.jumlah || 0);
+          }
+        } else if (String(pi.type || pi.tipe || '').trim() === String(req.items[itemIdx].type || req.items[itemIdx].tipe || '').trim()) {
+          allocated += Number(pi.qtyDiserahkan || pi.qty || pi.jumlah || 0);
+        }
+      });
+    }
+  });
+
+  return allocated;
+}
+window.calcItemAllocatedQty = calcItemAllocatedQty;
+
+function calcItemRemainingQty(req, itemIdx) {
+  if (!req || !Array.isArray(req.items) || itemIdx < 0 || itemIdx >= req.items.length) return 0;
+  const it = req.items[itemIdx];
+  const reqQty = Number(it.qty || it.jumlah || 1);
+  const allocatedQty = calcItemAllocatedQty(req, itemIdx);
+  const rem = reqQty - allocatedQty;
+  return rem > 0 ? rem : 0;
+}
+window.calcItemRemainingQty = calcItemRemainingQty;
+
+function isRequestReadyForDone(req) {
+  if (!req || !Array.isArray(req.items) || req.items.length === 0) return true;
+  const partials = getPartialBreakdownsFromDB(req.noSurat);
+  
+  // Jika TIDAK ADA breakdown (atau pengajuan breakdown sudah dibatalkan/dihapus):
+  // Ini adalah transaksi biasa -> LANGSUNG BISA DONE KETERANGAN BIASA!
+  if (!Array.isArray(partials) || partials.length === 0) {
+    return true;
+  }
+
+  // Jika TERDAPAT breakdown:
+  // 1. Pastikan semua breakdown parsial sudah DONE / REJECT (tidak ada yang PENDING/APPROVE gantung)
+  const unDonePartials = partials.filter(p => p && p.status !== 'DONE' && p.status !== 'REJECT');
+  if (unDonePartials.length > 0) return false;
+
+  // 2. Pastikan tidak ada sisa Qty yang belum dibreakdown kecuali jika ditandai "TIDAK DIPENUHI"
+  const unfulfilledItems = req.items.filter((it, idx) => {
+    const remQty = calcItemRemainingQty(req, idx);
+    const isUnfulfilled = it.isUnfulfilled || String(it.keterangan || '').toUpperCase() === 'TIDAK DIPENUHI' || String(it.keteranganPart || '').toUpperCase() === 'TIDAK DIPENUHI';
+    return remQty > 0 && !isUnfulfilled;
+  });
+
+  return unfulfilledItems.length === 0;
+}
+window.isRequestReadyForDone = isRequestReadyForDone;
+
+function bukaModalDoneParsial(noSurat, partialId) {
+  if (!noSurat || !partialId) return;
+  window._activeDonePartialNoSurat = noSurat;
+  window._activeDonePartialId = partialId;
+
+  const artemisNoSurat = document.getElementById('artemisNoSurat');
+  if (artemisNoSurat) artemisNoSurat.value = noSurat;
+  const inputKet = document.getElementById('inputKetPartArtemis');
+  if (inputKet) inputKet.value = '';
+
+  const pasteBox = document.getElementById('artemisPasteBox');
+  const previewGrid = document.getElementById('artemisPhotoPreviewGrid');
+  if (pasteBox) pasteBox.style.display = 'block';
+  if (previewGrid) previewGrid.style.display = 'flex';
+
+  const artemisSubTitle = document.getElementById('artemisSubTitle');
+  if (artemisSubTitle) artemisSubTitle.textContent = `UPLOAD FOTO BUKTI PROSES ARTEMIS UNTUK SURAT PARSIAL ${noSurat}-${partialId}:`;
+
+  const titleEl = document.getElementById('artemisTitle');
+  if (titleEl) {
+    titleEl.innerText = `SELESAIKAN SURAT PARSIAL (${noSurat}-${partialId})`;
+  }
+
+  tempArtemisPhotos = [];
+  renderArtemisPhotoPreviews();
+
+  const overlay = document.getElementById('artemisOverlay');
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.style.setProperty('z-index', '99999999', 'important');
+    overlay.style.setProperty('display', 'flex', 'important');
+    overlay.style.setProperty('visibility', 'visible', 'important');
+    overlay.style.setProperty('opacity', '1', 'important');
+    overlay.style.setProperty('pointer-events', 'auto', 'important');
+    try { history.pushState({ artemisModalOpen: true }, ''); } catch(e) {}
+  }
+}
+window.bukaModalDoneParsial = bukaModalDoneParsial;
+
+// =======================================================================
+// SERVICE BREAKDOWN SUBMISSION (+ AJUKAN BREAKDOWN)
+// =======================================================================
+
+function bukaModalBuatParsial(noSurat) {
+  if (!noSurat) return;
+  if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+  const userCatUpper = currentUser ? String(currentUser.category || '').toUpperCase() : '';
+  const userRoleUpper = currentUser ? String(currentUser.role || '').toUpperCase() : '';
+  const isStrictDMUser = currentUser && (userCatUpper.includes('DM') || userRoleUpper.includes('DM'));
+  const isStrictAdminUser = currentUser && (userCatUpper === 'ADMIN' || userRoleUpper === 'ADMIN' || String(currentUser.username).toUpperCase() === 'ADMIN');
+  
+  if (isStrictDMUser && !isStrictAdminUser) {
+    if (typeof showNotif === 'function') showNotif('AKUN DM TIDAK DAPAT MEMBUAT PENGAJUAN BREAKDOWN! HANYA ROLE SERVICE / ADMIN.', 'warning');
+    return;
+  }
+
+  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  if (!req) {
+    if (typeof showNotif === 'function') showNotif('SURAT PERMINTAAN TIDAK DITEMUKAN!', 'error');
+    return;
+  }
+
+  // Reset temporary photos list for new submission
+  window._tempParsialPhotos = [];
+
+  const existingModal = document.getElementById('modalBuatParsial');
+  if (existingModal) existingModal.remove();
+
+  // Sembunyikan popup detail barang jika sedang terbuka agar tidak tertutup / bertumpuk
+  const detailPopup = document.getElementById('popupDetailBarangV2');
+  if (detailPopup) {
+    detailPopup.style.display = 'none';
+    detailPopup.classList.remove('show');
+  }
+
+  // Filter item yang BELUM LUNAS & BELUM DITANDAI "TIDAK DIPENUHI"
+  const eligibleItems = [];
+  if (Array.isArray(req.items)) {
+    req.items.forEach((it, idx) => {
+      const remQty = calcItemRemainingQty(req, idx);
+      const isUnfulfilled = it.isUnfulfilled || String(it.keterangan || '').toUpperCase() === 'TIDAK DIPENUHI' || String(it.keteranganPart || '').toUpperCase() === 'TIDAK DIPENUHI';
+      
+      if (remQty > 0 && !isUnfulfilled) {
+        eligibleItems.push({
+          idx,
+          item: it,
+          remQty
+        });
+      }
+    });
+  }
+
+  if (eligibleItems.length === 0) {
+    if (typeof showNotif === 'function') {
+      showNotif('TIDAK ADA BARANG DENGAN SISA QTY YANG DAPAT DIBREAKDOWN! SEMUA BARANG SUDAH LUNAS ATAU DITANDAI "TIDAK DIPENUHI".', 'warning');
+    }
+    return;
+  }
+
+  const existingPartials = getPartialBreakdownsFromDB(noSurat);
+  // HANYA HITUNG PARSIAL YANG AKTIF (Bukan status REJECT / (TOLAK)) SEHINGGA NOMOR TETAP URUT 1-XXX
+  const activePartials = existingPartials.filter(p => p && p.status !== 'REJECT' && !String(p.partial_id || p.partialId || '').includes('(TOLAK)'));
+  const nextPartialNum = activePartials.length + 1;
+  const nextPartialId = `P${nextPartialNum}`;
+
+  window._activeParsialNoSurat = noSurat;
+  window._activeNextPartialId = nextPartialId;
+  window._tempParsialPhotos = [];
+
+  const rejectedPartials = existingPartials.filter(p => p && p.status === 'REJECT');
+
+  const itemsRowsHtml = eligibleItems.map((el, idxSeq) => {
+    const i = el.item;
+    const reqQty = Number(i.qty || i.jumlah || 1);
+    const delQty = calcItemDeliveredQty(req, el.idx);
+    const bgRow = idxSeq % 2 === 0 ? 'var(--bg-box)' : 'var(--bg-card)';
+    
+    const wasRejectedByDM = rejectedPartials.some(p => Array.isArray(p.items) && p.items.some(pi => {
+      if (pi.itemIdx !== undefined && pi.itemIdx !== null) {
+        return Number(pi.itemIdx) === el.idx;
+      }
+      return String(pi.type || pi.tipe || '').trim() === String(i.type || i.tipe || '').trim();
+    }));
+    const rejectBadge = wasRejectedByDM ? `<span style="font-size: 10px; background: #ef4444; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-left: 6px; display: inline-flex; align-items: center; gap: 2px;">🔴 DITOLAK DM (BISA DIAJUKAN ULANG)</span>` : '';
+
+    return `
+      <tr style="border-bottom: 1px solid var(--border-color); white-space: nowrap !important; transition: background 0.2s; background: ${bgRow} !important; border-radius: 0px !important; cursor: pointer;" id="parsialRow_${el.idx}" onclick="toggleParsialRowClick(event, ${el.idx})">
+        <td style="padding: 2mm !important; text-align: center; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">
+          <input type="checkbox" class="parsial-check" id="chkParsial_${el.idx}" data-idx="${el.idx}" data-rem="${el.remQty}" onchange="syncParsialCheckbox(${el.idx})" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary); border-radius: 2px !important;">
+        </td>
+        <td style="padding: 2mm !important; font-weight: 600; color: var(--text-main) !important; font-size: 11.5px; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">${i.type || i.tipe || '-'}${rejectBadge}</td>
+        <td style="padding: 2mm !important; color: var(--text-muted) !important; font-size: 11.5px; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">${i.seri || i.sn || '-'}</td>
+        <td style="padding: 2mm !important; color: var(--text-main) !important; font-weight: 500; font-size: 11.5px; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">${i.barang || i.permintaan || '-'}</td>
+        <td style="padding: 2mm !important; text-align: center; font-weight: 700; color: var(--text-main) !important; font-size: 11.5px; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">${reqQty}</td>
+        <td style="padding: 2mm !important; text-align: center; font-weight: 700; color: #10b981 !important; font-size: 11.5px; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">${delQty}</td>
+        <td style="padding: 2mm !important; text-align: center; font-weight: 800; color: var(--primary) !important; font-size: 12px; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">${el.remQty}</td>
+        <td style="padding: 2mm !important; text-align: center; vertical-align: middle; white-space: nowrap !important; border-radius: 0px !important;">
+          <input type="number" id="qtyParsialInput_${el.idx}" min="1" max="${el.remQty}" value="${el.remQty}" disabled oninput="toggleParsialRow(${el.idx}, ${el.remQty})" style="width: 65px; padding: 4px; border-radius: 0px !important; border: 1px solid var(--border-color); text-align: center; font-weight: 700; background: var(--bg-box) !important; color: var(--text-main) !important;">
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const modalHtml = `
+    <div id="modalBuatParsial" data-nosurat="${noSurat}" class="modal-overlay active" onclick="if (event.target === this) tutupModalBuatParsial();" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); z-index: 95000000 !important; align-items: center; justify-content: center; padding: 1mm 0.5mm !important; box-sizing: border-box !important;">
+      <div style="background: var(--bg-card); color: var(--text-main); width: calc(100vw - 1mm); height: calc(100vh - 2mm); margin: 1mm 0.5mm !important; border-radius: 8px !important; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.4); border: 1px solid var(--border-color); animation: popIn 0.2s ease-out;">
+        
+        <!-- HEADER 90 DERAJAT DEGNAN GARIS PEMBATAS RATA TENGAH -->
+        <div style="background: var(--primary) !important; color: #ffffff !important; padding: 12px 16px !important; display: flex; justify-content: space-between; align-items: center; border-radius: 0px !important; border-bottom: 1px solid rgba(255,255,255,0.25) !important; flex-shrink: 0; position: relative !important;">
+          <div style="text-align: center !important; width: 100%;">
+            <div style="font-weight: 800; font-size: 14px; letter-spacing: 0.5px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #ffffff !important; text-align: center !important;">
+              <span class="material-symbols-rounded" style="color: #ffffff !important;">call_split</span> AJUKAN SURAT JALAN PARSIAL (${nextPartialId})
+            </div>
+            <div style="font-size: 11px; opacity: 0.95; margin-top: 2px; color: #ffffff !important; text-align: center !important;">
+              No. Surat Induk: <strong style="color: #fef08a;">${noSurat}</strong> | Toko: <strong>${req.toko || '-'}</strong>
+            </div>
+          </div>
+          <button type="button" onclick="tutupModalBuatParsial()" title="TUTUP" style="font-size: 28px !important; font-weight: 900 !important; color: #ffffff !important; background: transparent !important; border: none !important; cursor: pointer !important; line-height: 1 !important; outline: none !important; padding: 0 4px !important; margin: 0 !important; opacity: 0.95;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.95'">&times;</button>
+        </div>
+
+        <!-- BODY CONTENT -->
+        <div style="padding: 2mm 0 !important; overflow-y: auto; flex: 1; background: var(--bg-card); display: flex; flex-direction: column;">
+          <div style="background: var(--bg-box); border-left: 3px solid var(--primary); padding: 2mm !important; border-radius: 0px !important; margin: 0 2mm 2mm 2mm !important; font-size: 11.5px; color: var(--text-main); font-weight: 600; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+            <span class="material-symbols-rounded" style="font-size: 16px; color: var(--primary);">info</span>
+            <strong>CENTANG BARANG YANG AKAN DISERAHKAN PADA TAHAP INI.</strong>
+          </div>
+
+          <!-- KOLOM PENCARIAN & UNGGAH BUKTI FOTO (BERDAMPINGAN DILAYOUT ATAS) -->
+          <div style="margin: 0 2mm 2mm 2mm !important; display: flex; gap: 2mm !important; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
+            <div style="position: relative; flex: 1; min-width: 220px;">
+              <span class="material-symbols-rounded" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 16px; color: var(--text-muted);">search</span>
+              <input type="text" id="inputCariItemParsial" oninput="filterTableItemParsial()" placeholder="Cari Type, Seri Barang, Permintaan..." style="width: 100%; padding: 6px 10px 6px 30px; border-radius: 0px !important; border: 1px solid var(--border-color); background: var(--bg-box); color: var(--text-main); font-size: 11.5px; box-sizing: border-box !important;">
+            </div>
+
+            <!-- TOMBOL UNGGAH BUKTI FOTO PARSIAL -->
+            <input type="file" id="inputFotoParsialFile" accept="image/*" multiple onchange="handleFotoParsialFileSelected(event)" style="display: none;">
+            <button type="button" onclick="document.getElementById('inputFotoParsialFile').click()" style="background: var(--bg-box); border: 1px dashed var(--primary); color: var(--primary); padding: 5px 12px; height: 32px; border-radius: 0px !important; font-weight: 700; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap !important;">
+              <span class="material-symbols-rounded" style="font-size: 15px;">add_a_photo</span> UNGGAH BUKTI FOTO <span style="color: var(--text-muted); font-weight: 600; font-size: 11px;">(OPSIONAL)</span>
+            </button>
+            <div id="previewFotoParsialContainer" style="display: flex; gap: 2mm !important; flex-wrap: wrap; align-items: center;"></div>
+          </div>
+
+          <div style="overflow-x: auto; width: 100%; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); border-left: none !important; border-right: none !important; margin: 0 !important; border-radius: 0px !important; flex: 1;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; border-radius: 0px !important;">
+              <thead style="position: sticky; top: 0; z-index: 5; background: var(--primary) !important; border-radius: 0px !important;">
+                <tr style="background: var(--primary) !important; border-bottom: 1px solid var(--border-color); color: #ffffff !important; white-space: nowrap !important; border-radius: 0px !important;">
+                  <th style="padding: 2mm !important; text-align: center !important; width: 35px; white-space: nowrap !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; border-radius: 0px !important; border-right: 1px solid rgba(255,255,255,0.2) !important;">
+          <input type="checkbox" id="chkParsialSelectAll" onchange="toggleSelectAllParsial(this)" title="Centang / Batal Centang Semua" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary);">
+        </th>
+                  <th style="padding: 2mm !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; border-right: 1px solid rgba(255,255,255,0.2) !important;">TYPE</th>
+                  <th style="padding: 2mm !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; border-right: 1px solid rgba(255,255,255,0.2) !important;">SERI BARANG</th>
+                  <th style="padding: 2mm !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; border-right: 1px solid rgba(255,255,255,0.2) !important;">PERMINTAAN</th>
+                  <th style="padding: 2mm !important; text-align: center !important; width: 65px; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; border-right: 1px solid rgba(255,255,255,0.2) !important;">MINTA</th>
+                  <th style="padding: 2mm !important; text-align: center !important; width: 65px; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; border-right: 1px solid rgba(255,255,255,0.2) !important;">TERKIRIM</th>
+                  <th style="padding: 2mm !important; text-align: center !important; width: 65px; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; border-right: 1px solid rgba(255,255,255,0.2) !important;">SISA</th>
+                  <th style="padding: 2mm !important; text-align: center !important; width: 80px; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important;">SERAHKAN</th>
+                </tr>
+              </thead>
+              <tbody id="tableBodyBuatParsial" style="background: var(--bg-card) !important; color: var(--text-main) !important; border-radius: 0px !important;">
+                ${itemsRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div style="padding: 2mm !important; background: var(--bg-header); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; border-radius: 0 0 4px 4px !important; flex-shrink: 0;">
+          <button type="button" onclick="tutupModalBuatParsial()" style="background: #64748b; color: #fff; border: none; padding: 6px 14px; border-radius: 4px !important; font-weight: 700; font-size: 12px; cursor: pointer;">BATAL</button>
+          <button type="button" onclick="prosesKirimPengajuanBreakdown()" style="background: var(--primary) !important; color: #ffffff !important; border: none; padding: 6px 18px; border-radius: 4px !important; font-weight: 800; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 3px 8px rgba(0,0,0,0.2);">
+            <span class="material-symbols-rounded" style="font-size: 16px;">send</span> KIRIM PENGAJUAN PARSIAL (${nextPartialId})
+          </button>
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+window.bukaModalBuatParsial = bukaModalBuatParsial;
+
+function toggleParsialRowClick(evt, idx) {
+  if (evt && evt.target && (evt.target.tagName === 'INPUT' || evt.target.tagName === 'BUTTON' || evt.target.closest('button') || evt.target.closest('input'))) return;
+  const chk = document.getElementById(`chkParsial_${idx}`);
+  if (chk) {
+    chk.checked = !chk.checked;
+    syncParsialCheckbox(idx);
+  }
+}
+window.toggleParsialRowClick = toggleParsialRowClick;
+
+function toggleSelectAllParsial(masterChk) {
+  const isChecked = masterChk.checked;
+  const modal = document.getElementById('modalBuatParsial');
+  const checkboxes = modal ? modal.querySelectorAll('.parsial-check') : document.querySelectorAll('.parsial-check');
+  checkboxes.forEach(chk => {
+    chk.checked = isChecked;
+    const idx = chk.getAttribute('data-idx');
+    if (idx !== null) {
+      syncParsialCheckbox(idx);
+    }
+  });
+}
+window.toggleSelectAllParsial = toggleSelectAllParsial;
+
+function syncParsialCheckbox(idx) {
+  const chk = document.getElementById(`chkParsial_${idx}`);
+  const inp = document.getElementById(`qtyParsialInput_${idx}`);
+  const row = document.getElementById(`parsialRow_${idx}`);
+  
+  if (chk && inp) {
+    inp.disabled = !chk.checked;
+    if (chk.checked) {
+      if (row) row.style.background = 'rgba(2,132,199,0.08)';
+      if (Number(inp.value) <= 0) inp.value = chk.getAttribute('data-rem') || 1;
+    } else {
+      if (row) row.style.background = 'transparent';
+    }
+  }
+}
+window.syncParsialCheckbox = syncParsialCheckbox;
+
+function toggleParsialRow(idx, maxRemQty) {
+  const inp = document.getElementById(`qtyParsialInput_${idx}`);
+  if (inp) {
+    let val = Number(inp.value);
+    if (val > maxRemQty) inp.value = maxRemQty;
+    if (val < 1) inp.value = 1;
+  }
+}
+window.toggleParsialRow = toggleParsialRow;
+
+function tutupModalBuatParsial() {
+  const modal = document.getElementById('modalBuatParsial');
+  if (modal) modal.remove();
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
+  }
+}
+window.tutupModalBuatParsial = tutupModalBuatParsial;
+
+function filterTableItemParsial() {
+  const elSearch = document.getElementById('inputCariItemParsial');
+  const query = (elSearch ? elSearch.value : '').toLowerCase().trim();
+  const rows = document.querySelectorAll('#tableBodyBuatParsial tr');
+  rows.forEach(tr => {
+    const text = tr.innerText.toLowerCase();
+    if (!query || text.includes(query)) {
+      tr.style.display = '';
+    } else {
+      tr.style.display = 'none';
+    }
+  });
+}
+window.filterTableItemParsial = filterTableItemParsial;
+
+async function handleFotoParsialFileSelected(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+
+  if (!window._tempParsialPhotos) window._tempParsialPhotos = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    try {
+      let photoUrl = '';
+      if (typeof uploadPhotoToSupabaseStorage === 'function') {
+        photoUrl = await uploadPhotoToSupabaseStorage(file);
+      }
+      if (!photoUrl || !photoUrl.startsWith('http')) {
+        const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : ((typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : null);
+        if (sb && sb.storage) {
+          const fileName = `PARSIAL_${Date.now()}_${Math.floor(Math.random()*10000)}.jpg`;
+          const { data, error } = await sb.storage.from('photos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+          if (!error && data) {
+            const { data: pubData } = sb.storage.from('photos').getPublicUrl(fileName);
+            if (pubData && pubData.publicUrl) {
+              photoUrl = pubData.publicUrl;
+            }
+          }
+        }
+      }
+
+      if (photoUrl && typeof photoUrl === 'string' && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))) {
+        window._tempParsialPhotos.push(photoUrl);
+      }
+    } catch(e) {
+      console.error('Unggah foto parsial error:', e);
+    }
+  }
+
+  renderTempFotoParsialPreviews();
+}
+window.handleFotoParsialFileSelected = handleFotoParsialFileSelected;
+
+function renderTempFotoParsialPreviews() {
+  const container = document.getElementById('previewFotoParsialContainer');
+  if (!container) return;
+
+  const photos = window._tempParsialPhotos || [];
+  if (photos.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = photos.map((url, idx) => `
+    <div style="position: relative; width: 32px; height: 32px; border-radius: 4px; overflow: hidden; border: 1px solid var(--primary); box-shadow: 0 2px 4px rgba(0,0,0,0.15);">
+      <img src="${url}" onclick="if (typeof bukaViewGambar === 'function') bukaViewGambar(['${url}'], 0)" style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;">
+      <button type="button" onclick="hapusTempFotoParsial(${idx})" style="position: absolute; top: 0; right: 0; background: rgba(239,68,68,0.9); color: #fff; border: none; width: 14px; height: 14px; border-radius: 0 0 0 4px; cursor: pointer; font-size: 10px; display: flex; align-items: center; justify-content: center; line-height: 1;">×</button>
+    </div>
+  `).join('');
+}
+
+function hapusTempFotoParsial(index) {
+  if (window._tempParsialPhotos && index >= 0 && index < window._tempParsialPhotos.length) {
+    window._tempParsialPhotos.splice(index, 1);
+    renderTempFotoParsialPreviews();
+  }
+}
+window.hapusTempFotoParsial = hapusTempFotoParsial;
+
+async function prosesKirimPengajuanBreakdown() {
+  const noSurat = window._activeParsialNoSurat;
+  const partialId = window._activeNextPartialId;
+  if (!noSurat || !partialId) return;
+
+  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  if (!req) return;
+
+  const container = document.getElementById('modalBuatParsial');
+  const checkboxes = container ? container.querySelectorAll('.parsial-check:checked') : document.querySelectorAll('.parsial-check:checked');
+  if (!checkboxes || checkboxes.length === 0) {
+    if (typeof showNotif === 'function') showNotif('PILIH MINIMAL 1 BARANG UNTUK DIBREAKDOWN!', 'warning');
+    return;
+  }
+
+  const selectedItems = [];
+  checkboxes.forEach(chk => {
+    const idx = Number(chk.getAttribute('data-idx'));
+    const inp = document.getElementById(`qtyParsialInput_${idx}`);
+    let qtySerahkan = inp ? Number(inp.value) : Number(chk.getAttribute('data-rem'));
+    if (isNaN(qtySerahkan) || qtySerahkan <= 0) {
+      qtySerahkan = Number(chk.getAttribute('data-rem') || 1);
+    }
+    
+    if (idx >= 0 && idx < req.items.length && qtySerahkan > 0) {
+      const origItem = req.items[idx];
+      selectedItems.push({
+        itemIdx: idx,
+        type: origItem.type || origItem.tipe || '',
+        seri: origItem.seri || origItem.sn || '',
+        barang: origItem.barang || origItem.permintaan || '',
+        permintaan: origItem.permintaan || origItem.barang || '',
+        alasan: origItem.alasan || '',
+        qty: Number(origItem.qty || origItem.jumlah || 1),
+        qtyDiserahkan: qtySerahkan
+      });
+    }
+  });
+
+  if (selectedItems.length === 0) {
+    if (typeof showNotif === 'function') showNotif('QTY DISERAHKAN HARUS LEBIH DARI 0!', 'warning');
+    return;
+  }
+
+  tampilkanLoadingProses('MOHON TUNGGU...');
+  try {
+    const rawPhotos = window._tempParsialPhotos || [];
+    const sanitizedPhotos = [];
+    for (let p of rawPhotos) {
+      if (typeof p === 'string' && p.startsWith('data:image/')) {
+        if (typeof uploadPhotoToSupabaseStorage === 'function') {
+          const uploadedUrl = await uploadPhotoToSupabaseStorage(p);
+          if (uploadedUrl && (uploadedUrl.startsWith('http://') || uploadedUrl.startsWith('https://'))) {
+            sanitizedPhotos.push(uploadedUrl);
+          }
+        }
+      } else if (typeof p === 'string' && (p.startsWith('http://') || p.startsWith('https://'))) {
+        sanitizedPhotos.push(p);
+      }
+    }
+
+    const isEditing = Boolean(window._editingPartialId);
+    const targetPartialId = isEditing ? window._editingPartialId : partialId;
+
+    const requireDM = window.REQUIRE_DM_APPROVAL_PARSIAL !== false;
+    const initialStatus = requireDM ? 'PENDING' : 'APPROVE';
+
+    const existingPartials = getPartialBreakdownsFromDB(noSurat);
+    if (isEditing) {
+      const pIdx = existingPartials.findIndex(p => p && (p.partial_id === targetPartialId || p.partialId === targetPartialId || String(p.id).endsWith(`_${targetPartialId}`)));
+      if (pIdx !== -1) {
+        existingPartials[pIdx].items = selectedItems;
+        existingPartials[pIdx].photos = sanitizedPhotos;
+        existingPartials[pIdx].created_at = `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')} (Diedit)`;
+      }
+      savePartialBreakdownsToDB(existingPartials, noSurat);
+      await pushPartialBreakdownsToCloud(existingPartials, noSurat);
+      window._editingPartialId = null;
+      window._tempParsialPhotos = [];
+      if (typeof showNotif === 'function') showNotif('PERUBAHAN BERHASIL DI SIMPAN.', 'success');
+    } else {
+      const newPartial = {
+        id: `${String(noSurat).replace(/[\/\.]/g, '_')}_${partialId}`,
+        no_surat_induk: noSurat,
+        partial_id: partialId,
+        items: selectedItems,
+        photos: sanitizedPhotos,
+        status: initialStatus,
+        created_by: currentUser ? (currentUser.fullName || currentUser.full_name || currentUser.username) : 'SERVICE',
+        created_at: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`,
+        approved_by: !requireDM ? 'SYSTEM (AUTO)' : '',
+        approved_at: !requireDM ? `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}` : null,
+        reject_reason: ''
+      };
+      existingPartials.push(newPartial);
+      savePartialBreakdownsToDB(existingPartials, noSurat);
+      await pushPartialBreakdownsToCloud(existingPartials, noSurat);
+      window._tempParsialPhotos = [];
+      if (typeof showNotif === 'function') {
+        showNotif(requireDM ? 'PENGAJUAN BERHASIL DI KIRIM.' : 'PENGAJUAN PARSIAL BERHASIL & OTOMATIS DISETUJUI (TANPA APPROVAL DM).', 'success');
+      }
+    }
+
+    tutupModalBuatParsial();
+
+    if (requireDM && typeof kirimNotifDanWaBreakdown === 'function') {
+      kirimNotifDanWaBreakdown(noSurat, targetPartialId, 'PENDING');
+    }
+
+    if (typeof broadcastRealtimeDataChange === 'function') {
+      broadcastRealtimeDataChange(noSurat, req, 'UPDATE');
+    }
+
+    if (document.getElementById('modalRiwayatParsialList')) {
+      bukaModalRiwayatParsialList(noSurat);
+    }
+
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(noSurat, true);
+    }
+  } catch(err) {
+    console.error('Kirim pengajuan breakdown error:', err);
+    if (typeof showNotif === 'function') showNotif('GAGAL MENGIRIM PENGAJUAN: ' + (err.message || err), 'warning');
+  } finally {
+    tutupLoadingProses();
+  }
+}
+window.prosesKirimPengajuanBreakdown = prosesKirimPengajuanBreakdown;
+
+// =======================================================================
+// DM APPROVAL & CARD DISPLAY WORKFLOW (PERMINTAAN BREAKDOWN)
+// =======================================================================
+
+async function bukaModalRiwayatParsialList(noSurat) {
+  if (!noSurat) return;
+  const cleanNoSurat = String(noSurat).replace(/[-_]P\d+.*$/i, '').replace(/^#/, '').trim();
+  if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+  window._activeRiwayatParsialNoSurat = cleanNoSurat;
+  
+  const existingModal = document.getElementById('modalRiwayatParsialList');
+  if (existingModal) existingModal.remove();
+
+  // Sembunyikan popup detail barang jika sedang terbuka agar tidak bertumpuk
+  const detailPopup = document.getElementById('popupDetailBarangV2');
+  if (detailPopup) {
+    detailPopup.style.display = 'none';
+    detailPopup.classList.remove('show');
+  }
+
+  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = reqs.find(r => r && (
+    String(r.noSurat || '').trim().toUpperCase() === cleanNoSurat.toUpperCase() ||
+    String(r.id || '').trim().toUpperCase() === cleanNoSurat.toUpperCase()
+  ));
+  if (!req) {
+    if (typeof showNotif === 'function') showNotif('SURAT TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  let partials = getPartialBreakdownsFromDB(cleanNoSurat);
+  if (!Array.isArray(partials) || partials.length === 0) {
+    if (req && Array.isArray(req.partialBreakdowns) && req.partialBreakdowns.length > 0) {
+      partials = req.partialBreakdowns;
+    }
+  }
+
+  if ((!Array.isArray(partials) || partials.length === 0) && typeof syncSupabaseBreakdownParsialToLocalCache === 'function') {
+    await syncSupabaseBreakdownParsialToLocalCache().catch(() => {});
+    partials = getPartialBreakdownsFromDB(cleanNoSurat);
+  }
+
+  if (!Array.isArray(partials) || partials.length === 0) {
+    if (typeof showNotif === 'function') showNotif('BELUM ADA PENGAJUAN SURAT PARSIAL / BREAKDOWN UNTUK SURAT INI.', 'info');
+    return;
+  }
+
+  const userCatUpper = currentUser ? String(currentUser.category || '').toUpperCase() : '';
+  const userRoleUpper = currentUser ? String(currentUser.role || '').toUpperCase() : '';
+  const isStrictDMUser = currentUser && (userCatUpper.includes('DM') || userRoleUpper.includes('DM'));
+  const isStrictAdminUser = currentUser && (userCatUpper === 'ADMIN' || userRoleUpper === 'ADMIN' || String(currentUser.username).toUpperCase() === 'ADMIN');
+  const canDMApprove = isStrictDMUser || isStrictAdminUser;
+
+  const cardsHtml = partials.map((p, pIdx) => {
+    const pid = p.partial_id || p.partialId || `P${pIdx + 1}`;
+    const pStatus = p.status || 'PENDING';
+    const photosList = parsePhotosArray(p.photos);
+    const hasPhotos = photosList.length > 0;
+    
+    const isRequireDM = window.REQUIRE_DM_APPROVAL_PARSIAL !== false;
+
+    let badgeBg = isRequireDM ? '#f59e0b' : '#10b981';
+    let badgeText = isRequireDM ? '⏳ PENDING (MENUNGGU APPROVAL DM)' : '🟢 APPROVAL SERVICE (AUTO)';
+    if (pStatus === 'DONE') {
+      badgeBg = '#059669';
+      badgeText = '🟢 SELESAI (DONE)';
+    } else if (pStatus === 'APPROVE') {
+      badgeBg = '#10b981';
+      badgeText = isRequireDM ? '🟢 APPROVAL DM' : '🟢 APPROVAL SERVICE (AUTO)';
+    } else if (pStatus === 'REJECT') {
+      badgeBg = '#ef4444';
+      badgeText = `🔴 DITOLAK DM (${p.reject_reason || '-'})`;
+    }
+
+    const itemsCount = Array.isArray(p.items) ? p.items.length : 0;
+    const totalQtySerah = Array.isArray(p.items) ? p.items.reduce((acc, curr) => acc + Number(curr.qtyDiserahkan || curr.qty || 1), 0) : 0;
+    
+    return `
+        <div style="background: var(--bg-card); border-radius: 4px !important; border: 1px solid var(--border-color); margin-bottom: 2mm !important; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 2mm 3mm !important;">
+          <div style="display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap; text-align: left;">
+            
+            <!-- 1. TOMBOL AKSI TERLETAK DI PALING KIRI (PATEN 4CM) -->
+            <div style="width: 4cm !important; min-width: 4cm !important; max-width: 4cm !important; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; flex-shrink: 0; justify-content: flex-start; box-sizing: border-box !important;">
+              <!-- ICON ONLY BUTTONS WITH TITLE TOOLTIPS -->
+              <button type="button" onclick="bukaDetailSuratParsial('${req.noSurat}', '${pid}')" style="background: #334155; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;" title="LIHAT DATA PARSIAL (${pid})">
+                <span class="material-symbols-rounded" style="font-size: 18px;">visibility</span>
+              </button>
+
+              ${hasPhotos ? `
+                <button type="button" onclick="bukaModalArtemisParsial('${req.noSurat}', '${pid}')" style="background: #0284c7; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;" title="LIHAT BUKTI FOTO (${photosList.length})">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">photo_library</span>
+                </button>
+              ` : ''}
+
+              ${(pStatus === 'PENDING' && !isStrictDMUser) ? `
+                <!-- EDIT BUTTON FOR PENDING BREAKDOWN (NON-DM ONLY) -->
+                <button type="button" onclick="editSuratParsialPending('${req.noSurat}', '${pid}')" style="background: #f59e0b; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(245,158,11,0.3);" title="UBAH / EDIT PENGAJUAN PARSIAL (${pid})">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">edit</span>
+                </button>
+
+                <!-- BATAL / HAPUS BUTTON FOR PENDING BREAKDOWN (NON-DM ONLY) -->
+                <button type="button" onclick="batalSuratParsial('${req.noSurat}', '${pid}')" style="background: #ef4444; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(239,68,68,0.3);" title="BATALKAN / HAPUS PENGAJUAN PARSIAL (${pid})">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">delete</span>
+                </button>
+              ` : ''}
+
+              ${(pStatus === 'PENDING' && canDMApprove) ? `
+                <button type="button" onclick="bukaModalKonfirmasiApproveBreakdown('${req.noSurat}', '${pid}')" style="background: #10b981; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(16,185,129,0.3);" title="APPROVE DM (${pid})">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">check_circle</span>
+                </button>
+                <button type="button" onclick="bukaModalRejectBreakdown('${req.noSurat}', '${pid}')" style="background: #ef4444; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;" title="TOLAK DM (${pid})">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">cancel</span>
+                </button>
+              ` : ''}
+
+              ${(pStatus === 'APPROVE') ? `
+                <button type="button" onclick="bukaModalDoneParsial('${req.noSurat}', '${pid}')" style="background: #0284c7; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(2,132,199,0.3);" title="SELESAIKAN (DONE) SURAT PARSIAL ${pid}">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">task_alt</span>
+                </button>
+              ` : ''}
+
+              ${(pStatus === 'APPROVE' || pStatus === 'DONE') ? `
+                <button type="button" onclick="cetakPdfSuratParsial('${req.noSurat}', '${pid}')" style="background: #059669; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(5,150,105,0.3);" title="CETAK PDF PARSIAL (${pid})">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">picture_as_pdf</span>
+                </button>
+              ` : ''}
+
+              ${(isStrictAdminUser && pStatus !== 'PENDING') ? `
+                <button type="button" onclick="batalSuratParsial('${req.noSurat}', '${pid}')" style="background: #dc2626; color: #ffffff; border: none; border-radius: 4px !important; width: 32px; height: 32px; padding: 0; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;" title="BATALKAN / HAPUS PARSIAL (${pid})">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">delete</span>
+                </button>
+              ` : ''}
+            </div>
+
+            <!-- 2. TULISAN / INFO DI SEBELAH KANAN TOMBOL DENGAN JARAK & ATAS BAWAH RATA -->
+            <div style="display: flex; flex-direction: column; justify-content: center; gap: 3px; flex: 1 1 auto; min-width: 220px; text-align: left; border-left: 2px solid var(--border-color); padding-left: 12px;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <div style="background: ${badgeBg}; color: #ffffff; padding: 3px 10px; border-radius: 4px !important; font-size: 10.5px; font-weight: 800; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                  ${badgeText}
+                </div>
+                <div style="font-weight: 800; font-size: 13px; color: var(--primary); display: flex; align-items: center; gap: 5px;">
+                  <span class="material-symbols-rounded" style="font-size: 16px;">receipt_long</span>
+                  SURAT PARSIAL (${noSurat}-${pid})
+                </div>
+              </div>
+
+              <div style="font-size: 11.5px; color: var(--text-main); font-weight: 700;">
+                Total Diserahkan: <span style="color: var(--primary); font-weight: 800;">${itemsCount} Jenis Barang (${totalQtySerah} Qty)</span>
+              </div>
+
+              <div style="font-size: 10.5px; color: var(--text-muted);">
+                Diajukan oleh: <strong>${(function(cVal){
+                  if (!cVal) return '-';
+                  const v = String(cVal).trim();
+                  const usersList = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+                  const u = usersList.find(usr => usr && (
+                    String(usr.username || '').toUpperCase() === v.toUpperCase() ||
+                    String(usr.id || '').toUpperCase() === v.toUpperCase() ||
+                    String(usr.fullName || usr.full_name || '').toUpperCase() === v.toUpperCase()
+                  ));
+                  return (u && (u.fullName || u.full_name)) ? (u.fullName || u.full_name) : v;
+                })(p.created_by || p.createdBy || 'SERVICE')}</strong> | Waktu: <strong>${formatDateTimeWIB(p.created_at || p.createdAt)}</strong>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      `;
+  }).join('');
+
+  const modalFullscreenHtml = `
+    <div id="modalRiwayatParsialList" data-nosurat="${noSurat}" class="modal-overlay active" onclick="if (event.target === this) tutupModalRiwayatParsialList('${noSurat}');" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(5px); z-index: 90000000 !important; align-items: center; justify-content: center; padding: 1mm 0.5mm !important; box-sizing: border-box !important;">
+      <div style="background: var(--bg-card); color: var(--text-main); width: calc(100vw - 1mm); height: calc(100vh - 2mm); margin: 1mm 0.5mm !important; border-radius: 8px !important; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color); animation: popIn 0.2s ease-out;">
+        
+        <div style="background: var(--primary) !important; color: #ffffff !important; padding: 12px 16px !important; display: flex; justify-content: space-between; align-items: center; border-radius: 0px !important; border-bottom: 1px solid rgba(255,255,255,0.25) !important; flex-shrink: 0; position: relative !important;">
+          <div style="text-align: center !important; width: 100%;">
+            <div style="font-weight: 800; font-size: 15px; letter-spacing: 0.5px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #ffffff !important; text-align: center !important;">
+              <span class="material-symbols-rounded" style="color: #ffffff !important;">call_split</span> DETAIL PENGAJUAN BREAKDOWN SURAT
+            </div>
+            <div style="font-size: 11px; opacity: 0.9; margin-top: 2px; color: #ffffff !important; text-align: center !important;">
+              Surat Induk: <strong style="color: #fef08a;">${noSurat}</strong> | Toko: <strong>${req.toko || '-'}</strong> | Total Breakdown: <strong>${partials.length} Transaksi</strong>
+            </div>
+          </div>
+          <button type="button" onclick="tutupModalRiwayatParsialList('${noSurat}')" title="TUTUP" style="font-size: 28px !important; font-weight: 900 !important; color: #ffffff !important; background: transparent !important; border: none !important; cursor: pointer !important; line-height: 1 !important; outline: none !important; padding: 0 4px !important; margin: 0 !important; opacity: 0.95;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.95'">&times;</button>
+        </div>
+
+        <div style="padding: 2mm !important; overflow-y: auto; flex: 1; background: var(--bg-box);">
+          ${cardsHtml}
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalFullscreenHtml);
+}
+function tutupModalRiwayatParsialList(noSurat) {
+  const el = document.getElementById('modalRiwayatParsialList');
+  if (el) el.remove();
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
+  }
+}
+function bukaModalKonfirmasiApproveBreakdown(noSurat, partialId) {
+  if (typeof showConfirm === 'function') {
+    showConfirm(
+      `APPROVE PENGAJUAN BREAKDOWN PARSIAL #${noSurat}-${partialId}?`,
+      () => {
+        prosesKirimApproveBreakdownDM(noSurat, partialId);
+      },
+      null,
+      'YA, APPROVE',
+      'BATAL'
+    );
+  } else {
+    prosesKirimApproveBreakdownDM(noSurat, partialId);
+  }
+}
+window.bukaModalKonfirmasiApproveBreakdown = bukaModalKonfirmasiApproveBreakdown;
+
+async function prosesKirimApproveBreakdownDM(noSurat, partialId) {
+  if (!noSurat || !partialId) return;
+
+  tampilkanLoadingProses('MOHON TUNGGU...');
+  try {
+    const partials = getPartialBreakdownsFromDB(noSurat);
+    const pIdx = partials.findIndex(p => (p.partial_id === partialId || p.partialId === partialId || p.id.includes(partialId)));
+    if (pIdx === -1) return;
+
+    const targetPartial = partials[pIdx];
+    targetPartial.status = 'APPROVE';
+    targetPartial.approved_by = currentUser ? currentUser.username : 'DM';
+    targetPartial.approved_at = `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`;
+    partials[pIdx] = targetPartial;
+
+    savePartialBreakdownsToDB(partials, noSurat);
+
+    const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+    const rIdx = reqs.findIndex(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+    
+    if (rIdx !== -1) {
+      const req = reqs[rIdx];
+      
+      if (Array.isArray(targetPartial.items)) {
+        targetPartial.items.forEach(pi => {
+          const itemIdx = pi.itemIdx;
+          if (itemIdx !== undefined && itemIdx >= 0 && itemIdx < req.items.length) {
+            req.items[itemIdx].statusPart = `${noSurat}-${partialId}`;
+            req.items[itemIdx].keteranganPart = `${noSurat}-${partialId}`;
+            req.items[itemIdx].isHandedOver = true;
+          }
+        });
+      }
+
+      let allComplete = true;
+      req.items.forEach((it, idx) => {
+        const rem = calcItemRemainingQty(req, idx);
+        const isUnfulfilled = it.isUnfulfilled || String(it.keterangan || '').toUpperCase() === 'TIDAK DIPENUHI';
+        if (rem > 0 && !isUnfulfilled) allComplete = false;
+      });
+
+      if (allComplete) {
+        req.status = 'DONE';
+      } else {
+        req.status = 'APPROVE';
+      }
+
+      reqs[rIdx] = req;
+      saveRequestsToDB(reqs, req, 'UPDATE');
+      
+      if (typeof pushCentralCloudDB === 'function') {
+        await pushCentralCloudDB(req).catch(() => {});
+      }
+    }
+
+    if (typeof kirimNotifDanWaBreakdown === 'function') {
+      kirimNotifDanWaBreakdown(noSurat, partialId, 'APPROVE');
+    }
+
+    if (typeof broadcastRealtimeDataChange === 'function') {
+      broadcastRealtimeDataChange(noSurat, reqs[rIdx], 'UPDATE');
+    }
+
+    if (typeof showNotif === 'function') {
+      showNotif(`NO SURAT #${noSurat}-${partialId} BERHASIL DI APPROVE`, 'success');
+    }
+
+    if (document.getElementById('modalRiwayatParsialList')) {
+      bukaModalRiwayatParsialList(noSurat);
+    }
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(noSurat, true);
+    }
+  } finally {
+    tutupLoadingProses();
+  }
+}
+window.prosesKirimApproveBreakdownDM = prosesKirimApproveBreakdownDM;
+
+function bukaModalRejectBreakdown(noSurat, partialId) {
+  if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+  window._activeRejectNoSurat = noSurat;
+  window._activeRejectPartialId = partialId;
+
+  const existing = document.getElementById('modalRejectBreakdown');
+  if (existing) existing.remove();
+
+  const modalHtml = `
+    <div id="modalRejectBreakdown" class="popupOverlay show" onclick="if (event.target === this) tutupModalRejectBreakdown();">
+      <div class="rejectBoxPopup">
+        
+        <!-- HEADER POPUP -->
+        <div class="rejectHeaderPopup">
+          <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #ffffff;">
+            <span class="material-symbols-rounded" style="font-size: 20px;">cancel</span>
+            <span>TOLAK PENGAJUAN BREAKDOWN (${partialId})</span>
+          </span>
+          <button type="button" class="popupClose" onclick="tutupModalRejectBreakdown()" title="TUTUP">&times;</button>
+        </div>
+
+        <!-- BODY POPUP -->
+        <div class="rejectBodyPopup">
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; text-transform: uppercase;">MASUKKAN ALASAN PENOLAKAN DM:</p>
+          
+          <textarea id="inputAlasanRejectParsial" rows="3" placeholder="Tuliskan alasan penolakan..."></textarea>
+
+          <!-- TOMBOL BATAL & YA -->
+          <div class="confirmButton">
+            <button type="button" class="btnBatal" onclick="tutupModalRejectBreakdown()">BATAL</button>
+            <button type="button" class="btnHapus" onclick="prosesKirimTolakBreakdownDM()" style="background: #ef4444 !important; color: #ffffff !important;">YA, KIRIM</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+window.bukaModalRejectBreakdown = bukaModalRejectBreakdown;
+
+function tutupModalRejectBreakdown() {
+  const m = document.getElementById('modalRejectBreakdown');
+  if (m) m.remove();
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
+  }
+}
+window.tutupModalRejectBreakdown = tutupModalRejectBreakdown;
+
+async function prosesKirimTolakBreakdownDM() {
+  const noSurat = window._activeRejectNoSurat;
+  const partialId = window._activeRejectPartialId;
+  const reason = document.getElementById('inputAlasanRejectParsial') ? document.getElementById('inputAlasanRejectParsial').value.trim() : '';
+
+  if (!reason) {
+    if (typeof showNotif === 'function') showNotif('MASUKKAN ALASAN PENOLAKAN!', 'warning');
+    return;
+  }
+
+  tampilkanLoadingProses('MOHON TUNGGU...');
+  try {
+    const partials = getPartialBreakdownsFromDB(noSurat);
+    const pIdx = partials.findIndex(p => (p.partial_id === partialId || p.partialId === partialId || p.id.includes(partialId)));
+    if (pIdx !== -1) {
+      const origPid = partials[pIdx].partial_id || partials[pIdx].partialId || partialId;
+      const rejectedPid = origPid.includes('(TOLAK)') ? origPid : `${origPid}(TOLAK)`;
+
+      partials[pIdx].partial_id = rejectedPid;
+      partials[pIdx].partialId = rejectedPid;
+      partials[pIdx].status = 'REJECT';
+      partials[pIdx].reject_reason = reason;
+      savePartialBreakdownsToDB(partials, noSurat);
+      pushPartialBreakdownsToCloud(partials, noSurat);
+    }
+
+    tutupModalRejectBreakdown();
+
+    if (typeof kirimNotifDanWaBreakdown === 'function') {
+      kirimNotifDanWaBreakdown(noSurat, partialId, 'REJECT', { reason });
+    }
+
+    if (typeof showNotif === 'function') {
+      showNotif(`NO SURAT #${noSurat}-${partialId} BERHASIL DI TOLAK`, 'info');
+    }
+
+    if (document.getElementById('modalRiwayatParsialList')) {
+      bukaModalRiwayatParsialList(noSurat);
+    }
+  } finally {
+    tutupLoadingProses();
+  }
+}
+window.prosesKirimTolakBreakdownDM = prosesKirimTolakBreakdownDM;
+
+async function editSuratParsialPending(noSurat, partialId) {
+  if (!noSurat || !partialId) return;
+  const partials = getPartialBreakdownsFromDB(noSurat);
+  const p = partials.find(item => item && (item.partial_id === partialId || item.partialId === partialId || String(item.id).endsWith(`_${partialId}`)));
+  if (!p) {
+    if (typeof showNotif === 'function') showNotif('DATA PENGAJUAN BREAKDOWN TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  if (p.status !== 'PENDING') {
+    if (typeof showNotif === 'function') showNotif('PENGAJUAN PARSIAL YANG SUDAH DISETUJUI / DITOLAK TIDAK DAPAT DIEDIT!', 'warning');
+    return;
+  }
+
+  window._editingPartialNoSurat = noSurat;
+  window._editingPartialId = partialId;
+  window._tempParsialPhotos = parsePhotosArray(p.photos);
+
+  bukaModalBuatParsial(noSurat);
+
+  const modal = document.getElementById('modalBuatParsial');
+  if (modal) {
+    const titleEl = modal.querySelector('div[style*="font-weight: 800"]');
+    if (titleEl) {
+      titleEl.innerHTML = `<span class="material-symbols-rounded" style="color: #ffffff !important;">edit</span> UBAH PENGAJUAN SURAT JALAN PARSIAL (${partialId})`;
+    }
+
+    if (Array.isArray(p.items)) {
+      setTimeout(() => {
+        p.items.forEach(pItem => {
+          let chk = null;
+          if (pItem.itemIdx !== undefined) {
+            chk = document.getElementById(`chkParsial_${pItem.itemIdx}`);
+          }
+          if (!chk && (pItem.type || pItem.barang)) {
+            const allChks = document.querySelectorAll('#modalBuatParsial .parsial-check');
+            allChks.forEach(c => {
+              const cIdx = Number(c.getAttribute('data-idx'));
+              const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+              const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+              if (req && req.items && req.items[cIdx]) {
+                const orig = req.items[cIdx];
+                if ((orig.type || orig.tipe) === (pItem.type || pItem.tipe) && (orig.barang || orig.permintaan) === (pItem.barang || pItem.permintaan)) {
+                  chk = c;
+                }
+              }
+            });
+          }
+          if (chk) {
+            chk.checked = true;
+            const targetIdx = chk.getAttribute('data-idx');
+            syncParsialCheckbox(targetIdx);
+            const inp = document.getElementById(`qtyParsialInput_${targetIdx}`);
+            if (inp) {
+              inp.value = pItem.qtyDiserahkan || pItem.qty || 1;
+            }
+          }
+        });
+      }, 50);
+    }
+
+    renderTempFotoParsialPreviews();
+
+    const submitBtn = modal.querySelector('button[onclick="prosesKirimPengajuanBreakdown()"]');
+    if (submitBtn) {
+      submitBtn.innerHTML = `<span class="material-symbols-rounded" style="font-size: 16px;">save</span> SIMPAN PERUBAHAN PARSIAL (${partialId})`;
+    }
+  }
+}
+window.editSuratParsialPending = editSuratParsialPending;
+
+async function batalSuratParsial(noSurat, partialId) {
+  if (!noSurat || !partialId) return;
+  
+  const partials = getPartialBreakdownsFromDB(noSurat);
+  const targetP = partials.find(p => p && (p.partial_id === partialId || p.partialId === partialId || String(p.id).endsWith(`_${partialId}`)));
+  const isPending = targetP && targetP.status === 'PENDING';
+  const isStrictAdminUser = currentUser && (String(currentUser.category || '').toUpperCase() === 'ADMIN' || String(currentUser.role || '').toUpperCase() === 'ADMIN' || String(currentUser.username).toUpperCase() === 'ADMIN');
+  
+  if (!isPending && !isStrictAdminUser) {
+    if (typeof showNotif === 'function') showNotif('SURAT PARSIAL YANG SUDAH DISETUJUI HANYA DAPAT DIBATALKAN OLEH ADMIN!', 'warning');
+    return;
+  }
+
+  showConfirm(`YAKIN INGIN MEMBATALKAN & MENGHAPUS PENGAJUAN PARSIAL ${partialId}?`, async function() {
+    tampilkanLoadingProses('MOHON TUNGGU...');
+    try {
+      let updatedPartials = getPartialBreakdownsFromDB(noSurat);
+      updatedPartials = updatedPartials.filter(p => p && (p.partial_id !== partialId && p.partialId !== partialId && !p.id.endsWith(`_${partialId}`)));
+      savePartialBreakdownsToDB(updatedPartials, noSurat);
+      pushPartialBreakdownsToCloud(updatedPartials, noSurat);
+
+      const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+      const rIdx = reqs.findIndex(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+      if (rIdx !== -1) {
+        const req = reqs[rIdx];
+        if (Array.isArray(req.items)) {
+          req.items.forEach((it, idx) => {
+            const delQty = calcItemDeliveredQty(req, idx);
+            if (delQty === 0) {
+              it.statusPart = '';
+              it.keteranganPart = '';
+              it.noPart = '';
+              it.isHandedOver = false;
+            }
+          });
+        }
+        reqs[rIdx] = req;
+        saveRequestsToDB(reqs, req, 'UPDATE');
+      }
+
+      if (typeof showNotif === 'function') {
+        showNotif(`PENGAJUAN PARSIAL ${partialId} BERHASIL DIBATALKAN!`, 'info');
+      }
+
+      if (document.getElementById('modalRiwayatParsialList')) {
+        const remaining = getPartialBreakdownsFromDB(noSurat);
+        if (remaining.length > 0) {
+          bukaModalRiwayatParsialList(noSurat);
+        } else {
+          document.getElementById('modalRiwayatParsialList').remove();
+        }
+      }
+      if (typeof lihatDetail === 'function') {
+        lihatDetail(noSurat, true);
+      }
+    } finally {
+      tutupLoadingProses();
+    }
+  });
+}
+window.batalSuratParsial = batalSuratParsial;
+
+function bukaDetailSuratParsial(noSurat, partialId) {
+  if (!noSurat || !partialId) return;
+  if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+
+  const partials = getPartialBreakdownsFromDB(noSurat);
+  const targetPartial = partials.find(p => p && (p.partial_id === partialId || p.partialId === partialId || p.id.endsWith(`_${partialId}`)));
+  if (!targetPartial) return;
+
+  const existing = document.getElementById('modalDetailParsialSub');
+  if (existing) existing.remove();
+
+  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase())) || {};
+
+  const items = Array.isArray(targetPartial.items) ? targetPartial.items : [];
+  const subPhotos = parsePhotosArray(targetPartial.photos);
+  const hasSubPhotos = subPhotos.length > 0;
+
+  const rowsHtml = items.map((it, i) => `
+    <tr style="border-bottom: 1px solid var(--border-color); white-space: nowrap !important; background: ${i % 2 === 0 ? 'var(--bg-box)' : 'transparent'};">
+      <td style="padding: 2mm !important; text-align: center; font-weight: 700; color: var(--text-main); white-space: nowrap !important;">${i + 1}</td>
+      <td style="padding: 2mm !important; font-weight: 600; color: var(--text-main); white-space: nowrap !important;">${it.type || it.tipe || '-'}</td>
+      <td style="padding: 2mm !important; color: var(--text-muted); white-space: nowrap !important;">${it.seri || it.sn || '-'}</td>
+      <td style="padding: 2mm !important; font-weight: 600; color: var(--text-main); white-space: nowrap !important;">${it.barang || it.permintaan || '-'}</td>
+      <td style="padding: 2mm !important; color: var(--text-muted); white-space: nowrap !important;">${it.alasan || '-'}</td>
+      <td style="padding: 2mm !important; text-align: center; font-weight: 800; color: var(--primary); white-space: nowrap !important;">${it.qtyDiserahkan || it.qty || 1}</td>
+      <td style="padding: 2mm !important; text-align: center; white-space: nowrap !important;">
+        <span style="font-weight: 800; font-size: 11.5px; color: var(--text-main);">
+          SUDAH DISERAHKAN (${noSurat}-${partialId})
+        </span>
+      </td>
+    </tr>
+  `).join('');
+
+  const isRequireDMSub = window.REQUIRE_DM_APPROVAL_PARSIAL !== false;
+  const pStatSub = targetPartial.status || 'PENDING';
+  let statusTextSub = isRequireDMSub ? 'APPROVAL DM' : 'APPROVAL SERVICE (AUTO)';
+  if (pStatSub === 'DONE') statusTextSub = 'SELESAI (DONE)';
+  else if (pStatSub === 'REJECT') statusTextSub = `DITOLAK DM (${targetPartial.reject_reason || '-'})`;
+  else if (pStatSub === 'PENDING' && isRequireDMSub) statusTextSub = 'PENDING (MENUNGGU APPROVAL DM)';
+
+  const modalHtml = `
+    <div id="modalDetailParsialSub" data-nosurat="${noSurat}" class="modal-overlay active" onclick="if (event.target === this) tutupModalDetailParsialSub('${noSurat}');" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); z-index: 99000000 !important; align-items: center; justify-content: center; padding: 1mm 0.5mm !important; box-sizing: border-box !important;">
+      <div style="background: var(--bg-card); color: var(--text-main); width: calc(100vw - 1mm); height: calc(100vh - 2mm); margin: 1mm 0.5mm !important; border-radius: 8px !important; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.4); border: 1px solid var(--border-color); animation: popIn 0.2s ease-out;">
+        
+        <div style="background: var(--primary) !important; color: #ffffff !important; padding: 12px 16px !important; display: flex; justify-content: space-between; align-items: center; border-radius: 0px !important; border-bottom: 1px solid rgba(255,255,255,0.25) !important; flex-shrink: 0; position: relative !important;">
+          <div style="font-weight: 800; font-size: 14.5px; color: #ffffff !important; text-align: center !important; width: 100%;">
+            DETAIL PERMINTAAN BREAKDOWN
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${hasSubPhotos ? `
+              <button type="button" onclick="bukaModalArtemisParsial('${noSurat}', '${partialId}')" style="background: #ffffff; color: var(--primary); border: none; border-radius: 4px !important; padding: 4px 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                <span class="material-symbols-rounded" style="font-size: 14px;">photo_library</span> VIEW FOTO (${subPhotos.length})
+              </button>
+            ` : ''}
+            <button type="button" onclick="tutupModalDetailParsialSub('${noSurat}')" title="TUTUP" style="font-size: 28px !important; font-weight: 900 !important; color: #ffffff !important; background: transparent !important; border: none !important; cursor: pointer !important; line-height: 1 !important; outline: none !important; padding: 0 4px !important; margin: 0 !important; opacity: 0.95;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.95'">&times;</button>
+          </div>
+        </div>
+
+        <div style="padding: 1mm 0 0 0 !important; overflow-y: auto; flex: 1; background: var(--bg-card); display: flex; flex-direction: column;">
+          <!-- NO SURAT BREAKDOWN RATA KIRI DENGAN DEKAT DENGAN TABEL -->
+          <div style="background: var(--bg-box); border: none !important; border-left: none !important; padding: 4px 8px !important; margin: 0 2mm 1mm 2mm !important; font-size: 12px; color: var(--text-main); font-weight: 700; text-align: left !important; flex-shrink: 0; border-radius: 0px !important; display: flex; justify-content: space-between; align-items: center;">
+            <div>NO SURAT : <strong style="color: var(--primary); font-size: 12.5px; font-weight: 800;">${noSurat}-${partialId}</strong></div>
+            <div style="font-size: 11px; font-weight: 800; color: var(--primary);">STATUS : ${statusTextSub}</div>
+          </div>
+
+          <div style="overflow-x: auto; width: 100%; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); border-left: none !important; border-right: none !important; margin: 0 !important; border-radius: 0px !important; flex: 1;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; border-radius: 0px !important;">
+              <thead style="position: sticky; top: 0; z-index: 5; background: var(--primary) !important; border-radius: 0px !important;">
+                <tr style="background: var(--primary) !important; border-bottom: 1px solid var(--border-color); color: #ffffff !important; white-space: nowrap !important; font-weight: 900 !important; border-radius: 0px !important;">
+                  <th style="padding: 10px 8px !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2) !important;">NO</th>
+                  <th style="padding: 10px 8px !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2) !important;">TYPE</th>
+                  <th style="padding: 10px 8px !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2) !important;">SERI BARANG</th>
+                  <th style="padding: 10px 8px !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2) !important;">PERMINTAAN</th>
+                  <th style="padding: 10px 8px !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2) !important;">ALASAN</th>
+                  <th style="padding: 10px 8px !important; text-align: center !important; width: 75px; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 0.5px; border-right: 1px solid rgba(255,255,255,0.2) !important;">QTY</th>
+                  <th style="padding: 10px 8px !important; text-align: center !important; white-space: nowrap !important; border-radius: 0px !important; background: var(--primary) !important; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 0.5px;">KETERANGAN PART</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+window.bukaDetailSuratParsial = bukaDetailSuratParsial;
+
+function tutupModalDetailParsialSub(noSurat) {
+  const el = document.getElementById('modalDetailParsialSub');
+  const ns = noSurat || (el ? el.getAttribute('data-nosurat') : null);
+  if (el) el.remove();
+  
+  if (ns && typeof bukaModalRiwayatParsialList === 'function') {
+    const listEl = document.getElementById('modalRiwayatParsialList');
+    if (!listEl) {
+      bukaModalRiwayatParsialList(ns);
+    }
+  }
+}
+window.tutupModalDetailParsialSub = tutupModalDetailParsialSub;
+
+function bukaModalArtemisParsial(noSurat, partialId) {
+  const partials = getPartialBreakdownsFromDB(noSurat);
+  const p = partials.find(item => (item && (item.partial_id === partialId || item.partialId === partialId || (item.id && item.id.endsWith(`_${partialId}`)))));
+  if (!p) return;
+
+  const photos = parsePhotosArray(p.photos);
+  if (photos.length === 0) {
+    if (typeof showNotif === 'function') showNotif('TIDAK ADA FOTO BUKTI PENYERAHAN PARSIAL.', 'info');
+    return;
+  }
+
+  if (typeof bukaViewGambar === 'function') {
+    bukaViewGambar(photos, 0);
+  } else if (typeof showImageViewer === 'function') {
+    showImageViewer(photos, 0);
+  }
+}
+window.bukaModalArtemisParsial = bukaModalArtemisParsial;
+
+function cetakPdfSuratParsial(noSurat, partialId) {
+  if (!noSurat || !partialId) return;
+  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  if (!req) {
+    if (typeof showNotif === 'function') showNotif('DATA SURAT INDUK TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  const partials = getPartialBreakdownsFromDB(noSurat);
+  const targetPartial = partials.find(p => p && (p.partial_id === partialId || p.partialId === partialId || p.id.endsWith(`_${partialId}`)));
+
+  if (!targetPartial) {
+    if (typeof showNotif === 'function') showNotif('DATA BREAKDOWN PARSIAL TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  window._currentActivePdfNoSurat = `${noSurat}_${partialId}`;
+
+  const pdfContainer = document.getElementById('pdfDocumentContent');
+  if (!pdfContainer) {
+    window.print();
+    return;
+  }
+
+  const partialItems = Array.isArray(targetPartial.items) ? targetPartial.items : [];
+  const validPhotos = parsePhotosArray(targetPartial.photos);
+
+  let itemRowsHtml = partialItems.map((i, idx) => `
+    <tr style="border-bottom:1px solid #cbd5e1;">
+      <td style="text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%;">${idx + 1}</td>
+      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left;">${i.type || i.tipe || '-'}</td>
+      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left;">${i.seri || i.sn || '-'}</td>
+      ${req.jenis === 'DUS' ? `<td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left; color:#b45309; font-weight:700;">${i.seriDus || i.snDus || '-'}</td>` : ''}
+      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: normal !important; word-break: break-word; text-align:left;">${i.barang || i.permintaan || '-'}</td>
+      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: normal !important; word-break: break-word; text-align:left;">${i.alasan || '-'}</td>
+      <td style="text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; font-weight: 800; color: #0284c7; width:1%;">${i.qtyDiserahkan || i.qty || 1}</td>
+    </tr>
+  `).join('');
+
+  const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+  const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
+  const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
+  const serviceName = req.serviceUserName || (serviceUser ? serviceUser.fullName : 'SERVICE SUPERVISOR');
+  const dmName = typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO';
+
+  let serviceTTD = req.serviceTTD || '';
+  const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
+  if (reqSrvName && typeof getUserRealSignature === 'function') {
+    const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
+    serviceTTD = exactSig || serviceTTD;
+  } else if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
+    serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
+  }
+
+  let dmTTD = req.dmTTD || '';
+  if ((!dmTTD || (typeof isValidSig === 'function' && !isValidSig(dmTTD))) && typeof getUserRealSignature === 'function') {
+    dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
+  }
+  if (typeof isValidSig === 'function' && !isValidSig(dmTTD)) {
+    dmTTD = '';
+  }
+
+  const creatorUser2 = users.find(u => u && (
+    (req.userId && (String(u.id).toUpperCase() === String(req.userId).toUpperCase() || String(u.username).toUpperCase() === String(req.userId).toUpperCase())) ||
+    (req.createdBy && (String(u.username).toUpperCase() === String(req.createdBy).toUpperCase() || String(u.fullName).toUpperCase() === String(req.createdBy).toUpperCase())) ||
+    (req.toko && (String(u.username).toUpperCase() === String(req.toko).toUpperCase() || String(u.fullName).toUpperCase() === String(req.toko).toUpperCase()))
+  ));
+
+  const isReqFromGBJ = (
+    req.isGBJ === true ||
+    (creatorUser2 && (
+      creatorUser2.category === 'GBJ' ||
+      String(creatorUser2.username || '').toUpperCase().includes('GBJ') ||
+      String(creatorUser2.fullName || '').toUpperCase().includes('GBJ') ||
+      String(creatorUser2.storeCode || '').toUpperCase().includes('GBJ')
+    )) ||
+    (req.createdBy && String(req.createdBy).toUpperCase().includes('GBJ')) ||
+    (req.toko && String(req.toko).toUpperCase().includes('GBJ'))
+  );
+
+  let pemohonName = req.toko || req.createdBy || (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : 'PEMOHON');
+  let pemohonRoleTitle = 'PEMOHON (TOKO)';
+  let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
+
+  if (isReqFromGBJ) {
+    pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
+    if (!isValidSig(pemohonTTD) && typeof getUserRealSignature === 'function') {
+      pemohonTTD = (creatorUser2 && isValidSig(creatorUser2.ttd)) ? creatorUser2.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
+    }
+  } else {
+    pemohonTTD = '';
+  }
+
+  const nowPrint = new Date();
+  const pDay = String(nowPrint.getDate()).padStart(2, '0');
+  const pMonth = String(nowPrint.getMonth() + 1).padStart(2, '0');
+  const pYear = nowPrint.getFullYear();
+  const pHour = String(nowPrint.getHours()).padStart(2, '0');
+  const pMin = String(nowPrint.getMinutes()).padStart(2, '0');
+  const pSec = String(nowPrint.getSeconds()).padStart(2, '0');
+  const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
+
+  let photoSection = '';
+  if (validPhotos.length > 0) {
+    photoSection = `
+      <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
+        <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
+          LAMPIRAN FOTO PENYERAHAN PARSIAL (${validPhotos.length} FOTO):
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
+          ${validPhotos.map((p, pIdx) => `
+            <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
+              <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
+              <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+  const areaNameMap = { TSM: 'TASIKMALAYA', BDG: 'BANDUNG', BDU: 'BANDUNG UTARA', CRB: 'CIREBON', SKB: 'SUKABUMI', SBN: 'SUBANG' };
+  const hodsAreaTitle = `HODS ${areaNameMap[req.area] || req.area || ''}`;
+
+  pdfContainer.innerHTML = `
+    <div class="pdf-paper" style="min-height: 680px; display: flex; flex-direction: column; justify-content: space-between; padding: 1mm 20px; color: #0f172a; background: #ffffff; font-family: 'Poppins', sans-serif; box-sizing: border-box;">
+      <div>
+        <div style="text-align: center; font-size: 20px; font-weight: 800; border-bottom: 2.5px solid #0f172a; padding-bottom: 24px; margin-bottom: 20px; letter-spacing: 0.5px; color: #0f172a; text-transform: uppercase;">
+          PERMINTAAN TOKO
+        </div>
+
+        <table class="pdf-info-table" style="width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; font-size: 12px; background: transparent; border: none;">
+          <tr>
+            <td style="padding: 4px 0; width: 85px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">NO SURAT</td>
+            <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+            <td style="padding: 4px 20px 4px 0; width: 100%; font-weight: 800; color: #0284c7; border: none; letter-spacing: 0.2px;">${req.noSurat}-${partialId}</td>
+            
+            <td style="padding: 4px 0; width: 75px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">TANGGAL</td>
+            <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+            <td style="padding: 4px 0; width: 105px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">${(typeof formatDateDDMMYYYYString === 'function') ? formatDateDDMMYYYYString(req.tanggal) : (req.tanggal || '-')}</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">TOKO</td>
+            <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+            <td style="padding: 4px 20px 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase;">${req.toko || req.createdBy || '-'}</td>
+            
+            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">JENIS</td>
+            <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase; white-space: nowrap; text-align: left;">${req.jenis || 'DEFAULT'}</td>
+          </tr>
+        </table>
+
+        <div style="font-size: 11px; font-weight: bold; margin-bottom: 6px; color: #0f172a;">DETAIL PERMINTAAN:</div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11.5px; border: 1px solid #cbd5e1;">
+          <thead>
+            <tr style="background: #0284c7; color: #ffffff;">
+              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">NO</th>
+              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">TIPE BARANG</th>
+              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI</th>
+              ${req.jenis === 'DUS' ? `<th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI DUS</th>` : ''}
+              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">PERMINTAAN BARANG</th>
+              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">ALASAN PERMINTAAN</th>
+              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">QTY</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRowsHtml}
+          </tbody>
+        </table>
+
+        ${photoSection}
+      </div>
+
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 28px; text-align: center; font-size: 11px; page-break-inside: avoid;">
+          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">PEMOHON</div>
+            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+              ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
+            </div>
+            <div>
+              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
+              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
+            </div>
+          </div>
+
+          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DIPERIKSA</div>
+            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+              ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(serviceTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
+            </div>
+            <div>
+              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
+              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${hodsAreaTitle}</div>
+            </div>
+          </div>
+
+          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DISETUJUI</div>
+            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+              ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(dmTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
+            </div>
+            <div>
+              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${dmName}</div>
+              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">DISTRICT MANAGER</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; justify-content: flex-end; font-size: 8px; color: #64748b;">
+          <div style="font-style: italic; opacity: 0.85;">${timestampStr}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (typeof cetakDokumenPdf === 'function') {
+    cetakDokumenPdf();
+  } else {
+    window.print();
+  }
+}
+window.cetakPdfSuratParsial = cetakPdfSuratParsial;
+
+function tampilkanPilihanCetakPdf(noSurat) {
+  if (!noSurat) return;
+  const partials = getPartialBreakdownsFromDB(noSurat);
+  const approvedPartials = partials.filter(p => p && (p.status === 'APPROVE' || p.status === 'DONE'));
+
+  // JIKA TIDAK ADA SURAT PARSIAL -> LANGSUNG ARAHKAN KE PRINT UTAMA!
+  if (approvedPartials.length === 0) {
+    if (typeof bukaPdfModal === 'function') {
+      bukaPdfModal(noSurat, true, true);
+    } else {
+      window.print();
+    }
+    return;
+  }
+
+  const existing = document.getElementById('modalPilihanCetakPdf');
+  if (existing) existing.remove();
+
+  const optionsHtml = `
+    <div style="margin-bottom: 2mm !important;">
+      <button type="button" onclick="document.getElementById('modalPilihanCetakPdf').remove(); bukaPdfModal('${noSurat}', true, true);" style="width: 100%; text-align: left; padding: 2mm !important; border-radius: 4px !important; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main); font-weight: 700; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: background 0.2s;">
+        <span style="display: flex; align-items: center; gap: 6px;">
+          <span class="material-symbols-rounded" style="color: var(--primary); font-size: 16px;">description</span> SURAT PERMINTAAN INDUK UTAMA (${noSurat})
+        </span>
+        <span class="material-symbols-rounded" style="font-size: 16px; color: var(--text-muted);">chevron_right</span>
+      </button>
+    </div>
+
+    ${approvedPartials.map((p, idx) => {
+      const pid = p.partial_id || p.partialId || `P${idx + 1}`;
+      return `
+        <div style="margin-bottom: 2mm !important;">
+          <button type="button" onclick="document.getElementById('modalPilihanCetakPdf').remove(); cetakPdfSuratParsial('${noSurat}', '${pid}');" style="width: 100%; text-align: left; padding: 2mm !important; border-radius: 4px !important; border: 1px solid #10b981; background: rgba(16,185,129,0.05); color: var(--text-main); font-weight: 700; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: background 0.2s;">
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span class="material-symbols-rounded" style="color: #10b981; font-size: 16px;">receipt_long</span> SURAT JALAN PARSIAL (${noSurat}-${pid})
+            </span>
+            <span class="material-symbols-rounded" style="font-size: 16px; color: #10b981;">chevron_right</span>
+          </button>
+        </div>
+      `;
+    }).join('')}
+  `;
+
+  if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+
+  const modalHtml = `
+    <div id="modalPilihanCetakPdf" class="modal-overlay active" onclick="if (event.target === this) this.remove();" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); z-index: 20000004 !important; align-items: center; justify-content: center; padding: 12px !important; box-sizing: border-box !important;">
+      <div style="background: var(--bg-card); color: var(--text-main); width: calc(100% - 24px); max-width: 460px; border-radius: 8px !important; margin: auto !important; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.45); border: 1px solid var(--border-color); animation: popIn 0.2s ease-out;">
+        <div style="background: var(--primary) !important; color: #ffffff !important; padding: 12px 16px !important; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0 !important; flex-shrink: 0; position: relative !important;">
+          <div style="font-weight: 800; font-size: 13.5px; display: flex; align-items: center; gap: 6px; color: #ffffff !important;">
+            <span class="material-symbols-rounded" style="color: #ffffff !important;">picture_as_pdf</span> PILIH DOKUMEN PDF UNTUK DICETAK
+          </div>
+          <button type="button" onclick="document.getElementById('modalPilihanCetakPdf').remove()" title="TUTUP" style="font-size: 28px !important; font-weight: 900 !important; color: #ffffff !important; background: transparent !important; border: none !important; cursor: pointer !important; line-height: 1 !important; outline: none !important; padding: 0 4px !important; margin: 0 !important; opacity: 0.95;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.95'">&times;</button>
+        </div>
+        <div style="padding: 2mm !important;">
+          ${optionsHtml}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+window.tampilkanPilihanCetakPdf = tampilkanPilihanCetakPdf;
+
+function isPhotoUrlValid(val) {
+  if (!val) return false;
+  if (Array.isArray(val)) {
+    return val.some(item => isPhotoUrlValid(item));
+  }
+  if (typeof val === 'object') {
+    return isPhotoUrlValid(val.url || val.src || val.link || '');
+  }
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (!s || s === 'null' || s === 'undefined' || s === '[]' || s === '{}' || s === '""' || s === "''") return false;
+    if (s.startsWith('[') && s.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(s);
+        return isPhotoUrlValid(parsed);
+      } catch (e) {
+        return false;
+      }
+    }
+    return (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image/') || s.length > 20);
+  }
+  return false;
+}
+window.isPhotoUrlValid = isPhotoUrlValid;
+
+function parsePhotosArray(photos) {
+  if (!photos) return [];
+  let list = [];
+  if (Array.isArray(photos)) {
+    list = photos;
+  } else if (typeof photos === 'string') {
+    try { list = JSON.parse(photos || '[]'); } catch(e) { list = []; }
+  }
+  if (!Array.isArray(list)) list = [list];
+  return list.map(p => {
+    if (typeof p === 'string') return p;
+    if (p && typeof p === 'object') return p.url || p.src || p.link || '';
+    return '';
+  }).filter(p => isPhotoUrlValid(p));
+}
+window.parsePhotosArray = parsePhotosArray;
+
+// =======================================================================
+// WIDGET TANGGAL & JAM REAL-TIME INTERAKTIF
+// =======================================================================
+function updateLiveHeaderClock() {
+  const dateEls = document.querySelectorAll('#liveDateText, .liveDateText');
+  const timeEls = document.querySelectorAll('#liveTimeText, .liveTimeText');
+
+  const now = new Date();
+  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+  const dayName = days[now.getDay()];
+  const dateNum = String(now.getDate()).padStart(2, '0');
+  const monthName = months[now.getMonth()];
+  const yearNum = now.getFullYear();
+
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+
+  const formattedDate = `${dayName}, ${dateNum} ${monthName} ${yearNum}`;
+  const formattedTime = `${hh}:${mm}:${ss} WIB`;
+
+  if (dateEls.length > 0) {
+    dateEls.forEach(el => { el.textContent = formattedDate; });
+  } else {
+    const el = document.getElementById('liveDateText');
+    if (el) el.textContent = formattedDate;
+  }
+
+  if (timeEls.length > 0) {
+    timeEls.forEach(el => { el.textContent = formattedTime; });
+  } else {
+    const el = document.getElementById('liveTimeText');
+    if (el) el.textContent = formattedTime;
+  }
+
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mmMonth = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+
+  const formattedDateShort = `${dd}/${mmMonth}/${yyyy}`;
+  const formattedTimeShort = `${hh}:${mm}:${ss}`;
+
+  const inlineDateEls = document.querySelectorAll('#mobileClockDateText, .mobileClockDateText');
+  if (inlineDateEls.length > 0) inlineDateEls.forEach(el => { el.textContent = formattedDateShort; });
+
+  const inlineClockEls = document.querySelectorAll('#mobileClockTimeText, .mobileClockTimeText');
+  if (inlineClockEls.length > 0) inlineClockEls.forEach(el => { el.textContent = formattedTimeShort; });
+}
+window.updateLiveHeaderClock = updateLiveHeaderClock;
+
+setInterval(updateLiveHeaderClock, 1000);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', updateLiveHeaderClock);
+} else {
+  updateLiveHeaderClock();
+}
+
+
+// =======================================================================
+// MANUAL REFRESH POPUP DETAIL & PRE-APPROVAL VALIDATION ENGINE
+// =======================================================================
+async function refreshDetailModalManual() {
+  const v2 = document.getElementById('popupDetailBarangV2');
+  const noSurat = window._currentDetailNoSurat || (v2 ? (v2.dataset.noSurat || v2.dataset.nosurat) : '');
+  if (!noSurat) {
+    if (typeof showNotif === 'function') showNotif('TIDAK ADA SURAT AKTIF UNTUK DIREFRESH', 'warning');
+    return;
+  }
+
+  const btnRefresh = document.getElementById('btnRefreshDetailV2');
+  if (btnRefresh) {
+    btnRefresh.style.transition = 'transform 0.5s ease';
+    btnRefresh.style.transform = 'translateY(-50%) rotate(360deg)';
+  }
+
+  if (typeof showLoading === 'function') showLoading('MEMPERBARUI DATA DETAIL...');
+  try {
+    if (typeof supabase !== 'undefined' && supabase) {
+      const { data, error } = await supabase.from('permintaan_toko').select('*').eq('no_surat', noSurat);
+      if (data && data.length > 0) {
+        const formatted = typeof formatSupabaseRequestRow === 'function' ? formatSupabaseRequestRow(data[0]) : null;
+        if (formatted) {
+          const currentReqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+          const idx = currentReqs.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
+          if (idx !== -1) {
+            currentReqs[idx] = { ...currentReqs[idx], ...formatted };
+          } else {
+            currentReqs.unshift(formatted);
+          }
+          if (typeof appStorage !== 'undefined') appStorage.setItem(REQUESTS_DB_KEY, JSON.stringify(currentReqs));
+        }
+      }
+    }
+    if (typeof lihatDetail === 'function') {
+      await lihatDetail(noSurat, true);
+    }
+    if (typeof showNotif === 'function') showNotif('DATA DETAIL BERHASIL DIPERBARUI!', 'success');
+  } catch(e) {
+    if (typeof showNotif === 'function') showNotif('GAGAL MEMPERBARUI DATA: ' + (e.message || e), 'warning');
+  } finally {
+    if (typeof hideLoading === 'function') hideLoading();
+    if (btnRefresh) {
+      setTimeout(() => {
+        btnRefresh.style.transition = 'none';
+        btnRefresh.style.transform = 'translateY(-50%) rotate(0deg)';
+      }, 500);
+    }
+  }
+}
+window.refreshDetailModalManual = refreshDetailModalManual;
+
+async function validatePreApprovalData(noSurat, expectedType) {
+  if (typeof supabase === 'undefined' || !supabase) return true;
+  try {
+    const { data, error } = await supabase.from('permintaan_toko').select('*').eq('no_surat', noSurat);
+    if (error || !data || data.length === 0) return true;
+    const serverRow = data[0];
+    const localReqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+    const local = localReqs.find(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
+
+    if (!local) return true;
+
+    let hasMismatch = false;
+    let mismatchMsg = '';
+
+    if (expectedType === 'SERVICE') {
+      if (serverRow.service_approve) {
+        hasMismatch = true;
+        mismatchMsg = 'SURAT INI SUDAH DI-APPROVE OLEH SERVICE LAIN DI SERVER!';
+      } else if (serverRow.status !== 'PENDING') {
+        hasMismatch = true;
+        mismatchMsg = 'STATUS SURAT DI SERVER SUDAH BERUBAH MENJADI ' + serverRow.status + '!';
+      }
+    } else if (expectedType === 'DM') {
+      if (!serverRow.service_approve) {
+        hasMismatch = true;
+        mismatchMsg = 'SURAT INI BELUM DI-APPROVE OLEH SERVICE DI SERVER!';
+      } else if (serverRow.status === 'APPROVE') {
+        hasMismatch = true;
+        mismatchMsg = 'SURAT INI SUDAH DI-APPROVE OLEH DM LAIN DI SERVER!';
+      } else if (serverRow.status !== 'PENDING') {
+        hasMismatch = true;
+        mismatchMsg = 'STATUS SURAT DI SERVER SUDAH BERUBAH MENJADI ' + serverRow.status + '!';
+      }
+    }
+
+    // Check items difference
+    if (!hasMismatch && serverRow.items) {
+      const serverItemsStr = typeof serverRow.items === 'string' ? serverRow.items : JSON.stringify(serverRow.items || []);
+      const localItemsStr = typeof local.items === 'string' ? local.items : JSON.stringify(local.items || []);
+      if (serverItemsStr !== localItemsStr) {
+        hasMismatch = true;
+        mismatchMsg = 'ADA PERUBAHAN BARANG / QTY PERMINTAAN DI SERVER!';
+      }
+    }
+
+    if (hasMismatch) {
+      if (typeof showNotif === 'function') {
+        showNotif('ADA PERUBAHAN DATA DI SURAT INI, REFRESH TERLEBIH DAHULU', 'warning');
+      }
+      const btnRefresh = document.getElementById('btnRefreshDetailV2');
+      if (btnRefresh) {
+        btnRefresh.style.border = '2px solid #ef4444';
+        btnRefresh.style.background = '#ef4444';
+        setTimeout(() => {
+          btnRefresh.style.border = '1px solid rgba(255,255,255,0.35)';
+          btnRefresh.style.background = 'rgba(255,255,255,0.18)';
+        }, 3500);
+      }
+      return false;
+    }
+    return true;
+  } catch(e) {
+    return true;
+  }
+}
+window.validatePreApprovalData = validatePreApprovalData;
+
+
+// =============================================================================
+// OFFLINE & SUPABASE NETWORK SAFETY MODAL HANDLER
+// =============================================================================
+function tampilkanModalOfflineSafety(customMessage = null) {
+  const modal = document.getElementById('popupOfflineSafetyModal');
+  const msgEl = document.getElementById('popupOfflineMessage');
+  if (msgEl && customMessage) {
+    msgEl.textContent = customMessage;
+  }
+  if (modal) {
+    modal.style.setProperty('display', 'flex', 'important');
+    modal.style.setProperty('z-index', '2147483648', 'important');
+    modal.classList.add('show');
+  }
+}
+window.tampilkanModalOfflineSafety = tampilkanModalOfflineSafety;
+
+function tutupModalOfflineSafety() {
+  const modal = document.getElementById('popupOfflineSafetyModal');
+  if (modal) {
+    modal.style.setProperty('display', 'none', 'important');
+    modal.classList.remove('show');
+  }
+}
+window.tutupModalOfflineSafety = tutupModalOfflineSafety;
+
+function eksekusiKeluarAplikasi() {
+  try {
+    window.close();
+  } catch(e) {}
+  setTimeout(() => {
+    try {
+      window.location.href = "about:blank";
+    } catch(e) {}
+  }, 150);
+}
+window.eksekusiKeluarAplikasi = eksekusiKeluarAplikasi;
+
+// Network online/offline event listeners
+window.addEventListener('offline', () => {
+  tampilkanModalOfflineSafety('Koneksi internet perangkat Anda terputus! Silakan periksa Wi-Fi / Data Seluler Anda.');
+});
+
+window.addEventListener('online', () => {
+  tutupModalOfflineSafety();
+  if (typeof syncSupabaseRequestsToLocalCache === 'function') {
+    syncSupabaseRequestsToLocalCache();
+  }
+});
+
+
+// =============================================================================
+// FITUR UBAH STATUS SUPABASE KHUSUS LOGIN ADMIN
+// =============================================================================
+function bukaModalUbahStatusAdmin(noSurat) {
+  if (!noSurat) return;
+  const role = currentUser ? (currentUser.category || '').toUpperCase() : '';
+  const isAdm = currentUser && (role === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
+  if (!isAdm) {
+    showNotif('FITUR UBAH STATUS SUPABASE HANYA DAPAT DIAKSES OLEH AKUN ADMIN!', 'warning');
+    return;
+  }
+
+  const requests = getRequestsFromDB();
+  const targetNo = String(noSurat).trim().toUpperCase();
+  const req = requests.find(r => r && (
+    String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+    String(r.id || '').trim().toUpperCase() === targetNo
+  ));
+
+  if (!req) {
+    showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  const hiddenNo = document.getElementById('adminStatusNoSurat');
+  if (hiddenNo) hiddenNo.value = req.noSurat;
+
+  const infoBox = document.getElementById('adminStatusInfoBox');
+  if (infoBox) {
+    infoBox.innerHTML = `
+      <div style="font-size: 13px; font-weight: 800; color: var(--primary); margin-bottom: 2px;">SURAT: #${req.noSurat}</div>
+      <div style="color: var(--text-main); font-size: 12px; font-weight: 600;">Toko: <strong>${req.toko || '-'}</strong> (${req.area || '-'}) | Status Saat Ini: <strong style="color: var(--primary);">${req.status || 'PENDING'}</strong></div>
+    `;
+  }
+
+  const selectEl = document.getElementById('selectStatusAdmin');
+  if (selectEl) {
+    let curSt = String(req.status || 'PENDING').toUpperCase();
+    if (curSt === 'REJECT_SERVICE' || curSt === 'REJECT_DM') curSt = 'REJECT';
+    selectEl.value = curSt;
+  }
+
+  const modal = document.getElementById('popupUbahStatusAdminModal');
+  if (modal) {
+    modal.style.setProperty('display', 'flex', 'important');
+    modal.style.setProperty('z-index', '2147483648', 'important');
+    modal.classList.add('show');
+    try { history.pushState({ modal: 'adminStatus' }, '', location.href); } catch(e) {}
+  }
+}
+window.bukaModalUbahStatusAdmin = bukaModalUbahStatusAdmin;
+
+function tutupModalUbahStatusAdmin() {
+  const modal = document.getElementById('popupUbahStatusAdminModal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('show');
+  }
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
+  }
+}
+window.tutupModalUbahStatusAdmin = tutupModalUbahStatusAdmin;
+
+async function simpanUbahStatusAdmin() {
+  const hiddenNo = document.getElementById('adminStatusNoSurat');
+  const selectEl = document.getElementById('selectStatusAdmin');
+  if (!hiddenNo || !selectEl || !hiddenNo.value) return;
+
+  const noSurat = hiddenNo.value;
+  const newStatus = selectEl.value;
+
+  const role = currentUser ? (currentUser.category || '').toUpperCase() : '';
+  const isAdm = currentUser && (role === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
+  if (!isAdm) {
+    showNotif('HANYA ADMIN YANG BERHAK MENGUBAH STATUS!', 'warning');
+    return;
+  }
+
+  showLoading(`MENGUBAH STATUS NO SURAT ${noSurat} MENJADI ${newStatus} DI SUPABASE...`);
+
+  try {
+    // 1. Update di Supabase Database
+    const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : ((typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : null);
+    if (sb) {
+      const payload = {
+        status: newStatus,
+        updated_at: new Date().toISOString()
+      };
+      if (newStatus === 'APPROVE') {
+        payload.service_approve = true;
+      } else if (newStatus === 'PENDING') {
+        payload.service_approve = false;
+      }
+      const { error } = await sb.from('permintaan_toko').update(payload).eq('no_surat', noSurat);
+      if (error) {
+        console.error('[SUPABASE ADMIN STATUS ERROR]:', error);
+      }
+    }
+
+    // 2. Update local requests memory
+    const requests = getRequestsFromDB();
+    const targetNo = String(noSurat).trim().toUpperCase();
+    const reqIdx = requests.findIndex(r => r && String(r.noSurat || '').trim().toUpperCase() === targetNo);
+    if (reqIdx !== -1) {
+      requests[reqIdx].status = newStatus;
+      if (newStatus === 'APPROVE') requests[reqIdx].serviceApprove = true;
+      else if (newStatus === 'PENDING') requests[reqIdx].serviceApprove = false;
+      saveRequestsToDB(requests, requests[reqIdx], 'UPDATE');
+    }
+
+    hideLoading();
+    tutupModalUbahStatusAdmin();
+    showNotif(`BERHASIL MENGUBAH STATUS NO SURAT ${noSurat} MENJADI ${newStatus}!`, 'success');
+
+    // 3. Re-render UI components & Detail Modal
+    _isClosingDetailModal = false;
+    window._isClosingDetailModal = false;
+    if (typeof loadMasterDbTable === 'function' && document.getElementById('masterDbTableBody')) {
+      loadMasterDbTable();
+    }
+    if (typeof filterRiwayat === 'function') {
+      filterRiwayat();
+    }
+    if (typeof renderDashboard === 'function') {
+      renderDashboard();
+    }
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(noSurat, true);
+    }
+    if (typeof refreshOpenPopupsUI === 'function') {
+      refreshOpenPopupsUI();
+    }
+  } catch(err) {
+    hideLoading();
+    console.error('[SIMPAN STATUS ADMIN ERROR]:', err);
+    showNotif('GAGAL MENGUBAH STATUS: ' + (err.message || String(err)), 'error');
+  }
+}
+window.simpanUbahStatusAdmin = simpanUbahStatusAdmin;
+
+function showToastExit(msg) {
+  return;
+}
+window.showToastExit = showToastExit;
+
+// HELPER FOR EDIT ORIGIN RETURN NAVIGATION (RETURN TO EXACT ORIGIN PAGE/MODAL WHERE EDIT WAS CLICKED)
+window._editOriginSource = null;
+
+function kembaliKeOriginEdit() {
+  const origin = window._editOriginSource;
+  window._editOriginSource = null;
+
+  if (origin) {
+    if (origin.type === 'detail' && origin.noSurat) {
+      const targetPage = origin.pageId && origin.pageId !== 'inputPage' ? origin.pageId : 'riwayatPage';
+      pindahHalaman(targetPage);
+      if (typeof lihatDetail === 'function') {
+        lihatDetail(origin.noSurat, true);
+      }
+      return true;
+    } else if (origin.type === 'page' && origin.pageId) {
+      pindahHalaman(origin.pageId);
+      if (typeof aturTampilanLonceng === 'function') aturTampilanLonceng(origin.pageId);
+      return true;
+    }
+  }
+  return false;
+}
+window.kembaliKeOriginEdit = kembaliKeOriginEdit;
+
+// SINKRONISASI OTOMATIS KREDENSIAL MASTER ADMIN (PASSWORD = 00, AREA = ALL)
+(function enforceAdminCredentials() {
+  try {
+    const rawUsers = appStorage.getItem(USERS_DB_KEY);
+    let users = rawUsers ? JSON.parse(rawUsers) : [];
+    let updated = false;
+
+    users = users.map(u => {
+      if (u && String(u.username || '').trim().toUpperCase() === 'ADMIN') {
+        if (u.password !== '00' || u.area !== 'ALL' || u.category !== 'ADMIN') {
+          u.password = '00';
+          u.area = 'ALL';
+          u.category = 'ADMIN';
+          updated = true;
+        }
+      }
+      return u;
+    });
+
+    if (updated) {
+      appStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
+      try { localStorage.setItem(USERS_DB_KEY, JSON.stringify(users)); } catch(e) {}
+    }
+
+    const rawSession = appStorage.getItem(SESSION_KEY);
+    if (rawSession) {
+      const sess = JSON.parse(rawSession);
+      if (sess && String(sess.username || '').trim().toUpperCase() === 'ADMIN') {
+        sess.password = '00';
+        sess.area = 'ALL';
+        sess.category = 'ADMIN';
+        appStorage.setItem(SESSION_KEY, JSON.stringify(sess));
+        try { localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); } catch(e) {}
+        if (typeof currentUser !== 'undefined' && currentUser) {
+          currentUser.password = '00';
+          currentUser.area = 'ALL';
+          currentUser.category = 'ADMIN';
+        }
+      }
+    }
+  } catch(e) {}
+})();

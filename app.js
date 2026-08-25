@@ -6905,6 +6905,17 @@ let _sessionTokenRealtimeRef = null;
 
 async function startSessionTokenRealtimeListener(isFreshLogin = false) {
   if (!currentUser || !currentUser.username) return;
+
+  const isAdmin = (
+    String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
+    String(currentUser.username || '').toUpperCase() === 'ADMIN'
+  );
+
+  // KHUSUS USER NON-ADMIN: Bebas multi-login di banyak perangkat bersamaan
+  if (!isAdmin) return;
+
+  // KHUSUS AKUN ADMIN: Dibatasi HANYA 1 perangkat aktif (Single-Device Locking).
+  // Jika Admin login di perangkat baru, perangkat Admin sebelumnya akan otomatis di-logout.
   const usernameKey = String(currentUser.username).replace(/[\/\.#$\[\]]/g, '_');
   const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
   if (!rtdb) return;
@@ -6916,7 +6927,7 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
 
   let myLocalToken = appStorage.getItem('MY_SESSION_TOKEN');
 
-  // Jika ini LOGIN BARU (user memasukkan username/password), buat token baru & update ke DB lebih dulu
+  // Jika ini LOGIN BARU (Admin memasukkan username/password), buat token baru & update ke DB
   if (isFreshLogin || !myLocalToken) {
     myLocalToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     appStorage.setItem('MY_SESSION_TOKEN', myLocalToken);
@@ -6926,12 +6937,11 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
         updated_at: new Date().toISOString()
       });
     } catch(e) {
-      console.warn('[SESSION WRITE NOTICE]:', e);
+      console.warn('[ADMIN SESSION WRITE NOTICE]:', e);
     }
   }
 
-  // Jika ini fresh login, token baru sudah 100% tersimpan di DB.
-  // Langsung pasang Realtime listener tanpa cek `once` (mencegah race-condition membaca token lama sebelum set selesai).
+  // Jika fresh login Admin: langsung pasang Realtime listener
   if (isFreshLogin) {
     _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
       if (!currentUser) return;
@@ -6939,47 +6949,46 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
       if (dbVal && dbVal.session_token) {
         const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
         if (curActiveToken && dbVal.session_token !== curActiveToken) {
-          console.warn('⚠️ [GLOBAL LOGOUT NOTICE]: Account logged out by Admin!');
-          forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI');
+          console.warn('⚠️ [ADMIN LOGOUT NOTICE]: Admin account logged in on another device!');
+          forceLogoutThisDevice('AKUN ADMIN TERDETEKSI LOGIN DI PERANGKAT LAIN. SESI DI PERANGKAT INI TELAH DI-LOGOUT.');
         }
       }
     });
     return;
   }
 
-  // UNTUK USER YANG RE-OPEN BROWSER / REFRESH: Cek kelayakan sesi dari DB (menangani kasus user di-logout saat offline)
+  // Cek sesi Admin saat re-open browser / refresh
   try {
     const snapshot = await rtdb.ref(`user_sessions/${usernameKey}`).once('value');
     if (!currentUser) return;
     const data = snapshot.val();
     const activeMyToken = appStorage.getItem('MY_SESSION_TOKEN');
 
-    // JIKA TOKEN DI DATABASE SUDAH BERBEDA DENGAN TOKEN LOKAL => PERANGKAT DI-LOGOUT ADMIN SAAT OFFLINE
     if (data && data.session_token && activeMyToken && data.session_token !== activeMyToken) {
-      console.warn('⚠️ [OFFLINE LOGOUT DETECTED]: Account was logged out by Admin while offline!');
-      forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI');
+      console.warn('⚠️ [ADMIN OFFLINE LOGOUT DETECTED]: Admin account logged in on another device!');
+      forceLogoutThisDevice('AKUN ADMIN TERDETEKSI LOGIN DI PERANGKAT LAIN. SILAHKAN LOGIN KEMBALI.');
       return;
     }
   } catch(errOnce) {
-    console.warn('[SESSION ONCE READ NOTICE]:', errOnce);
+    console.warn('[ADMIN SESSION ONCE READ NOTICE]:', errOnce);
   }
 
-  // Pasang listener Realtime untuk memantau logout saat user sedang aktif
+  // Listener Realtime memantau pergantian perangkat Admin saat aktif
   _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
     if (!currentUser) return;
     const dbVal = snap.val();
     if (dbVal && dbVal.session_token) {
       const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
       if (curActiveToken && dbVal.session_token !== curActiveToken) {
-        console.warn('⚠️ [GLOBAL LOGOUT NOTICE]: Account logged out by Admin!');
-        forceLogoutThisDevice('AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI');
+        console.warn('⚠️ [ADMIN LOGOUT NOTICE]: Admin account logged in on another device!');
+        forceLogoutThisDevice('AKUN ADMIN TERDETEKSI LOGIN DI PERANGKAT LAIN. SESI DI PERANGKAT INI TELAH DI-LOGOUT.');
       }
     }
   });
 }
 window.startSessionTokenRealtimeListener = startSessionTokenRealtimeListener;
 
-function forceLogoutThisDevice(customMsg = 'AKUN ANDA TELAH DI-LOGOUT OLEH ADMIN. SILAHKAN LOGIN KEMBALI') {
+function forceLogoutThisDevice(customMsg = 'AKUN ANDA TELAH DI-LOGOUT. SILAHKAN LOGIN KEMBALI') {
   if (_sessionTokenRealtimeRef) {
     try {
       const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
@@ -7043,58 +7052,11 @@ window.forceLogoutThisDevice = forceLogoutThisDevice;
 
 async function logoutSemuaPerangkat() {
   const confirmMsg = isFormDirtyOrFilled() 
-    ? 'ADA DATA PERMINTAAN BELUM DISIMPAN. YAKIN INGIN LOGOUT SELURUH PERANGKAT HP & LAPTOP AKUN INI?' 
-    : 'YAKIN INGIN KELUAR / LOGOUT AKUN INI DARI SELURUH PERANGKAT HP & LAPTOP?';
+    ? 'ADA DATA PERMINTAAN BELUM DISIMPAN. YAKIN INGIN LOGOUT DARI PERANGKAT INI?' 
+    : 'YAKIN INGIN KELUAR / LOGOUT DARI PERANGKAT INI?';
 
   showConfirm(confirmMsg, function() {
-    var _asyncTask = async function() {
-      showLoading('MEMPROSES LOGOUT SEMUA PERANGKAT...');
-      try {
-        const username = currentUser ? currentUser.username : null;
-        const usernameKey = username ? String(username).replace(/[\/\.#$\[\]]/g, '_') : null;
-        const newGlobalSessionToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-
-        if (usernameKey) {
-          // 1. Update Firebase Realtime DB (Realtime Sync to all devices)
-          try {
-            const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
-            if (rtdb) {
-              await rtdb.ref(`user_sessions/${usernameKey}`).set({
-                session_token: newGlobalSessionToken,
-                logout_at: new Date().toISOString()
-              });
-              rtdb.ref(`users/${usernameKey}/session_token`).set(newGlobalSessionToken).catch(() => {});
-            }
-          } catch(e1) {}
-
-          // 2. Update Firestore
-          try {
-            const fs = typeof getDbFirestore === 'function' ? getDbFirestore() : null;
-            if (fs) {
-              fs.collection('users').doc(usernameKey).set({
-                session_token: newGlobalSessionToken,
-                logout_all_at: new Date().toISOString()
-              }, { merge: true }).catch(() => {});
-            }
-          } catch(e2) {}
-
-          // 3. Update Supabase
-          try {
-            if (typeof supabase !== 'undefined' && supabase) {
-              supabase.from('users').update({ session_token: newGlobalSessionToken }).eq('username', username).then(() => {}, () => {});
-            }
-          } catch(e3) {}
-        }
-
-        hideLoading();
-        showNotif('BERHASIL LOGOUT DARI SEMUA PERANGKAT HP & LAPTOP!', 'success');
-        forceLogoutThisDevice(null);
-      } catch(err) {
-        hideLoading();
-        showNotif('GAGAL LOGOUT SEMUA PERANGKAT: ' + (err.message || err), 'warning');
-      }
-    };
-    _asyncTask();
+    forceLogoutThisDevice(null);
   });
 }
 window.logoutSemuaPerangkat = logoutSemuaPerangkat;

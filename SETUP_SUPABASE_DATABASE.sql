@@ -19,10 +19,12 @@ CREATE TABLE IF NOT EXISTS public.users (
     phone TEXT DEFAULT '-',
     category TEXT NOT NULL DEFAULT 'TOKO',
     area TEXT NOT NULL DEFAULT 'BDG',
+    can_print_pdf BOOLEAN DEFAULT false,
     theme TEXT DEFAULT '',
     created_at TEXT DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS can_print_pdf BOOLEAN DEFAULT false;
 
 -- 2. TABEL: LOOKUP (ID AUTO INCREMENT, KEY, VALUE, TYPE, UPDATED_AT)
 CREATE TABLE IF NOT EXISTS public.lookup (

@@ -3420,6 +3420,39 @@ async function initSupabaseRealtimeEngine() {
       )
       .on(
         'broadcast',
+        { event: 'force_logout' },
+        (event) => {
+          if (event && event.payload && event.payload.username && currentUser) {
+            const target = String(event.payload.username).trim().toUpperCase();
+            const myUname = String(currentUser.username || '').trim().toUpperCase();
+            if (target === myUname) {
+              console.warn('⚠️ [FORCE LOGOUT BROADCAST DETECTED]: Logging out this device...');
+              if (typeof forceLogoutThisDevice === 'function') {
+                forceLogoutThisDevice(event.payload.reason || 'AKUN DI LOGOUT OLEH ADMIN, SILAHKAN LOGIN KEMBALI');
+              }
+            }
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'force_logout_all' },
+        (event) => {
+          if (currentUser) {
+            const myUname = String(currentUser.username || '').trim().toUpperCase();
+            const except = event && event.payload && event.payload.exceptAdmin ? String(event.payload.exceptAdmin).trim().toUpperCase() : 'ADMIN';
+            const isMyUserAdmin = (myUname === 'ADMIN' || String(currentUser.category || '').toUpperCase() === 'ADMIN');
+            if (myUname !== except && !isMyUserAdmin) {
+              console.warn('⚠️ [FORCE LOGOUT ALL BROADCAST DETECTED]: Logging out this device...');
+              if (typeof forceLogoutThisDevice === 'function') {
+                forceLogoutThisDevice(event.payload.reason || 'AKUN DI LOGOUT OLEH ADMIN, SILAHKAN LOGIN KEMBALI');
+              }
+            }
+          }
+        }
+      )
+      .on(
+        'broadcast',
         { event: 'chat_message' },
         (event) => {
           if (event && event.payload && event.payload.chat) {
@@ -3601,6 +3634,7 @@ function formatSupabaseRequestRow(row) {
     items: Array.isArray(row.items) ? row.items : (typeof row.items === 'string' ? JSON.parse(row.items || '[]') : []),
     photos: parsePhotosArray(row.photos || row.foto),
     artemisPhotos: parsePhotosArray(row.artemis_photos || row.artemisPhotos),
+    buktiPermintaan: parsePhotosArray(row.bukti_permintaan || row.buktiPermintaan),
     status: row.status || 'PENDING',
     serviceApprove: row.service_approve !== undefined ? !!row.service_approve : !!row.serviceApprove,
     serviceUserName: row.service_user_name || row.serviceUserName || '',
@@ -4019,6 +4053,7 @@ function handleRealtimeUserChange(payload) {
         phone: String(u.phone || '').trim(),
         category: String(u.category || 'TOKO').trim().toUpperCase(),
         area: String(u.area || 'BDG').trim().toUpperCase(),
+        canPrintPdf: u.can_print_pdf !== undefined ? (u.can_print_pdf === true || u.can_print_pdf === 'true' || u.can_print_pdf === 1) : (u.canPrintPdf !== undefined ? (u.canPrintPdf === true || u.canPrintPdf === 'true' || u.canPrintPdf === 1) : false),
         ttd: u.ttd || '',
         createdAt: u.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
       };
@@ -4035,8 +4070,19 @@ function handleRealtimeUserChange(payload) {
 
       if (currentUser && (
         (formatted.id && currentUser.id && String(currentUser.id) === String(formatted.id)) ||
-        (formatted.username && currentUser.username && String(currentUser.username).toUpperCase() === String(formatted.username).toUpperCase())
+        (formatted.username && currentUser.username && String(currentUser.username).toUpperCase() === formatted.username.toUpperCase())
       )) {
+        // DETEKSI LOGOUT PAKSA DARI ADMIN VIA SINKRONISASI SESSION_TOKEN
+        const incomingSessionToken = u.session_token || u.sessionToken;
+        const myActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
+        if (incomingSessionToken && myActiveToken && String(incomingSessionToken).trim() !== String(myActiveToken).trim()) {
+          console.warn('⚠️ [SESSION TOKEN MISMATCH DETECTED]: Logging out this device...');
+          if (typeof forceLogoutThisDevice === 'function') {
+            forceLogoutThisDevice('AKUN DI LOGOUT OLEH ADMIN, SILAHKAN LOGIN KEMBALI');
+          }
+          return;
+        }
+
         currentUser = { ...currentUser, ...formatted };
         appStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
         try { localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser)); } catch(e) {}
@@ -4065,9 +4111,24 @@ function handleRealtimeUserChange(payload) {
       if (typeof loadDashboard === 'function') loadDashboard();
       if (typeof loadUsersManagement === 'function') loadUsersManagement();
       if (typeof loadDaftarTokoModal === 'function') loadDaftarTokoModal();
+      if (typeof filterRiwayat === 'function') filterRiwayat();
     } else if (eventType === 'DELETE' && payload.old) {
       const delId = payload.old.id ? String(payload.old.id) : '';
       const delUname = payload.old.username ? String(payload.old.username).toUpperCase() : '';
+      
+      // LOGOUT OTOMATIS JIKA AKUN AKTIF PERANGKAT INI DIHAPUS OLEH ADMIN
+      if (currentUser) {
+        const myUname = String(currentUser.username || '').toUpperCase();
+        const myId = currentUser.id ? String(currentUser.id) : '';
+        if ((delUname && delUname === myUname) || (delId && delId === myId)) {
+          console.warn('⚠️ [AKUN DIHAPUS ADMIN]: Logging out this device...');
+          if (typeof forceLogoutThisDevice === 'function') {
+            forceLogoutThisDevice('AKUN ANDA TELAH DIHAPUS OLEH ADMIN!');
+          }
+          return;
+        }
+      }
+
       users = users.filter(x => {
         if (!x) return false;
         if (delId && x.id && String(x.id) === delId) return false;
@@ -4395,19 +4456,40 @@ async function syncSupabaseUsersToLocalCache() {
   try {
     const { data: supaUsers, error } = await supabase.from('users').select('*');
     if (!error && Array.isArray(supaUsers)) {
-      // DATABASE IS SINGLE SOURCE OF TRUTH: Supabase langsung menggantikan cache lokal users
-      const formatted = supaUsers.map(u => ({
-        id: u.id || u.username,
-        username: String(u.username || '').trim(),
-        password: String(u.password || '').trim(),
-        fullName: String(u.full_name || u.fullName || '').trim(),
-        storeCode: String(u.store_code || u.storeCode || '').trim(),
-        phone: String(u.phone || '').trim(),
-        category: String(u.category || 'TOKO').trim().toUpperCase(),
-        area: String(u.area || 'BDG').trim().toUpperCase(),
-        ttd: u.ttd || '',
-        createdAt: u.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
-      })).filter(u => !!u.username);
+      const existingLocal = getUsersFromDB();
+      const existingMap = new Map();
+      if (Array.isArray(existingLocal)) {
+        existingLocal.forEach(x => {
+          if (x && x.username) existingMap.set(String(x.username).toUpperCase(), x);
+        });
+      }
+
+      const formatted = supaUsers.map(u => {
+        const uname = String(u.username || '').trim();
+        const oldUser = existingMap.get(uname.toUpperCase());
+        let canPrint = false;
+        if (u.can_print_pdf !== undefined && u.can_print_pdf !== null) {
+          canPrint = (u.can_print_pdf === true || u.can_print_pdf === 'true' || u.can_print_pdf === 1);
+        } else if (u.canPrintPdf !== undefined && u.canPrintPdf !== null) {
+          canPrint = (u.canPrintPdf === true || u.canPrintPdf === 'true' || u.canPrintPdf === 1);
+        } else if (oldUser && oldUser.canPrintPdf !== undefined && oldUser.canPrintPdf !== null) {
+          canPrint = (oldUser.canPrintPdf === true || oldUser.canPrintPdf === 'true' || oldUser.canPrintPdf === 1);
+        }
+
+        return {
+          id: u.id || uname,
+          username: uname,
+          password: String(u.password || '').trim(),
+          fullName: String(u.full_name || u.fullName || '').trim(),
+          storeCode: String(u.store_code || u.storeCode || '').trim(),
+          phone: String(u.phone || '').trim(),
+          category: String(u.category || 'TOKO').trim().toUpperCase(),
+          area: String(u.area || 'BDG').trim().toUpperCase(),
+          canPrintPdf: canPrint,
+          ttd: u.ttd || '',
+          createdAt: u.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
+        };
+      }).filter(u => !!u.username);
 
       if (!formatted.some(x => x.username.toUpperCase() === 'ADMIN')) {
         formatted.unshift({ id: 'ADMIN', username: 'ADMIN', password: '00', fullName: 'SUPER ADMIN', category: 'ADMIN', area: 'ALL', phone: '-', storeCode: '' });
@@ -4467,7 +4549,7 @@ async function getSupabaseUserColumns(client) {
       return _supabaseUserColumnsCache;
     }
   } catch (e) {}
-  return ['id', 'username', 'password', 'full_name', 'store_code', 'phone', 'category', 'area', 'ttd', 'theme', 'bg_image', 'created_at', 'updated_at'];
+  return ['id', 'username', 'password', 'full_name', 'store_code', 'phone', 'category', 'area', 'can_print_pdf', 'ttd', 'theme', 'bg_image', 'created_at', 'updated_at'];
 }
 
 async function simpanUserKeSupabase(userObj) {
@@ -4476,6 +4558,8 @@ async function simpanUserKeSupabase(userObj) {
   try {
     const username = String(userObj.username || userObj.id || '').trim();
     if (!username) return;
+
+    const userCanPrint = userObj.canPrintPdf === true || userObj.can_print_pdf === true || userObj.canPrintPdf === 'true' || userObj.can_print_pdf === 'true' || userObj.canPrintPdf === 1 || userObj.can_print_pdf === 1;
 
     const fullPayload = {
       id: userObj.id || ('USR-' + username),
@@ -4486,6 +4570,7 @@ async function simpanUserKeSupabase(userObj) {
       phone: String(userObj.phone || '-').trim(),
       category: String(userObj.category || 'TOKO').trim().toUpperCase(),
       area: String(userObj.area || 'BDG').trim().toUpperCase(),
+      can_print_pdf: userCanPrint,
       ttd: userObj.ttd || '',
       theme: userObj.theme || 'dark-mode',
       bg_image: userObj.bg_image || '',
@@ -4493,21 +4578,35 @@ async function simpanUserKeSupabase(userObj) {
       updated_at: new Date().toISOString()
     };
 
-    const validCols = await getSupabaseUserColumns(client);
-    const sanitizedPayload = {};
+    let validCols = await getSupabaseUserColumns(client);
+    let sanitizedPayload = {};
     Object.keys(fullPayload).forEach(k => {
       if (validCols.includes(k)) {
         sanitizedPayload[k] = fullPayload[k];
       }
     });
 
-    const { error: err1 } = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
+    let { error: err1 } = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
+    if (err1 && sanitizedPayload.can_print_pdf !== undefined) {
+      // Retrying without can_print_pdf if column does not exist in Supabase table
+      delete sanitizedPayload.can_print_pdf;
+      if (_supabaseUserColumnsCache) {
+        _supabaseUserColumnsCache = _supabaseUserColumnsCache.filter(c => c !== 'can_print_pdf');
+      }
+      const retryRes = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
+      err1 = retryRes.error;
+    }
     if (!err1) return;
 
-    const { error: err2 } = await client.from('users').upsert(sanitizedPayload);
+    let { error: err2 } = await client.from('users').upsert(sanitizedPayload);
+    if (err2 && sanitizedPayload.can_print_pdf !== undefined) {
+      delete sanitizedPayload.can_print_pdf;
+      const retryRes2 = await client.from('users').upsert(sanitizedPayload);
+      err2 = retryRes2.error;
+    }
     if (!err2) return;
 
-    await client.from('users').update(sanitizedPayload).eq('username', username);
+    await client.from('users').update(sanitizedPayload).eq('username', username).catch(() => {});
   } catch (e) {
     console.warn('[SUPABASE USER UPSERT EXCEPTION]:', e);
   }
@@ -4683,6 +4782,7 @@ function sanitizePermintaanTokoRow(r) {
     items: Array.isArray(r.items) ? r.items : (typeof r.items === 'string' ? (JSON.parse(r.items || '[]')) : []),
     photos: Array.isArray(r.photos) ? r.photos : (typeof r.photos === 'string' ? (JSON.parse(r.photos || '[]')) : []),
     artemis_photos: Array.isArray(r.artemisPhotos || r.artemis_photos) ? (r.artemisPhotos || r.artemis_photos) : [],
+    bukti_permintaan: Array.isArray(r.buktiPermintaan || r.bukti_permintaan) ? (r.buktiPermintaan || r.bukti_permintaan) : [],
     status: r.status || 'PENDING',
     service_approve: !!(r.serviceApprove || r.service_approve),
     service_user_name: r.serviceUserName || r.service_user_name || '',
@@ -4704,21 +4804,41 @@ async function safeSupabaseUpsertPermintaan(payload) {
   const rows = Array.isArray(payload) ? payload : [payload];
   if (!rows.length) return { data: [], error: null };
 
-  const preparedRows = rows.map(r => sanitizePermintaanTokoRow(r)).filter(Boolean);
+  let preparedRows = rows.map(r => sanitizePermintaanTokoRow(r)).filter(Boolean);
   if (!preparedRows.length) return { data: [], error: null };
 
-  // TIER 1: UPSERT PRIMARY KEY (id) - Standar PostgreSQL Supabase (Bebas 400 Bad Request & 409 Conflict)
-  try {
-    const { data: upsertData, error: upsertErr } = await supabase
-      .from('permintaan_toko')
-      .upsert(preparedRows, { onConflict: 'id' });
+  const extractMissingColumn = (err) => {
+    const msg = typeof err === 'string' ? err : (err && err.message ? err.message : '');
+    if (!msg) return null;
+    const match = msg.match(/Could not find the ['"]([^'"]+)['"] column/i) ||
+                  msg.match(/column ['"]([^'"]+)['"] of relation/i) ||
+                  msg.match(/column ['"]([^'"]+)['"] does not exist/i);
+    return match ? match[1] : null;
+  };
 
-    if (!upsertErr) {
-      return { data: upsertData, error: null };
-    } else {
-      console.warn('[SUPABASE TIER 1 UPSERT NOTICE]:', upsertErr.message);
+  // TIER 1: UPSERT PRIMARY KEY (id) with Auto Schema Adapter
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const { data: upsertData, error: upsertErr } = await supabase
+        .from('permintaan_toko')
+        .upsert(preparedRows, { onConflict: 'id' });
+
+      if (!upsertErr) {
+        return { data: upsertData, error: null };
+      } else {
+        const missingCol = extractMissingColumn(upsertErr);
+        if (missingCol) {
+          console.warn(`[SUPABASE AUTO-SCHEMA ADAPTER]: Kolom '${missingCol}' belum ada di Supabase PostgreSQL. Mengabaikan kolom '${missingCol}' agar sync tetap 100% lancar.`);
+          preparedRows.forEach(r => delete r[missingCol]);
+          continue; // Retry Tier 1 without missing column
+        }
+        console.warn('[SUPABASE TIER 1 UPSERT NOTICE]:', upsertErr.message);
+        break;
+      }
+    } catch (eTier1) {
+      break;
     }
-  } catch (eTier1) {}
+  }
 
   // TIER 2: INDIVIDUAL UPDATE-FIRST FALLBACK
   let lastError = null;
@@ -4739,6 +4859,14 @@ async function safeSupabaseUpsertPermintaan(payload) {
       if (!updIdErr && updIdData && updIdData.length > 0) {
         results.push(updIdData);
         continue;
+      } else if (updIdErr) {
+        const missingCol = extractMissingColumn(updIdErr);
+        if (missingCol) {
+          delete row[missingCol];
+          const { data: retryUpd } = await supabase.from('permintaan_toko').update(row).eq('id', docId);
+          results.push(retryUpd);
+          continue;
+        }
       }
 
       // 2. Coba UPDATE berdasarkan no_surat
@@ -4750,6 +4878,14 @@ async function safeSupabaseUpsertPermintaan(payload) {
       if (!updErr && updData && updData.length > 0) {
         results.push(updData);
         continue;
+      } else if (updErr) {
+        const missingCol = extractMissingColumn(updErr);
+        if (missingCol) {
+          delete row[missingCol];
+          const { data: retryUpd } = await supabase.from('permintaan_toko').update(row).eq('no_surat', ns);
+          results.push(retryUpd);
+          continue;
+        }
       }
 
       // 3. Upsert tunggal jika benar-benar baru
@@ -4760,7 +4896,14 @@ async function safeSupabaseUpsertPermintaan(payload) {
       if (!singleErr) {
         results.push(singleUpsert);
       } else {
-        lastError = singleErr;
+        const missingCol = extractMissingColumn(singleErr);
+        if (missingCol) {
+          delete row[missingCol];
+          const { data: retrySingle } = await supabase.from('permintaan_toko').upsert([row], { onConflict: 'id' });
+          results.push(retrySingle);
+        } else {
+          lastError = singleErr;
+        }
       }
     } catch(err) {
       lastError = err;
@@ -5098,6 +5241,7 @@ function normalizeUserList(users) {
       phone: String(user.phone || '').trim(),
       category: String(user.category || 'TOKO').trim().toUpperCase(),
       area: String(user.area || 'BDG').trim().toUpperCase(),
+      canPrintPdf: user.canPrintPdf !== undefined ? (user.canPrintPdf === true || user.canPrintPdf === 'true' || user.canPrintPdf === 1) : (user.can_print_pdf !== undefined ? (user.can_print_pdf === true || user.can_print_pdf === 'true' || user.can_print_pdf === 1) : false),
       ttd: user.ttd || ''
     };
 
@@ -5519,16 +5663,7 @@ function saveRequestsToDB(requests, targetReq = null, action = 'UPDATE') {
   appStorage.setItem(REQUESTS_DB_KEY, JSON.stringify(cleanReqs));
   try { localStorage.setItem(REQUESTS_DB_KEY, JSON.stringify(cleanReqs)); } catch(e) {}
 
-  if (supabaseRealtimeChannel) {
-          try {
-            supabaseRealtimeChannel.send({
-              type: 'broadcast',
-              event: 'data_changed',
-              payload: { action: 'BATCH_DELETE', noSuratList: noSuratList, timestamp: Date.now() }
-            });
-          } catch(e) {}
-        }
-        if (typeof pushCentralCloudDB === 'function') {
+  if (typeof pushCentralCloudDB === 'function') {
     pushCentralCloudDB();
   }
 
@@ -5543,16 +5678,6 @@ function saveRequestsToDB(requests, targetReq = null, action = 'UPDATE') {
     cleanReqs.slice(0, 3).forEach(r => {
       if (r && r.noSurat) broadcastRealtimeDataChange(r.noSurat, r, 'UPDATE');
     });
-  }
-
-  if (supabaseRealtimeChannel) {
-    try {
-      supabaseRealtimeChannel.send({
-        type: 'broadcast',
-        event: 'user_data_changed',
-        payload: { username: targetUser ? targetUser.username : '', timestamp: Date.now() }
-      });
-    } catch(e) {}
   }
 
   if (currentUser) {
@@ -5626,16 +5751,7 @@ async function simpanFonteToken() {
     } catch(e) {}
   }
 
-  if (supabaseRealtimeChannel) {
-          try {
-            supabaseRealtimeChannel.send({
-              type: 'broadcast',
-              event: 'data_changed',
-              payload: { action: 'BATCH_DELETE', noSuratList: noSuratList, timestamp: Date.now() }
-            });
-          } catch(e) {}
-        }
-        if (typeof pushCentralCloudDB === 'function') {
+  if (typeof pushCentralCloudDB === 'function') {
     try { pushCentralCloudDB(); } catch(e) {}
   }
 
@@ -6775,6 +6891,16 @@ async function prosesLogin() {
         if (!error && Array.isArray(supaUsers) && supaUsers.length > 0) {
           const su = supaUsers[0];
           if (String(su.password).trim() === p) {
+            const existingUserLocal = getUsersFromDB().find(x => x && String(x.username).toUpperCase() === u.toUpperCase());
+            let canPrint = false;
+            if (su.can_print_pdf !== undefined && su.can_print_pdf !== null) {
+              canPrint = (su.can_print_pdf === true || su.can_print_pdf === 'true' || su.can_print_pdf === 1);
+            } else if (su.canPrintPdf !== undefined && su.canPrintPdf !== null) {
+              canPrint = (su.canPrintPdf === true || su.canPrintPdf === 'true' || su.canPrintPdf === 1);
+            } else if (existingUserLocal && existingUserLocal.canPrintPdf !== undefined && existingUserLocal.canPrintPdf !== null) {
+              canPrint = (existingUserLocal.canPrintPdf === true || existingUserLocal.canPrintPdf === 'true' || existingUserLocal.canPrintPdf === 1);
+            }
+
             user = {
               id: su.id,
               username: String(su.username || '').trim(),
@@ -6784,6 +6910,7 @@ async function prosesLogin() {
               phone: String(su.phone || '').trim(),
               category: String(su.category || 'TOKO').trim().toUpperCase(),
               area: String(su.area || 'BDG').trim().toUpperCase(),
+              canPrintPdf: canPrint,
               theme: su.theme || '',
               createdAt: su.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
             };
@@ -6906,16 +7033,18 @@ let _sessionTokenRealtimeRef = null;
 async function startSessionTokenRealtimeListener(isFreshLogin = false) {
   if (!currentUser || !currentUser.username) return;
 
-  const isAdmin = (
-    String(currentUser.category || '').toUpperCase() === 'ADMIN' ||
-    String(currentUser.username || '').toUpperCase() === 'ADMIN'
-  );
+  const catUpper = String(currentUser.category || currentUser.role || currentUser.kategori || '').toUpperCase();
+  const unameUpper = String(currentUser.username || '').toUpperCase();
 
-  // KHUSUS USER NON-ADMIN: Bebas multi-login di banyak perangkat bersamaan
-  if (!isAdmin) return;
+  const isAdmin = (catUpper === 'ADMIN' || unameUpper === 'ADMIN');
+  const isDMOrService = (catUpper === 'DM' || catUpper === 'SERVICE');
 
-  // KHUSUS AKUN ADMIN: Dibatasi HANYA 1 perangkat aktif (Single-Device Locking).
-  // Jika Admin login di perangkat baru, perangkat Admin sebelumnya akan otomatis di-logout.
+  // ATURAN BATASAN LOGIN PERANGKAT (DEVICE LIMITS):
+  // 1. ADMIN: Maksimal 1 Perangkat (1 Login)
+  // 2. DM & SERVICE: Maksimal 2 Perangkat (2 Login)
+  // 3. SELAIN ITU (Toko, User biasa, dll): Maksimal 1 Perangkat (1 Login)
+  const maxAllowedLogins = isDMOrService ? 2 : 1;
+
   const usernameKey = String(currentUser.username).replace(/[\/\.#$\[\]]/g, '_');
   const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
   if (!rtdb) return;
@@ -6926,63 +7055,82 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
   }
 
   let myLocalToken = appStorage.getItem('MY_SESSION_TOKEN');
-
-  // Jika ini LOGIN BARU (Admin memasukkan username/password), buat token baru & update ke DB
-  if (isFreshLogin || !myLocalToken) {
+  if (!myLocalToken) {
     myLocalToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     appStorage.setItem('MY_SESSION_TOKEN', myLocalToken);
-    try {
+  }
+
+  try {
+    const snap = await rtdb.ref(`user_sessions/${usernameKey}`).once('value');
+    const dbVal = snap.val() || {};
+
+    let activeTokens = [];
+    if (Array.isArray(dbVal.active_tokens)) {
+      activeTokens = dbVal.active_tokens.filter(t => t && typeof t === 'string');
+    } else if (dbVal.session_token) {
+      activeTokens = [dbVal.session_token];
+    }
+
+    if (isFreshLogin || !activeTokens.includes(myLocalToken)) {
+      if (!activeTokens.includes(myLocalToken)) {
+        activeTokens.push(myLocalToken);
+      }
+
+      // Potong token terlama jika jumlah perangkat melebihi maxAllowedLogins
+      while (activeTokens.length > maxAllowedLogins) {
+        activeTokens.shift();
+      }
+
       await rtdb.ref(`user_sessions/${usernameKey}`).set({
         session_token: myLocalToken,
+        active_tokens: activeTokens,
+        max_allowed: maxAllowedLogins,
+        role: catUpper,
         updated_at: new Date().toISOString()
       });
-    } catch(e) {
-      console.warn('[ADMIN SESSION WRITE NOTICE]:', e);
-    }
-  }
 
-  // Jika fresh login Admin: langsung pasang Realtime listener
-  if (isFreshLogin) {
-    _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
-      if (!currentUser) return;
-      const dbVal = snap.val();
-      if (dbVal && dbVal.session_token) {
-        const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
-        if (curActiveToken && dbVal.session_token !== curActiveToken) {
-          console.warn('⚠️ [ADMIN LOGOUT NOTICE]: Admin account logged in on another device!');
-          forceLogoutThisDevice('AKUN ADMIN TERDETEKSI LOGIN DI PERANGKAT LAIN. SESI DI PERANGKAT INI TELAH DI-LOGOUT.');
+      try {
+        if (typeof supabase !== 'undefined' && supabase) {
+          supabase.from('users').update({ session_token: myLocalToken }).eq('username', currentUser.username).then(() => {}, () => {});
         }
-      }
-    });
-    return;
-  }
-
-  // Cek sesi Admin saat re-open browser / refresh
-  try {
-    const snapshot = await rtdb.ref(`user_sessions/${usernameKey}`).once('value');
-    if (!currentUser) return;
-    const data = snapshot.val();
-    const activeMyToken = appStorage.getItem('MY_SESSION_TOKEN');
-
-    if (data && data.session_token && activeMyToken && data.session_token !== activeMyToken) {
-      console.warn('⚠️ [ADMIN OFFLINE LOGOUT DETECTED]: Admin account logged in on another device!');
-      forceLogoutThisDevice('AKUN ADMIN TERDETEKSI LOGIN DI PERANGKAT LAIN. SILAHKAN LOGIN KEMBALI.');
-      return;
+      } catch(e) {}
     }
-  } catch(errOnce) {
-    console.warn('[ADMIN SESSION ONCE READ NOTICE]:', errOnce);
+  } catch(e) {
+    console.warn('[SESSION TOKEN DB WRITE NOTICE]:', e);
   }
 
-  // Listener Realtime memantau pergantian perangkat Admin saat aktif
+  // Listener Realtime memantau pergantian token di DB (Kick jika token dihapus/ditimpa)
   _sessionTokenRealtimeRef = rtdb.ref(`user_sessions/${usernameKey}`).on('value', snap => {
     if (!currentUser) return;
     const dbVal = snap.val();
-    if (dbVal && dbVal.session_token) {
-      const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
-      if (curActiveToken && dbVal.session_token !== curActiveToken) {
-        console.warn('⚠️ [ADMIN LOGOUT NOTICE]: Admin account logged in on another device!');
-        forceLogoutThisDevice('AKUN ADMIN TERDETEKSI LOGIN DI PERANGKAT LAIN. SESI DI PERANGKAT INI TELAH DI-LOGOUT.');
+    if (!dbVal) return;
+
+    const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
+    if (!curActiveToken) return;
+
+    let activeTokens = [];
+    if (Array.isArray(dbVal.active_tokens)) {
+      activeTokens = dbVal.active_tokens.filter(t => t && typeof t === 'string');
+    } else if (dbVal.session_token) {
+      activeTokens = [dbVal.session_token];
+    }
+
+    const isTokenValid = activeTokens.includes(curActiveToken);
+
+    if (!isTokenValid) {
+      let logoutReason = 'AKUN DI LOGOUT OLEH ADMIN, SILAHKAN LOGIN KEMBALI';
+      const actionType = dbVal.action_type || '';
+      const isKickByAdmin = (actionType === 'ADMIN_FORCE_LOGOUT' || dbVal.logout_by !== undefined || dbVal.by_admin === true);
+
+      if (!isKickByAdmin && activeTokens.length > 0) {
+        if (isAdmin) {
+          logoutReason = 'AKUN ADMIN TERDETEKSI LOGIN DI PERANGKAT LAIN. SESI DI PERANGKAT INI TELAH DI-LOGOUT.';
+        } else {
+          logoutReason = 'AKUN TERDETEKSI LOGIN DI PERANGKAT LAIN. SESI DI PERANGKAT INI TELAH DI-LOGOUT.';
+        }
       }
+      console.warn('⚠️ [LOGOUT NOTICE]:', logoutReason);
+      forceLogoutThisDevice(logoutReason);
     }
   });
 }
@@ -7495,6 +7643,7 @@ function initMobileBackButtonEngine() {
       { id: 'popupNotif', closeFn: () => { if (typeof closePopup === 'function') closePopup(); } },
 
       // PREVIEW & SUB-MODALS
+      { id: 'uploadBuktiPermintaanOverlay', closeFn: () => { if (typeof tutupModalUploadBuktiPermintaan === 'function') tutupModalUploadBuktiPermintaan(); } },
       { id: 'imageViewer', closeFn: () => { if (typeof tutupImageViewer === 'function') tutupImageViewer(); } },
       { id: 'popupSecurityPinHapusLokal', closeFn: () => { if (typeof tutupModalPinHapusLokal === 'function') tutupModalPinHapusLokal(); } },
       { id: 'popupTTD', closeFn: () => { if (typeof tutupTTD === 'function') tutupTTD(); } },
@@ -8521,6 +8670,11 @@ window.cleanTtdMapBase64InSupabase = cleanTtdMapBase64InSupabase;
 async function uploadPhotoToSupabaseStorage(fileOrBlob) {
   if (!fileOrBlob) return '';
 
+  // Return immediately if already a full HTTP/HTTPS URL
+  if (typeof fileOrBlob === 'string' && (fileOrBlob.startsWith('http://') || fileOrBlob.startsWith('https://'))) {
+    return fileOrBlob;
+  }
+
   // 1. KOMPRESI GAMBAR TERLEBIH DAHULU (Max 720px, Quality 0.65 JPEG -> ~40-60 KB)
   let compressedDataUrl = '';
   if (typeof fileOrBlob === 'string' && fileOrBlob.startsWith('data:image/')) {
@@ -8533,7 +8687,7 @@ async function uploadPhotoToSupabaseStorage(fileOrBlob) {
     }
   }
 
-  // 2. UNGGAH HASIL KOMPRESI TERSEBUT KE SUPABASE STORAGE BUCKET 'photos'
+  // 2. UNGGAH HASIL KOMPRESI TERSEBUT KE SUPABASE STORAGE BUCKET
   const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : ((typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : null);
 
   if (sb && sb.storage && compressedDataUrl && compressedDataUrl.startsWith('data:image/')) {
@@ -8543,15 +8697,18 @@ async function uploadPhotoToSupabaseStorage(fileOrBlob) {
       const fileName = `FOTO_${Date.now()}_${Math.floor(Math.random()*10000)}.jpg`;
       const fileToUpload = new File([blob], fileName, { type: 'image/jpeg' });
 
-      const { data, error } = await sb.storage.from('photos').upload(fileName, fileToUpload, { cacheControl: '3600', upsert: true });
-      if (!error && data) {
-        const { data: pubData } = sb.storage.from('photos').getPublicUrl(fileName);
-        if (pubData && pubData.publicUrl) {
-          console.log('⚡ [STORAGE PHOTO UPLOAD SUCCESS]:', pubData.publicUrl);
-          return pubData.publicUrl;
+      const candidateBuckets = ['photos', 'foto-permintaan', 'permintaan_photos', 'request-photos'];
+      for (const bucketName of candidateBuckets) {
+        const { data, error } = await sb.storage.from(bucketName).upload(fileName, fileToUpload, { cacheControl: '3600', upsert: true });
+        if (!error && data) {
+          const { data: pubData } = sb.storage.from(bucketName).getPublicUrl(fileName);
+          if (pubData && pubData.publicUrl) {
+            console.log(`⚡ [STORAGE PHOTO UPLOAD SUCCESS BUCKET ${bucketName}]:`, pubData.publicUrl);
+            return pubData.publicUrl;
+          }
+        } else if (error) {
+          console.warn(`[SUPABASE STORAGE BUCKET ${bucketName} UPLOAD NOTICE]:`, error.message);
         }
-      } else if (error) {
-        console.warn('[SUPABASE STORAGE UPLOAD WARNING]:', error.message);
       }
     } catch (e) {
       console.warn('[SUPABASE STORAGE UPLOAD EXCEPTION]:', e);
@@ -8986,6 +9143,7 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       items,
       photos: [...currentPhotos],
       artemisPhotos: [],
+      buktiPermintaan: [],
       status: 'PENDING',
       serviceApprove: autoServiceApprove,
       serviceUserName: serviceUserNameVal,
@@ -9115,9 +9273,11 @@ function isPdfButtonAllowed(req) {
   const role = String(currentUser.category || '').toUpperCase();
   const isAdmin = typeof checkIsAdminUser === 'function' ? checkIsAdminUser() : (role === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
   
-  // TOMBOL PDF TIDAK DIBERIKAN UNTUK ROLE TOKO DAN SALES
+  // TOMBOL PDF UNTUK ROLE TOKO DAN SALES: HANYA BOLEH JIKA HAK AKSES canPrintPdf DICENTANG OLEH ADMIN
   if (role === 'TOKO' || role === 'SALES') {
-    return false;
+    if (!currentUser.canPrintPdf) {
+      return false;
+    }
   }
 
   // UNTUK LOGIN SELAIN ADMIN, APABILA STATUS SUDAH DONE MAKA TOMBOL PDF DIHILANGKAN (HANYA TOMBOL MATA & FOTO ARTEMIS YANG TAMPIL)
@@ -9255,7 +9415,9 @@ function filterRiwayat() {
 
       const isOwner = currentUser && (r.userId === currentUser.id || r.createdBy === currentUser.fullName || r.createdBy === currentUser.username);
       const canEdit = (r.status === 'PENDING' && !r.serviceApprove && isOwner) || (isAdminUser && r.status === 'PENDING');
-      const canDelete = (r.status === 'PENDING' && !r.serviceApprove && isOwner) || isAdminUser;
+      const isReqDoneState = (r.status === 'DONE' || r.status === 'SELESAI');
+      const canServiceDelete = (role === 'SERVICE' && !isReqDoneState);
+      const canDelete = (r.status === 'PENDING' && !r.serviceApprove && isOwner) || isAdminUser || canServiceDelete;
 
       if (canEdit) {
         aksi += `
@@ -9287,19 +9449,23 @@ function filterRiwayat() {
         <button class="btnIcon btnInfo" onclick="lihatDetail('${r.noSurat}')" title="LIHAT DETAIL"><span class="material-symbols-rounded">visibility</span></button>
       `;
 
-      const hasPhotos = (r.photos && Array.isArray(r.photos) && r.photos.length > 0) || (r.artemisPhotos && Array.isArray(r.artemisPhotos) && r.artemisPhotos.length > 0);
+      const regP = parsePhotosArray(r.photos);
+      const artP = parsePhotosArray(r.artemisPhotos);
+      const bukP = parsePhotosArray(r.bukti_permintaan || r.buktiPermintaan);
+      const totalPhotosCount = regP.length + artP.length + bukP.length;
+      const hasPhotos = totalPhotosCount > 0;
 
       if (r.status === 'DONE') {
         if (hasPhotos) {
           aksi += `
-            <button class="btnIcon btnView" onclick="lihatFotoByNoSurat('${r.noSurat}')" title="BUKTI PROSES ARTEMIS (${(r.artemisPhotos || r.photos).length})" style="background: var(--primary) !important; color: #ffffff !important; box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;"><span class="material-symbols-rounded" style="font-size: 16px !important;">photo_library</span></button>
+            <button class="btnIcon btnView" onclick="lihatFotoByNoSurat('${r.noSurat}')" title="LIHAT FOTO PERMINTAAN / ARTEMIS (${totalPhotosCount})" style="background: var(--primary) !important; color: #ffffff !important; box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;"><span class="material-symbols-rounded" style="font-size: 16px !important;">photo_library</span></button>
           `;
         }
       } else {
-        const isPhotoHidden = (r.status === 'APPROVE' || r.status === 'REJECT') || !getFeaturePhotosEnabled();
+        const isPhotoHidden = !getFeaturePhotosEnabled();
         if (hasPhotos && !isPhotoHidden) {
           aksi += `
-            <button class="btnIcon btnView" onclick="lihatFotoByNoSurat('${r.noSurat}')" title="LIHAT FOTO PERMINTAAN"><span class="material-symbols-rounded">image</span></button>
+            <button class="btnIcon btnView" onclick="lihatFotoByNoSurat('${r.noSurat}')" title="LIHAT FOTO PERMINTAAN (${totalPhotosCount})"><span class="material-symbols-rounded">image</span></button>
           `;
         }
       }
@@ -9382,7 +9548,8 @@ function lihatFotoByNoSurat(noSurat) {
   if (req) {
     const regP = parsePhotosArray(req.photos);
     const artP = parsePhotosArray(req.artemisPhotos);
-    photos = [...regP, ...artP];
+    const bukP = parsePhotosArray(req.bukti_permintaan || req.buktiPermintaan);
+    photos = [...regP, ...artP, ...bukP];
     photos = Array.from(new Set(photos.filter(Boolean)));
   }
 
@@ -10228,12 +10395,27 @@ function tolakServiceModal(noSurat, roleType) {
   const elNo = document.getElementById('rejectNoSurat');
   const elRole = document.getElementById('rejectRoleType');
   const elTitle = document.getElementById('rejectTitle');
+  const elSubTitle = document.getElementById('rejectSubTitle');
   const elReason = document.getElementById('rejectReason') || document.getElementById('rejectAlasan');
 
   if (elNo) elNo.value = noSurat;
   if (elRole) elRole.value = roleType || 'DM';
-  if (elTitle) elTitle.innerText = `TOLAK PERMINTAAN (${roleType || 'DM'})`;
-  if (elReason) elReason.value = '';
+
+  if (roleType === 'DELETE' || roleType === 'HAPUS') {
+    if (elTitle) elTitle.innerText = 'HAPUS PERMINTAAN';
+    if (elSubTitle) elSubTitle.innerText = 'MASUKKAN ALASAN PENGHAPUSAN:';
+    if (elReason) {
+      elReason.placeholder = 'Tuliskan alasan penghapusan...';
+      elReason.value = '';
+    }
+  } else {
+    if (elTitle) elTitle.innerText = `TOLAK PERMINTAAN (${roleType || 'DM'})`;
+    if (elSubTitle) elSubTitle.innerText = 'MASUKKAN ALASAN PENOLAKAN:';
+    if (elReason) {
+      elReason.placeholder = 'Tuliskan alasan penolakan...';
+      elReason.value = '';
+    }
+  }
 
   if (overlay) {
     overlay.style.setProperty('z-index', '2147483640', 'important');
@@ -10271,7 +10453,12 @@ function prosesReject(roleType) {
   const alasan = elAlasan ? elAlasan.value.trim() : '';
 
   if (!alasan) {
-    showNotif('ALASAN PENOLAKAN WAJIB DIISI!', 'warning');
+    showNotif(roleType === 'DELETE' || roleType === 'HAPUS' ? 'ALASAN PENGHAPUSAN WAJIB DIISI!' : 'ALASAN PENOLAKAN WAJIB DIISI!', 'warning');
+    return;
+  }
+
+  if (roleType === 'DELETE' || roleType === 'HAPUS') {
+    hapusDataProses(noSurat, alasan);
     return;
   }
 
@@ -10502,46 +10689,47 @@ function editData(noSurat) {
 window.editData = editData;
 window.editPermintaan = editPermintaan;
 
-function hapusData(noSurat) {
-  if (!noSurat) return;
-  showConfirm(`APAKAH ANDA YAKIN INGIN MENGHAPUS PERMINTAAN #${noSurat} INI?`, () => {
-    try {
-      const currentReqs = getRequestsFromDB();
-      const idx = currentReqs.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
-      if (idx !== -1) {
-        currentReqs[idx].status = 'BATAL';
-        currentReqs[idx].unfulfilled = true;
-        if (Array.isArray(currentReqs[idx].items)) {
-          currentReqs[idx].items.forEach(i => i.unfulfilled = true);
-        }
-        if (!currentReqs[idx].log) currentReqs[idx].log = [];
-        currentReqs[idx].log.push({
-          action: 'TIDAK_DIPENUHI',
-          user: currentUser ? (currentUser.fullName || currentUser.username) : 'USER',
-          notes: 'HAPUS PERMINTAAN',
-          time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
-        });
+function hapusDataProses(noSurat, alasan) {
+  try {
+    const currentReqs = getRequestsFromDB();
+    const idx = currentReqs.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
+    if (idx !== -1) {
+      const uName = currentUser ? (currentUser.fullName || currentUser.username) : 'USER';
+      currentReqs[idx].status = 'BATAL';
+      currentReqs[idx].unfulfilled = true;
+      currentReqs[idx].catatan = `DIHAPUS (${uName}): ${alasan}`;
+      if (Array.isArray(currentReqs[idx].items)) {
+        currentReqs[idx].items.forEach(i => i.unfulfilled = true);
+      }
+      if (!currentReqs[idx].log) currentReqs[idx].log = [];
+      currentReqs[idx].log.push({
+        action: 'TIDAK_DIPENUHI',
+        user: uName,
+        notes: `HAPUS PERMINTAAN: ${alasan}`,
+        time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+      });
 
-        // 1. SIMPAN LOKAL SECARA INSTAN (0 ms)
-        saveRequestsToDB(currentReqs);
-        deleteRequestFromSupabase(noSurat);
-        showNotif(`PERMINTAAN #${noSurat} BERHASIL DIHAPUS!`, 'warning');
-        
-        // Close detail popup modal if open
-        const popDetailV2 = document.getElementById('popupDetailBarangV2');
-        if (popDetailV2 && (popDetailV2.dataset.noSurat === noSurat || window._currentDetailNoSurat === noSurat)) {
-          if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(false);
-          if (typeof closeDetail === 'function') closeDetail(false);
-        }
+      // 1. SIMPAN LOKAL SECARA INSTAN (0 ms)
+      saveRequestsToDB(currentReqs);
+      deleteRequestFromSupabase(noSurat);
+      tutupRejectModal();
+      showNotif(`PERMINTAAN #${noSurat} BERHASIL DIHAPUS!`, 'warning');
+      
+      // Close detail popup modal if open
+      const popDetailV2 = document.getElementById('popupDetailBarangV2');
+      if (popDetailV2 && (popDetailV2.dataset.noSurat === noSurat || window._currentDetailNoSurat === noSurat)) {
+        if (typeof tutupDetailBarangV2 === 'function') tutupDetailBarangV2(false);
+        if (typeof closeDetail === 'function') closeDetail(false);
+      }
 
-        if (typeof loadRiwayat === 'function') loadRiwayat();
-        if (typeof loadDashboard === 'function') loadDashboard();
-        if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
-        if (typeof refreshOpenPopupsUI === 'function') refreshOpenPopupsUI();
+      if (typeof loadRiwayat === 'function') loadRiwayat();
+      if (typeof loadDashboard === 'function') loadDashboard();
+      if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
+      if (typeof refreshOpenPopupsUI === 'function') refreshOpenPopupsUI();
 
-        // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
-        const docId = String(noSurat).replace(/[\/\.]/g, '_');
-        if (typeof safeSupabaseUpsertPermintaan === 'function') {
+      // 2. PROSES SYNC SUPABASE DI LATAR BELAKANG
+      const docId = String(noSurat).replace(/[\/\.]/g, '_');
+      if (typeof safeSupabaseUpsertPermintaan === 'function') {
         safeSupabaseUpsertPermintaan(currentReqs[idx]);
       } else if (typeof supabase !== 'undefined' && supabase) {
         const cleanRow = sanitizePermintaanTokoRow(currentReqs[idx]);
@@ -10549,18 +10737,27 @@ function hapusData(noSurat) {
           supabase.from('permintaan_toko').upsert(cleanRow, { onConflict: 'id' }).then(() => {}, (e) => console.warn(e));
         }
       }
-        if (typeof dbFirestore !== 'undefined' && dbFirestore) {
-          dbFirestore.collection('requests').doc(docId).set(currentReqs[idx], { merge: true }).catch(e => console.warn(e));
-        }
-        if (typeof dbRealtime !== 'undefined' && dbRealtime) {
-          dbRealtime.ref(`requests/${docId}`).set(currentReqs[idx]).catch(e => console.warn(e));
-        }
+      if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+        dbFirestore.collection('requests').doc(docId).set(currentReqs[idx], { merge: true }).catch(e => console.warn(e));
       }
-    } catch (err) {
-      console.error('[HAPUS DATA ERROR]:', err);
-      showNotif('GAGAL MENGHAPUS PERMINTAAN: ' + (err.message || err), 'error');
+      if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+        dbRealtime.ref(`requests/${docId}`).set(currentReqs[idx]).catch(e => console.warn(e));
+      }
     }
-  });
+  } catch (err) {
+    console.error('[HAPUS DATA ERROR]:', err);
+    showNotif('GAGAL MENGHAPUS PERMINTAAN: ' + (err.message || err), 'error');
+  }
+}
+window.hapusDataProses = hapusDataProses;
+
+function hapusData(noSurat, inputAlasan = null) {
+  if (!noSurat) return;
+  if (inputAlasan && typeof inputAlasan === 'string' && inputAlasan.trim()) {
+    hapusDataProses(noSurat, inputAlasan.trim());
+    return;
+  }
+  tolakServiceModal(noSurat, 'DELETE');
 }
 window.hapusData = hapusData;
 
@@ -11168,15 +11365,22 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
 
     const isCreator = currentUser && (req.userId === currentUser.id || req.createdBy === currentUser.fullName || (currentUser.category === 'TOKO' && req.toko.toUpperCase() === currentUser.fullName.toUpperCase()));
     const canCreatorEditDelete = isCreator && !req.serviceApprove && req.status === 'PENDING';
-    const canServiceEditDelete = (role === 'SERVICE' && !req.serviceApprove && req.status === 'PENDING');
+    const isReqDoneState = (req.status === 'DONE' || req.status === 'SELESAI');
+    const canServiceDelete = (role === 'SERVICE' && !isReqDoneState);
     const canAdminEditDelete = isAdminUser;
 
-    if (canCreatorEditDelete || canServiceEditDelete || canAdminEditDelete) {
+    const canEditReq = canCreatorEditDelete || (role === 'SERVICE' && !req.serviceApprove && req.status === 'PENDING') || canAdminEditDelete;
+    const canDeleteReq = canCreatorEditDelete || canServiceDelete || canAdminEditDelete;
+
+    if (canEditReq) {
       actionButtons.push(`
         <button type="button" class="btnIcon btnEdit btnIconOnly" title="EDIT" onclick="editPermintaan('${req.noSurat}');">
           <span class="material-symbols-rounded">edit</span>
         </button>
       `);
+    }
+
+    if (canDeleteReq) {
       actionButtons.push(`
         <button type="button" class="btnIcon btnDelete btnIconOnly" title="HAPUS PERMINTAAN" onclick="hapusData('${req.noSurat}');">
           <span class="material-symbols-rounded">delete</span>
@@ -11199,9 +11403,21 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       `);
     }
 
+  const buktiPhotos = Array.isArray(req.bukti_permintaan || req.buktiPermintaan) ? (req.bukti_permintaan || req.buktiPermintaan) : [];
+  const countBukti = buktiPhotos.length;
+
+  if (req.status === 'APPROVE') {
+    actionButtons.push(`
+      <button type="button" class="btnIcon btnIconOnly" title="UPLOAD / KELOLA BUKTI PERMINTAAN ${countBukti > 0 ? '(' + countBukti + ' FOTO)' : ''}" onclick="bukaModalUploadBuktiPermintaan('${req.noSurat}');" style="margin-left: 5mm !important; background: linear-gradient(135deg, #0284c7, #0369a1) !important; color: #ffffff !important; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3) !important;">
+        <span class="material-symbols-rounded">cloud_upload</span>
+      </button>
+    `);
+  }
+
   const allReqPhotos = [
     ...(Array.isArray(req.photos) ? req.photos : []),
-    ...(Array.isArray(req.artemisPhotos) ? req.artemisPhotos : [])
+    ...(Array.isArray(req.artemisPhotos) ? req.artemisPhotos : []),
+    ...buktiPhotos
   ].filter(Boolean);
 
   if (allReqPhotos.length > 0) {
@@ -11998,12 +12214,17 @@ async function preloadAndConvertTtdToBase64(sigUrl) {
     return trimmed;
   }
 
-  // 2. JIKA LINK URL ONLINE (HTTP/HTTPS dari Supabase Storage atau Cloud)
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    return '';
+  }
+
+  // 2. JIKA LINK URL ONLINE: Beri Batas Maksimal 1.5 Detik per gambar agar PDF TIDAK MACET/BLOCKED
+  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(trimmed), 1500));
+
+  const convertPromise = (async () => {
     try {
-      // Panggil fetch dengan parameter pencabut cache (_t=timestamp) agar selalu mengambil file segar
       const cacheBustUrl = trimmed.includes('?') ? `${trimmed}&_t=${Date.now()}` : `${trimmed}?_t=${Date.now()}`;
-      const res = await fetch(cacheBustUrl, { cache: 'no-cache' });
+      const res = await fetch(cacheBustUrl, { cache: 'force-cache' });
       if (res.ok) {
         const blob = await res.blob();
         if (blob && blob.size > 0) {
@@ -12018,13 +12239,36 @@ async function preloadAndConvertTtdToBase64(sigUrl) {
           }
         }
       }
-    } catch (e) {
-      console.warn('⚠️ [PRELOAD TTD ONLINE FETCH ERROR]:', e);
-    }
-    return trimmed;
-  }
+    } catch (e) {}
 
-  return '';
+    // Fallback Canvas
+    try {
+      const imgBase64 = await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width || 300;
+            canvas.height = img.naturalHeight || img.height || 300;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            resolve(dataUrl.startsWith('data:image/') ? dataUrl : trimmed);
+          } catch(e) {
+            resolve(trimmed);
+          }
+        };
+        img.onerror = () => resolve(trimmed);
+        img.src = trimmed;
+      });
+      if (imgBase64) return imgBase64;
+    } catch (e) {}
+
+    return trimmed;
+  })();
+
+  return Promise.race([convertPromise, timeoutPromise]).catch(() => trimmed);
 }
 window.preloadAndConvertTtdToBase64 = preloadAndConvertTtdToBase64;
 
@@ -12550,16 +12794,32 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
     pemohonTTD = '';
   }
 
-  // PRE-LOAD DAN KONVERSI LINK GAMBAR ONLINE HTTP/HTTPS KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
+  // PRE-LOAD DAN KONVERSI SEMUA LINK GAMBAR TTD & FOTO BARANG KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
+  let loadedValidPhotos = validPhotos;
   if (typeof preloadAndConvertTtdToBase64 === 'function') {
-    const [pConverted, sConverted, dConverted] = await Promise.all([
-      preloadAndConvertTtdToBase64(pemohonTTD),
-      preloadAndConvertTtdToBase64(serviceTTD),
-      preloadAndConvertTtdToBase64(dmTTD)
-    ]);
-    if (pConverted) pemohonTTD = pConverted;
-    if (sConverted) serviceTTD = sConverted;
-    if (dConverted) dmTTD = dConverted;
+    try {
+      if (typeof tampilkanLoadingProses === 'function') {
+        tampilkanLoadingProses('MENYIAPKAN PDF...');
+      }
+      const [pConverted, sConverted, dConverted, ...photoConvertedList] = await Promise.all([
+        preloadAndConvertTtdToBase64(pemohonTTD),
+        preloadAndConvertTtdToBase64(serviceTTD),
+        preloadAndConvertTtdToBase64(dmTTD),
+        ...validPhotos.map(p => preloadAndConvertTtdToBase64(p))
+      ]);
+      if (pConverted) pemohonTTD = pConverted;
+      if (sConverted) serviceTTD = sConverted;
+      if (dConverted) dmTTD = dConverted;
+      if (Array.isArray(photoConvertedList) && photoConvertedList.length > 0) {
+        loadedValidPhotos = photoConvertedList.map((cp, idx) => cp || validPhotos[idx]);
+      }
+    } catch(e) {
+      console.warn('[PRELOAD PDF NOTICE]:', e);
+    } finally {
+      if (typeof tutupLoadingProses === 'function') {
+        tutupLoadingProses();
+      }
+    }
   }
 
   const nowPrint = new Date();
@@ -12572,14 +12832,14 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
   const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
 
   let photoSection = '';
-  if (includePhotos === true && validPhotos.length > 0) {
+  if (includePhotos === true && loadedValidPhotos.length > 0) {
     photoSection = `
       <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
         <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
-          LAMPIRAN FOTO BARANG (${validPhotos.length} FOTO):
+          LAMPIRAN FOTO BARANG (${loadedValidPhotos.length} FOTO):
         </div>
         <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
-          ${validPhotos.map((p, pIdx) => `
+          ${loadedValidPhotos.map((p, pIdx) => `
             <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
               <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
               <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
@@ -12789,13 +13049,6 @@ function tutupPdfModal() {
 window.tutupPdfModal = tutupPdfModal;
 
 async function cetakDokumenPdf() {
-  if (typeof tampilkanLoadingProses === 'function') {
-    tampilkanLoadingProses('MOHON TUNGGU...');
-  }
-  
-  // Jeda persis 4 detik (4000ms) sebelum memunculkan dialog cetak PDF
-  await new Promise(resolve => setTimeout(resolve, 4000));
-
   const content = document.getElementById('pdfDocumentContent');
   if (!content) {
     if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
@@ -12894,23 +13147,40 @@ async function cetakDokumenPdf() {
     `);
     priDoc.close();
 
-    setTimeout(() => {
-      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    // TUNGGU SEMUA GAMBAR DI DALAM IFRAME MENCAPAI STATUS SELESAI DIMUAT & DECODE (100% VISIBLE SEBELUM CETAK)
+    const iframeImgs = Array.from(priDoc.querySelectorAll('img'));
+    if (iframeImgs.length > 0) {
+      await Promise.all(iframeImgs.map(img => {
+        if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
+        return new Promise(resolve => {
+          img.onload = resolve;
+          img.onerror = resolve;
+          setTimeout(resolve, 3000);
+        });
+      }));
+
       try {
-        priWindow.focus();
-        priWindow.print();
-      } catch (err) {
-        console.warn('Iframe print fallback error:', err);
-        window.print();
-      } finally {
-        setTimeout(() => {
-          if (printIframe && printIframe.parentNode) {
-            printIframe.remove();
-          }
-          restoreMainTitle();
-        }, 1500);
-      }
-    }, 200);
+        await Promise.all(iframeImgs.map(img => img.decode().catch(() => {})));
+      } catch(e) {}
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    try {
+      priWindow.focus();
+      priWindow.print();
+    } catch (err) {
+      console.warn('Iframe print fallback error:', err);
+      window.print();
+    } finally {
+      setTimeout(() => {
+        if (printIframe && printIframe.parentNode) {
+          printIframe.remove();
+        }
+        restoreMainTitle();
+      }, 1500);
+    }
     return;
   } catch (e) {
     console.warn('[PRINT IFRAME NOTICE]: Fallback ke window.print()', e);
@@ -14710,6 +14980,14 @@ window.startGlobalRealtimeLoop = startGlobalRealtimeLoop;
 
 // GLOBAL EVENT LISTENER: CLICK OUTSIDE BACKDROP TO CLOSE POPUPS (PC / LAPTOP / MOBILE)
 window.addEventListener('click', function (e) {
+  // Backdrop click for uploadBuktiPermintaanOverlay -> trigger tutupModalUploadBuktiPermintaan()
+  const uploadBuktiPermintaanOverlay = document.getElementById('uploadBuktiPermintaanOverlay');
+  if (uploadBuktiPermintaanOverlay && e.target === uploadBuktiPermintaanOverlay) {
+    if (typeof tutupModalUploadBuktiPermintaan === 'function') {
+      tutupModalUploadBuktiPermintaan();
+    }
+  }
+
   // Backdrop click for popupUbahStatusAdminModal -> trigger tutupModalUbahStatusAdmin()
   const popupUbahStatusAdminModal = document.getElementById('popupUbahStatusAdminModal');
   if (popupUbahStatusAdminModal && e.target === popupUbahStatusAdminModal) {
@@ -14931,6 +15209,8 @@ async function paksaLogoutUserByAdmin(targetUsername) {
           if (rtdb) {
             await rtdb.ref(`user_sessions/${uKey}`).set({
               session_token: newSessionToken,
+              active_tokens: [],
+              action_type: 'ADMIN_FORCE_LOGOUT',
               logout_by: currentUser ? currentUser.username : 'ADMIN',
               logout_at: new Date().toISOString()
             });
@@ -14949,12 +15229,28 @@ async function paksaLogoutUserByAdmin(targetUsername) {
           }
         } catch(e2) {}
 
-        // 3. Supabase
+        // 3. Supabase Table Update (Trigger Postgres Changes Realtime)
         try {
           if (typeof supabase !== 'undefined' && supabase) {
-            supabase.from('users').update({ session_token: newSessionToken }).eq('username', targetUsername).then(() => {}, () => {});
+            await supabase.from('users').update({ session_token: newSessionToken }).eq('username', targetUsername);
           }
         } catch(e3) {}
+
+        // 4. Supabase Realtime Broadcast (INSTANT WEBSOCKET PUSH TO TARGET DEVICE)
+        if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+          try {
+            supabaseRealtimeChannel.send({
+              type: 'broadcast',
+              event: 'force_logout',
+              payload: {
+                username: targetUsername,
+                session_token: newSessionToken,
+                reason: 'AKUN DI LOGOUT OLEH ADMIN, SILAHKAN LOGIN KEMBALI',
+                timestamp: Date.now()
+              }
+            });
+          } catch(e4) {}
+        }
 
         hideLoading();
         showNotif(`USER '${targetUsername}' BERHASIL DI-LOGOUT DARI SEMUA PERANGKAT!`, 'success');
@@ -14994,10 +15290,31 @@ async function logoutSemuaPerangkatUserByAdmin() {
           if (rtdb) {
             rtdb.ref(`user_sessions/${uKey}`).set({
               session_token: token,
+              active_tokens: [],
+              action_type: 'ADMIN_FORCE_LOGOUT',
               logout_by: 'ADMIN_ALL',
               logout_at: new Date().toISOString()
             }).catch(() => {});
           }
+
+          if (typeof supabase !== 'undefined' && supabase) {
+            supabase.from('users').update({ session_token: token }).eq('username', u.username).then(() => {}, () => {});
+          }
+        }
+
+        // 4. Supabase Realtime Broadcast ALL
+        if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+          try {
+            supabaseRealtimeChannel.send({
+              type: 'broadcast',
+              event: 'force_logout_all',
+              payload: {
+                exceptAdmin: myUnameUpper,
+                reason: 'AKUN DI LOGOUT OLEH ADMIN, SILAHKAN LOGIN KEMBALI',
+                timestamp: Date.now()
+              }
+            });
+          } catch(e) {}
         }
 
         hideLoading();
@@ -15281,6 +15598,7 @@ function bukaUserModal(userId = null, btnElement = null) {
           if (document.getElementById('uFormStoreCode')) document.getElementById('uFormStoreCode').value = u.storeCode || '';
           if (document.getElementById('uFormPhone')) document.getElementById('uFormPhone').value = u.phone || '';
           if (document.getElementById('uFormCategory')) document.getElementById('uFormCategory').value = u.category || 'TOKO';
+          if (document.getElementById('uFormCanPrintPdf')) document.getElementById('uFormCanPrintPdf').checked = !!u.canPrintPdf;
           targetAreas = typeof getUserAreaList === 'function' ? getUserAreaList(u.area) : [u.area || 'BDG'];
           if (title) title.textContent = `EDIT USER: ${u.username}`;
         }
@@ -15291,6 +15609,7 @@ function bukaUserModal(userId = null, btnElement = null) {
         if (document.getElementById('uFormStoreCode')) document.getElementById('uFormStoreCode').value = '';
         if (document.getElementById('uFormPhone')) document.getElementById('uFormPhone').value = '';
         if (document.getElementById('uFormCategory')) document.getElementById('uFormCategory').value = 'TOKO';
+        if (document.getElementById('uFormCanPrintPdf')) document.getElementById('uFormCanPrintPdf').checked = false;
         targetAreas = ['BDG'];
         if (title) title.textContent = 'TAMBAH USER BARU';
       }
@@ -15343,6 +15662,7 @@ async function simpanUserData(btnElement = null) {
   const storeCode = document.getElementById('uFormStoreCode').value.trim().toUpperCase();
   const phone = document.getElementById('uFormPhone').value.trim();
   const category = document.getElementById('uFormCategory').value;
+  const canPrintPdf = !!(document.getElementById('uFormCanPrintPdf') && document.getElementById('uFormCanPrintPdf').checked);
   const docId = String(username).toUpperCase();
 
   const checkedAreas = Array.from(document.querySelectorAll('input[name="uFormAreaCheck"]:checked')).map(cb => cb.value);
@@ -15403,6 +15723,7 @@ async function simpanUserData(btnElement = null) {
           users[idx].phone = phone;
           users[idx].category = category;
           users[idx].area = area;
+          users[idx].canPrintPdf = canPrintPdf;
           saveUsersToDB(users, users[idx]);
           if (supabaseRealtimeChannel) {
             try {
@@ -15627,6 +15948,7 @@ async function simpanUserData(btnElement = null) {
         phone,
         category,
         area,
+        canPrintPdf,
         createdAt: getFormattedDateDDMMYYYY()
       };
 
@@ -21948,7 +22270,7 @@ function bukaModalArtemisParsial(noSurat, partialId) {
 }
 window.bukaModalArtemisParsial = bukaModalArtemisParsial;
 
-function cetakPdfSuratParsial(noSurat, partialId) {
+async function cetakPdfSuratParsial(noSurat, partialId) {
   if (!noSurat || !partialId) return;
   const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
   const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
@@ -22042,6 +22364,34 @@ function cetakPdfSuratParsial(noSurat, partialId) {
     pemohonTTD = '';
   }
 
+  // PRE-LOAD DAN KONVERSI SEMUA LINK GAMBAR TTD & FOTO PARSIAL KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
+  let loadedValidPhotos = validPhotos;
+  if (typeof preloadAndConvertTtdToBase64 === 'function') {
+    try {
+      if (typeof tampilkanLoadingProses === 'function') {
+        tampilkanLoadingProses('MENYIAPKAN PDF PARSIAL...');
+      }
+      const [pConverted, sConverted, dConverted, ...photoConvertedList] = await Promise.all([
+        preloadAndConvertTtdToBase64(pemohonTTD),
+        preloadAndConvertTtdToBase64(serviceTTD),
+        preloadAndConvertTtdToBase64(dmTTD),
+        ...validPhotos.map(p => preloadAndConvertTtdToBase64(p))
+      ]);
+      if (pConverted) pemohonTTD = pConverted;
+      if (sConverted) serviceTTD = sConverted;
+      if (dConverted) dmTTD = dConverted;
+      if (Array.isArray(photoConvertedList) && photoConvertedList.length > 0) {
+        loadedValidPhotos = photoConvertedList.map((cp, idx) => cp || validPhotos[idx]);
+      }
+    } catch(e) {
+      console.warn('[PARSIAL PDF PRELOAD NOTICE]:', e);
+    } finally {
+      if (typeof tutupLoadingProses === 'function') {
+        tutupLoadingProses();
+      }
+    }
+  }
+
   const nowPrint = new Date();
   const pDay = String(nowPrint.getDate()).padStart(2, '0');
   const pMonth = String(nowPrint.getMonth() + 1).padStart(2, '0');
@@ -22052,14 +22402,14 @@ function cetakPdfSuratParsial(noSurat, partialId) {
   const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
 
   let photoSection = '';
-  if (validPhotos.length > 0) {
+  if (loadedValidPhotos.length > 0) {
     photoSection = `
       <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
         <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
-          LAMPIRAN FOTO PENYERAHAN PARSIAL (${validPhotos.length} FOTO):
+          LAMPIRAN FOTO PENYERAHAN PARSIAL (${loadedValidPhotos.length} FOTO):
         </div>
         <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
-          ${validPhotos.map((p, pIdx) => `
+          ${loadedValidPhotos.map((p, pIdx) => `
             <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
               <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
               <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
@@ -22953,3 +23303,186 @@ window.kembaliKeOriginEdit = kembaliKeOriginEdit;
     }
   } catch(e) {}
 })();
+
+// =============================================================================
+// STANDALONE UPLOAD BUKTI PERMINTAAN MODAL LOGIC FOR DETAIL POPUP
+// =============================================================================
+let currentUploadBuktiNoSurat = '';
+let tempBuktiPermintaanPhotos = [];
+
+function bukaModalUploadBuktiPermintaan(noSurat) {
+  if (!noSurat) return;
+  currentUploadBuktiNoSurat = noSurat;
+  
+  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  if (!req) {
+    if (typeof showNotif === 'function') showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+    return;
+  }
+
+  const existingBukti = Array.isArray(req.bukti_permintaan || req.buktiPermintaan) ? (req.bukti_permintaan || req.buktiPermintaan) : [];
+  tempBuktiPermintaanPhotos = [...existingBukti];
+
+  const modal = document.getElementById('uploadBuktiPermintaanOverlay');
+  const inputNoSurat = document.getElementById('uploadBuktiNoSurat');
+  const titleEl = document.getElementById('uploadBuktiTitle');
+  
+  if (inputNoSurat) inputNoSurat.value = noSurat;
+  if (titleEl) titleEl.textContent = `UPLOAD BUKTI PERMINTAAN (#${noSurat})`;
+
+  renderBuktiPermintaanModalGrid();
+
+  if (modal) {
+    modal.style.display = 'flex';
+    if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+  }
+}
+window.bukaModalUploadBuktiPermintaan = bukaModalUploadBuktiPermintaan;
+
+function tutupModalUploadBuktiPermintaan() {
+  const modal = document.getElementById('uploadBuktiPermintaanOverlay');
+  if (modal) modal.style.display = 'none';
+  tempBuktiPermintaanPhotos = [];
+  currentUploadBuktiNoSurat = '';
+}
+window.tutupModalUploadBuktiPermintaan = tutupModalUploadBuktiPermintaan;
+
+function renderBuktiPermintaanModalGrid() {
+  const container = document.getElementById('uploadBuktiPreviewGrid');
+  if (!container) return;
+
+  if (tempBuktiPermintaanPhotos.length === 0) {
+    container.innerHTML = `
+      <div style="width: 100%; text-align: center; color: var(--text-muted); font-size: 11.5px; font-weight: 600; padding: 12px 0;">
+        BELUM ADA FOTO BUKTI PERMINTAAN DIUNGGAH.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = tempBuktiPermintaanPhotos.map((p, idx) => `
+    <div style="position: relative; display: inline-block; margin: 2px;">
+      <img src="${p}" style="width: 75px; height: 75px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer;" onclick="openImageViewerSingle('${p}')" title="KLIK UNTUK MEMPERBESAR / UNDUH">
+      <button type="button" onclick="hapusFotoBuktiModal(${idx})" style="position: absolute; top: -6px; right: -6px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 10;" title="HAPUS FOTO INI">×</button>
+    </div>
+  `).join('');
+}
+window.renderBuktiPermintaanModalGrid = renderBuktiPermintaanModalGrid;
+
+function hapusFotoBuktiModal(idx) {
+  tempBuktiPermintaanPhotos.splice(idx, 1);
+  renderBuktiPermintaanModalGrid();
+}
+window.hapusFotoBuktiModal = hapusFotoBuktiModal;
+
+function openImageViewerSingle(imgUrl) {
+  if (!imgUrl) return;
+  if (typeof bukaViewGambar === 'function') {
+    bukaViewGambar([imgUrl], 0);
+  } else if (typeof showImageViewer === 'function') {
+    showImageViewer([imgUrl], 0);
+  }
+}
+window.openImageViewerSingle = openImageViewerSingle;
+
+function handleBuktiPermintaanSelect(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+
+  const readPromises = Array.from(files).map(file => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  });
+
+  Promise.all(readPromises).then(results => {
+    const valid = results.filter(Boolean);
+    tempBuktiPermintaanPhotos.push(...valid);
+    renderBuktiPermintaanModalGrid();
+    event.target.value = '';
+  });
+}
+window.handleBuktiPermintaanSelect = handleBuktiPermintaanSelect;
+
+async function simpanBuktiPermintaanUploaded() {
+  if (!currentUploadBuktiNoSurat) return;
+  
+  const noSurat = currentUploadBuktiNoSurat;
+  const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const idx = requests.findIndex(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  
+  if (idx === -1) {
+    if (typeof showNotif === 'function') showNotif('PERMINTAAN TIDAK DITEMUKAN!', 'danger');
+    return;
+  }
+
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MENGUNGGAH FOTO BUKTI KE SUPABASE CLOUD STORAGE...');
+  } else if (typeof showLoading === 'function') {
+    showLoading('MENGUNGGAH FOTO BUKTI KE SUPABASE CLOUD STORAGE...');
+  }
+
+  try {
+    const rawPhotos = [...tempBuktiPermintaanPhotos];
+    const uploadedPhotoUrls = [];
+
+    // Unggah semua foto bukti ke Supabase Storage (dikompresi JPEG + dikirim sebagai Berkas Foto/URL HTTP)
+    for (let i = 0; i < rawPhotos.length; i++) {
+      const p = rawPhotos[i];
+      if (!p) continue;
+      if (typeof p === 'string' && (p.startsWith('http://') || p.startsWith('https://'))) {
+        uploadedPhotoUrls.push(p);
+      } else if (typeof uploadPhotoToSupabaseStorage === 'function') {
+        const url = await uploadPhotoToSupabaseStorage(p);
+        if (url) uploadedPhotoUrls.push(url);
+      } else {
+        uploadedPhotoUrls.push(p);
+      }
+    }
+
+    requests[idx].bukti_permintaan = uploadedPhotoUrls;
+    requests[idx].buktiPermintaan = uploadedPhotoUrls;
+
+    if (!requests[idx].log) requests[idx].log = [];
+    requests[idx].log.push({
+      action: 'UPLOAD_BUKTI_PERMINTAAN',
+      user: currentUser ? (currentUser.fullName || currentUser.username) : 'USER',
+      notes: `MENGUNGGAH ${uploadedPhotoUrls.length} FOTO BUKTI PERMINTAAN KE SUPABASE STORAGE`,
+      time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+    });
+
+    // Save to Local DB & Supabase Cloud
+    saveRequestsToDB(requests, requests[idx], 'UPDATE');
+    
+    if (typeof safeSupabaseUpsertPermintaan === 'function') {
+      await safeSupabaseUpsertPermintaan(requests[idx]);
+    }
+
+    tutupModalUploadBuktiPermintaan();
+    if (typeof showNotif === 'function') {
+      showNotif(`BERHASIL MENGUNGGAH FOTO BUKTI PERMINTAAN #${noSurat} KE SUPABASE STORAGE!`, 'success');
+    }
+
+    // Refresh Detail Modal if open and update tables
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(noSurat, true);
+    }
+    if (typeof loadRiwayat === 'function') loadRiwayat();
+    if (typeof loadDashboard === 'function') loadDashboard();
+  } catch(err) {
+    console.error('[SIMPAN BUKTI PERMINTAAN ERROR]:', err);
+    if (typeof showNotif === 'function') showNotif('GAGAL MENYIMPAN BUKTI: ' + (err.message || err), 'danger');
+  } finally {
+    if (typeof tutupLoadingProses === 'function') {
+      tutupLoadingProses();
+    } else if (typeof hideLoading === 'function') {
+      hideLoading();
+    }
+  }
+}
+window.simpanBuktiPermintaanUploaded = simpanBuktiPermintaanUploaded;
+

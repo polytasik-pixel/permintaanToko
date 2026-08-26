@@ -33,8 +33,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics-compat.js"></script>
 
   <!-- Master Stylesheet -->
-  <link rel="stylesheet" href="styles.css?v=20260826_v014200000">
-  <script src="app.js?v=20260826_v014200000"></script>
+  <link rel="stylesheet" href="styles.css?v=20260826_v124200000">
+  <script src="app.js?v=20260826_v124200000"></script>
 
   <!-- Global Failsafe Gemini AI Key Handler -->
   <script>
@@ -1359,6 +1359,44 @@
     </div>
   </div>
 
+  <!-- POPUP UPLOAD BUKTI PERMINTAAN MODAL -->
+  <div id="uploadBuktiPermintaanOverlay" class="popupOverlay" style="z-index: 2147483647 !important; display: none; align-items: center; justify-content: center;">
+    <div class="artemisBoxPopup" style="background: var(--bg-box) !important; border-radius: 6px !important; overflow: hidden !important; border: 1px solid var(--border-color) !important; box-shadow: 0 20px 50px rgba(0,0,0,0.45) !important; box-sizing: border-box !important; margin: auto !important;">
+      <div class="artemisHeaderPopup" style="background: var(--primary) !important; color: #ffffff !important; padding: 12px 16px !important; border-radius: 6px 6px 0 0 !important; display: flex !important; align-items: center !important; justify-content: space-between !important; box-sizing: border-box !important; position: relative !important;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="material-symbols-rounded" style="font-size: 20px; font-weight: 900; color: #ffffff !important;">cloud_upload</span>
+          <span id="uploadBuktiTitle" style="font-size: 14px; font-weight: 900; color: #ffffff !important; text-transform: uppercase;">UPLOAD BUKTI PERMINTAAN</span>
+        </div>
+        <button type="button" class="btnHeaderCloseX" onclick="tutupModalUploadBuktiPermintaan()" style="background: none !important; border: none !important; color: #ffffff !important; font-size: 26px !important; font-weight: 900 !important; cursor: pointer !important; line-height: 1 !important; padding: 0 4px !important; margin-left: auto !important; position: static !important;" title="TUTUP">&times;</button>
+      </div>
+      <div class="artemisBodyPopup" style="padding: 16px !important; margin: 0 !important; box-sizing: border-box !important;">
+        <input type="hidden" id="uploadBuktiNoSurat">
+        <p id="uploadBuktiSubTitle" style="font-size: 11.5px; font-weight: 700; color: var(--text-main); margin-bottom: 2mm; line-height: 1.4;">UNGGAH FOTO / DOKUMEN BUKTI PERMINTAAN:</p>
+        
+        <input type="file" id="uploadBuktiFileInput" accept="image/*, application/pdf" multiple style="display: none;" onchange="handleBuktiPermintaanSelect(event)">
+
+        <div id="uploadBuktiPasteBox" tabindex="0" onclick="document.getElementById('uploadBuktiFileInput').click();" title="PASTE DI SINI / KLIK UNTUK UPLOAD" style="margin-bottom: 2mm; padding: 3mm; border: 2px dashed var(--primary); border-radius: 6px; background: rgba(2, 132, 199, 0.04); text-align: center; cursor: pointer; transition: all 0.2s; outline: none; box-sizing: border-box;">
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 4px;">
+            <span class="material-symbols-rounded" style="font-size: 26px; color: var(--primary);">content_paste_go</span>
+            <span class="material-symbols-rounded" style="font-size: 26px; color: var(--primary);">add_photo_alternate</span>
+          </div>
+          <div style="font-size: 13px; font-weight: 800; color: var(--primary); letter-spacing: 0.5px;">
+            PASTE DI SINI / KLIK UNTUK PILIH BUKTI PERMINTAAN
+          </div>
+        </div>
+
+        <div id="uploadBuktiPreviewGrid" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; margin-bottom: 2mm; padding: 2mm; background: var(--bg-body); border-radius: 4px; border: 1px dashed var(--border-color); box-sizing: border-box;">
+          <!-- Previews injected dynamically -->
+        </div>
+
+        <div class="confirmButton" style="display: flex; gap: 2mm; margin-bottom: 0;">
+          <button type="button" class="btnBatal" onclick="tutupModalUploadBuktiPermintaan()" style="flex: 1; height: 38px; padding: 0 4px; border-radius: 4px; font-weight: 700; cursor: pointer; background: #ef4444 !important; color: #ffffff !important; border: none !important; font-size: 11.5px; text-transform: uppercase;">BATAL</button>
+          <button type="button" class="btnOkNotif" onclick="simpanBuktiPermintaanUploaded()" style="flex: 1; height: 38px; padding: 0 4px; border-radius: 4px; background: var(--primary); color: #fff; font-weight: 700; border: none; cursor: pointer; font-size: 11.5px; text-transform: uppercase;">SIMPAN BUKTI</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 7. POPUP DIGITAL SIGNATURE (TTD) MODAL -->
   <div id="popupTTD" class="popupTTD popupOverlay" onclick="if(event.target === this) tutupTTD();" style="display: none; z-index: 2000000000 !important; box-sizing: border-box !important;">
     <div class="ttdBox" onclick="event.stopPropagation()" style="background: var(--bg-box) !important; border-radius: 6px !important; overflow: hidden !important; border: 1px solid var(--border-color) !important; box-shadow: 0 20px 50px rgba(0,0,0,0.45) !important; box-sizing: border-box !important; margin: auto !important; padding: 2mm !important;">
@@ -1515,12 +1553,12 @@
   </div>
 
   
-          <!-- POPUP FORM TAMBAH / EDIT USER (#popupUserForm) - FULL ADAPTIF MENGIKUTI SEMUA TEMA, 1MM GAP & ZERO SCROLL -->
-  <div id="popupUserForm" class="popupOverlay" onclick="if(event.target === this || event.target.id === 'popupUserForm') tutupUserModal();" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000005; align-items: center; justify-content: center; padding: 1mm !important; box-sizing: border-box !important; backdrop-filter: blur(3px);">
-    <div class="popupBox userFormCard" style="position: relative; width: 540px; max-width: 96vw; height: auto; max-height: calc(100vh - 2mm); overflow: hidden !important; background: var(--bg-box) !important; color: var(--text-main) !important; border-radius: 10px; border: 1px solid var(--border-color) !important; box-shadow: 0 15px 35px rgba(0,0,0,0.45); padding: 12px 18px 12px 18px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
+          <!-- POPUP FORM TAMBAH / EDIT USER (#popupUserForm) - FULL ADAPTIF FIT-CONTENT, ZERO CUTOFF -->
+  <div id="popupUserForm" class="popupOverlay" onclick="if(event.target === this || event.target.id === 'popupUserForm') tutupUserModal();" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000005; align-items: center; justify-content: center; padding: 8px !important; box-sizing: border-box !important; backdrop-filter: blur(3px);">
+    <div class="popupBox userFormCard" style="position: relative; width: 520px; max-width: 95vw; height: auto; height: fit-content; max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow-y: auto !important; overflow-x: hidden !important; background: var(--bg-box) !important; color: var(--text-main) !important; border-radius: 10px; border: 1px solid var(--border-color) !important; box-shadow: 0 15px 35px rgba(0,0,0,0.45); padding: 12px 16px 14px 16px; box-sizing: border-box; display: flex; flex-direction: column;">
       
       <!-- HEADER: JUDUL SESUAI TEMA & TOMBOL X SEJAJAR -->
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-shrink: 0; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); position: relative;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-shrink: 0; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); position: relative;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span class="material-symbols-rounded" style="font-size: 22px; font-weight: 900; color: var(--primary) !important;">person_add</span>
           <h3 id="userFormTitle" style="color: var(--primary) !important; font-weight: 900; font-size: 15px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">EDIT USER</h3>
@@ -1532,7 +1570,7 @@
       <input type="hidden" id="uFormArea" value="BDG">
 
       <!-- GRID 2 KOLOM (ZERO-SCROLL THEMED INPUTS) -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-bottom: 8px; flex-shrink: 0;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; margin-bottom: 8px; flex-shrink: 0;">
         
         <!-- ROW 1: USERNAME & KODE TOKO -->
         <div>
@@ -1577,40 +1615,54 @@
       </div>
 
       <!-- AREA WILAYAH (BISA DILIPAT GANDA / CENTANG MULTI-AREA) -->
-      <div style="margin-bottom: 10px; flex-shrink: 0;">
-        <label style="font-size: 10px; font-weight: 800; color: var(--text-muted) !important; margin-bottom: 4px; display: block;">AREA WILAYAH (BISA DILIPAT GANDA / CENTANG MULTI-AREA):</label>
-        <div style="background: var(--bg-body) !important; border: 1px solid var(--border-color) !important; border-radius: 8px; padding: 8px 12px; box-sizing: border-box;">
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 8px;">
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+      <div style="margin-bottom: 8px; flex-shrink: 0;">
+        <label style="font-size: 10px; font-weight: 800; color: var(--text-muted) !important; margin-bottom: 3px; display: block;">AREA WILAYAH (BISA DILIPAT GANDA / CENTANG MULTI-AREA):</label>
+        <div style="background: var(--bg-body) !important; border: 1px solid var(--border-color) !important; border-radius: 8px; padding: 6px 10px; box-sizing: border-box;">
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 6px;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="BDG" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> BDG
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="BDU" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> BDU
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="CRB" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> CRB
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="SKB" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> SKB
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="SBN" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> SBN
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="TSM" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> TSM
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="BGR" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> BGR
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-main) !important; cursor: pointer;">
               <input type="checkbox" name="uFormAreaCheck" value="ALL" style="width: 15px; height: 15px; accent-color: var(--primary) !important; cursor: pointer;"> ALL
             </label>
           </div>
         </div>
       </div>
 
+      <!-- HAK AKSES FITUR (KHUSUS TOKO / SALES) -->
+      <div style="margin-bottom: 10px; flex-shrink: 0;">
+        <label style="font-size: 10px; font-weight: 800; color: var(--text-muted) !important; margin-bottom: 3px; display: block; text-transform: uppercase;">HAK AKSES FITUR (KHUSUS TOKO / SALES):</label>
+        <div style="background: var(--bg-body) !important; border: 1px solid var(--border-color) !important; border-radius: 8px; padding: 6px 10px; box-sizing: border-box;">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 800; color: var(--text-main) !important; cursor: pointer;">
+            <input type="checkbox" id="uFormCanPrintPdf" style="width: 16px; height: 16px; accent-color: var(--primary) !important; cursor: pointer;">
+            <span style="display: inline-flex; align-items: center; gap: 5px;">
+              <span class="material-symbols-rounded" style="font-size: 18px; color: #ef4444; vertical-align: middle;">picture_as_pdf</span>
+              CETAK PDF (IZINKAN CETAK PDF SURAT PERMINTAAN)
+            </span>
+          </label>
+        </div>
+      </div>
+
       <!-- DUA TOMBOL SEJAJAR: BATAL (MERAH) & SIMPAN USER (HIJAU) -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex-shrink: 0;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex-shrink: 0; margin-top: auto; padding-top: 4px;">
         <button type="button" onclick="tutupUserModal()" style="height: 36px; background: #dc2626 !important; color: #ffffff !important; font-weight: 800; font-size: 11.5px; border-radius: 6px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 2px 6px rgba(220,38,38,0.3); transition: filter 0.2s;">BATAL</button>
         <button type="button" onclick="simpanUserData(this)" style="height: 36px; background: #16a34a !important; color: #ffffff !important; font-weight: 800; font-size: 11.5px; border-radius: 6px; border: none; cursor: pointer; text-transform: uppercase; box-shadow: 0 2px 6px rgba(220,38,38,0.3); transition: filter 0.2s;">SIMPAN USER</button>
       </div>

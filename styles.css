@@ -3625,27 +3625,29 @@ html body #popupUserForm.popupOverlay {
   z-index: 10000005 !important;
   align-items: center !important;
   justify-content: center !important;
-  padding-top: 1mm !important;
-  padding-bottom: 2cm !important;
-  padding-left: 2mm !important;
-  padding-right: 2mm !important;
+  padding: 8px !important;
   box-sizing: border-box !important;
 }
 
 #popupUserForm .popupBox,
-html body #popupUserForm .popupBox {
+html body #popupUserForm .popupBox,
+#popupUserForm .userFormCard,
+html body #popupUserForm .userFormCard {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
   margin-left: auto !important;
   margin-right: auto !important;
   transform: none !important;
-  max-height: calc(100vh - 2cm) !important;
+  height: auto !important;
+  max-height: calc(100vh - 16px) !important;
+  max-height: calc(100dvh - 16px) !important;
   overflow-y: auto !important;
+  overflow-x: hidden !important;
   -webkit-overflow-scrolling: touch !important;
   background: var(--bg-box) !important;
   border: 1px solid var(--border-color) !important;
   box-shadow: 0 10px 30px rgba(0,0,0,0.45) !important;
-  border-radius: 5px !important;
+  border-radius: 8px !important;
 }
 
 #popupUserForm .popupClose {
@@ -10315,10 +10317,7 @@ html body #artemisOverlay .artemisBodyPopup {
 
 /* POPUP FORM USER (#popupUserForm) */
 #popupUserForm {
-  padding-top: 1mm !important;
-  padding-bottom: 2cm !important;
-  padding-left: 4px !important;
-  padding-right: 4px !important;
+  padding: 8px !important;
 }
 
 /* POPUP TTD OVERLAY HIGHER Z-INDEX THAN POPUP AKUN */

@@ -11406,7 +11406,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   const buktiPhotos = Array.isArray(req.bukti_permintaan || req.buktiPermintaan) ? (req.bukti_permintaan || req.buktiPermintaan) : [];
   const countBukti = buktiPhotos.length;
 
-  if (req.status === 'APPROVE') {
+  if (req.status === 'APPROVE' && !isStrictDMUser) {
     actionButtons.push(`
       <button type="button" class="btnIcon btnIconOnly" title="UPLOAD / KELOLA BUKTI PERMINTAAN ${countBukti > 0 ? '(' + countBukti + ' FOTO)' : ''}" onclick="bukaModalUploadBuktiPermintaan('${req.noSurat}');" style="margin-left: 5mm !important; background: linear-gradient(135deg, #0284c7, #0369a1) !important; color: #ffffff !important; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3) !important;">
         <span class="material-symbols-rounded">cloud_upload</span>
@@ -23312,6 +23312,13 @@ let tempBuktiPermintaanPhotos = [];
 
 function bukaModalUploadBuktiPermintaan(noSurat) {
   if (!noSurat) return;
+  const userCatUpper = currentUser ? String(currentUser.category || currentUser.kategori || '').toUpperCase() : '';
+  const userRoleUpper = currentUser ? String(currentUser.role || '').toUpperCase() : '';
+  const isDM = currentUser && (userCatUpper.includes('DM') || userRoleUpper.includes('DM'));
+  if (isDM) {
+    if (typeof showNotif === 'function') showNotif('User DM tidak diperkenankan mengunggah bukti permintaan!', 'warning');
+    return;
+  }
   currentUploadBuktiNoSurat = noSurat;
   
   const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
@@ -23410,6 +23417,13 @@ window.handleBuktiPermintaanSelect = handleBuktiPermintaanSelect;
 
 async function simpanBuktiPermintaanUploaded() {
   if (!currentUploadBuktiNoSurat) return;
+  const userCatUpper = currentUser ? String(currentUser.category || currentUser.kategori || '').toUpperCase() : '';
+  const userRoleUpper = currentUser ? String(currentUser.role || '').toUpperCase() : '';
+  const isDM = currentUser && (userCatUpper.includes('DM') || userRoleUpper.includes('DM'));
+  if (isDM) {
+    if (typeof showNotif === 'function') showNotif('User DM tidak diperkenankan mengunggah bukti permintaan!', 'warning');
+    return;
+  }
   
   const noSurat = currentUploadBuktiNoSurat;
   const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];

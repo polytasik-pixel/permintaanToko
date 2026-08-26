@@ -12803,9 +12803,19 @@ async function cetakDokumenPdf() {
     return;
   }
 
-  // Ambil No Surat aktif dan bersihkan karakter / serta - untuk nama file PDF
+  // Ambil No Surat aktif dan buat nama file PDF = noSurat (hanya ganti karakter ilegal file OS)
   const rawNoSurat = window._currentActivePdfNoSurat || '';
-  const docTitle = String(rawNoSurat).replace(/[\/\-]/g, '').trim() || 'PERMINTAAN_TOKO';
+  let cleanNoSurat = String(rawNoSurat).trim().replace(/[\/\\:\*\?"<>\|]/g, '-');
+  if (!cleanNoSurat) cleanNoSurat = 'PERMINTAAN_TOKO';
+
+  const prevMainTitle = document.title;
+  document.title = cleanNoSurat;
+
+  const restoreMainTitle = () => {
+    try { document.title = prevMainTitle; } catch(e) {}
+    window.removeEventListener('afterprint', restoreMainTitle);
+  };
+  window.addEventListener('afterprint', restoreMainTitle);
 
   try {
     let printIframe = document.getElementById('hiddenPdfPrintIframe');
@@ -12836,7 +12846,7 @@ async function cetakDokumenPdf() {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>${docTitle}</title>
+          <title>${cleanNoSurat}</title>
           <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
           <style>
             * {
@@ -12897,6 +12907,7 @@ async function cetakDokumenPdf() {
           if (printIframe && printIframe.parentNode) {
             printIframe.remove();
           }
+          restoreMainTitle();
         }, 1500);
       }
     }, 200);
@@ -12907,6 +12918,7 @@ async function cetakDokumenPdf() {
 
   if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
   window.print();
+  setTimeout(restoreMainTitle, 2000);
 }
 
 function bukaTTD() {

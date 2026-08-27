@@ -12846,7 +12846,7 @@ window.tutupPilihanCetakPdf = tutupPilihanCetakPdf;
 
 async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
   if (typeof tampilkanLoadingProses === 'function') {
-    tampilkanLoadingProses('MENYIAPKAN DOKUMEN PDF & GAMBAR...');
+    tampilkanLoadingProses('MENYIAPKAN DOKUMEN PDF...');
   }
   try {
     const requests = getRequestsFromDB();

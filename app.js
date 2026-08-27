@@ -8234,18 +8234,22 @@ function checkAndPlayPendingSoundAlert(dataList) {
     return;
   }
 
-  if (!Array.isArray(dataList)) {
-    dataList = typeof getAccessibleRequests === 'function' ? getAccessibleRequests() : [];
-  }
-
   const cat = String(currentUser.category || currentUser.kategori || currentUser.role || '').trim().toUpperCase();
   const username = String(currentUser.username || '').trim().toUpperCase();
   const isAdm = cat === 'ADMIN' || username === 'ADMIN';
 
-  let hasPending = false;
+  // Suara notifikasi pada login ADMIN dihilangkan sepenuhnya sesuai permintaan user
   if (isAdm) {
-    hasPending = dataList.some(r => r && (r.status === 'PENDING' || r.status === 'APPROVE' || shouldRowBlinkRed(r)));
-  } else if (cat === 'SERVICE' || cat === 'IT' || cat === 'HODS' || cat === 'GBJ') {
+    stopPendingSoundAlert();
+    return;
+  }
+
+  if (!Array.isArray(dataList)) {
+    dataList = typeof getAccessibleRequests === 'function' ? getAccessibleRequests() : [];
+  }
+
+  let hasPending = false;
+  if (cat === 'SERVICE' || cat === 'IT' || cat === 'HODS' || cat === 'GBJ') {
     hasPending = dataList.some(r => r && r.status === 'PENDING' && !r.serviceApprove);
   } else if (cat === 'DM' || cat === 'MANAGER') {
     hasPending = dataList.some(r => r && (r.status === 'APPROVE' || (r.status === 'PENDING' && r.serviceApprove)));
@@ -10066,7 +10070,10 @@ function approveDM(noSurat) {
         dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
       }
 
-      tambahNotifikasiSistem(['SERVICE', 'TOKO', 'SALES'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} TELAH DISETUJUI DM. SILAKAN DIPROSES.`, noSurat);
+      // Notifikasi untuk Tim Service (tetap)
+      tambahNotifikasiSistem(['SERVICE'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} TELAH DISETUJUI DM. SILAKAN DIPROSES.`, noSurat);
+      // Notifikasi untuk Pembuat Surat / Toko / Sales (tanpa kata 'SILAKAN DIPROSES')
+      tambahNotifikasiSistem(['TOKO', 'SALES'], requests[idx].area, `PERMINTAAN SURAT #${noSurat} TELAH DISETUJUI DM, MOHON MENUNGGU PROSES SELANJUTNYA.`, noSurat);
 
       // Fungsi Pengiriman WhatsApp (HANYA DIEKSEKUSI SETELAH DATA DIPASTIKAN TERKIRIM KE SUPABASE & SEMUA PERANGKAT)
       const dispatchDMApprovalWADestination = () => {
@@ -12124,7 +12131,7 @@ function prosesForwardService() {
     return;
   }
   if (!newServiceArea) {
-    showNotif('HARAP PILIH SERVICE AREA / CABANG TUJUAN!', 'warning');
+    showNotif('HARAP PILIH SERVICE AREA!', 'warning');
     return;
   }
 
@@ -12172,6 +12179,35 @@ function prosesForwardService() {
           log: req.log,
           updated_at: new Date().toISOString()
         }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE FORWARD UPDATE NOTICE]:', e));
+      }
+
+      // 1. Tambah Notifikasi Sistem untuk Service Area Tujuan
+      if (typeof tambahNotifikasiSistem === 'function') {
+        tambahNotifikasiSistem(['SERVICE'], newServiceArea, `SURAT #${noSurat} DARI ${req.toko} DITERUSKAN KE SERVICE AREA ${newServiceArea.toUpperCase()}${catatan ? '. CATATAN: ' + catatan : ''}`, noSurat);
+      }
+
+      // 2. Kirim Notifikasi WA ke Tim Service di Service Area Tujuan
+      try {
+        const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+        const targetServiceUsers = users.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS' || u.role === 'SERVICE') && (String(u.area || u.serviceArea || '').toUpperCase() === String(newServiceArea).toUpperCase() || u.area === 'ALL') && u.phone && u.phone !== '-');
+        targetServiceUsers.forEach(srv => {
+          const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
+          if (typeof kirimNotifikasiWA === 'function') {
+            kirimNotifikasiWA(srv.phone,
+              `Yth. Bapak/Ibu *${srvName}*\n\n` +
+              `📩 *PEMBERITAHUAN FORWARD SURAT PERMINTAAN*\n` +
+              `Dokumen permintaan barang berikut telah *DITERUSKAN (FORWARD)* ke Service Area Anda (*${newServiceArea.toUpperCase()}*):\n` +
+              `• Nomor Dokumen : *#${noSurat}*\n` +
+              `• Toko / Pemohon : *${req.toko}* (${req.area || '-'})\n` +
+              `• Diteruskan Oleh : *${req.forwardedBy}*\n` +
+              `• Catatan Forward : *${catatan || '-'}*\n` +
+              `• Link Detail : ${typeof getAppDirectLink === 'function' ? getAppDirectLink(noSurat) : ''}\n\n` +
+              `Silakan buka sistem aplikasi untuk memproses dokumen permintaan tersebut. Terima kasih.`
+            );
+          }
+        });
+      } catch(e) {
+        console.warn('[FORWARD WA NOTIF WARNING]:', e);
       }
 
       hideLoading();
@@ -13209,7 +13245,7 @@ window.tutupPilihanCetakPdf = tutupPilihanCetakPdf;
 
 async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
   if (typeof tampilkanLoadingProses === 'function') {
-    tampilkanLoadingProses('MENYIAPKAN DOKUMEN PDF & GAMBAR...');
+    tampilkanLoadingProses('MOHON TUNGGU...');
   }
   try {
     const requests = getRequestsFromDB();
@@ -22856,7 +22892,7 @@ window.bukaModalArtemisParsial = bukaModalArtemisParsial;
 
 async function cetakPdfSuratParsial(noSurat, partialId) {
   if (typeof tampilkanLoadingProses === 'function') {
-    tampilkanLoadingProses('MENYIAPKAN PDF PARSIAL & GAMBAR...');
+    tampilkanLoadingProses('MOHON TUNGGU...');
   }
   try {
     if (!noSurat || !partialId) {

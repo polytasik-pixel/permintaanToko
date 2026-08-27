@@ -9756,6 +9756,8 @@ function approveService(noSurat) {
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
       if (typeof refreshDetailModalIfOpen === 'function') refreshDetailModalIfOpen(noSurat);
+      const btnRefSrv = document.getElementById('btnRefreshDetailV2');
+      if (btnRefSrv) btnRefSrv.style.setProperty('display', 'none', 'important');
 
       // 2. PROSES SYNC SUPABASE & BROADCAST REALTIME TERLEBIH DAHULU
       const docId = String(noSurat).replace(/[\/\.]/g, '_');
@@ -9853,6 +9855,8 @@ function approveDM(noSurat) {
       loadDashboard();
       if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') loadMasterDbTable();
       if (typeof refreshDetailModalIfOpen === 'function') refreshDetailModalIfOpen(noSurat);
+      const btnRefDM = document.getElementById('btnRefreshDetailV2');
+      if (btnRefDM) btnRefDM.style.setProperty('display', 'none', 'important');
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
     if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
       if (typeof cekUnreadNotif === 'function') cekUnreadNotif();
@@ -11086,10 +11090,20 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   }
 
   let headerInfoHtml = `
-    <div class="detailHeaderInfoV2" style="display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; padding: 8px 14px !important; box-sizing: border-box !important; background: transparent !important; border-bottom: 1px solid var(--border-color) !important; margin-bottom: 8px !important;">
-      <div class="noSuratWrapV2" style="display: inline-flex !important; align-items: center !important; text-align: left !important; white-space: nowrap !important; flex: 0 0 auto !important; background: transparent !important;">
-        <span style="opacity: 0.85; font-weight: 500; color: var(--text-main);">NO SURAT : </span>
-        <span class="noSuratValV2" style="color: var(--primary) !important; font-weight: 700 !important; margin-left: 4px; background: transparent !important;">${req.noSurat || '-'}</span>
+    <div class="detailHeaderInfoV2" style="display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; padding: 8px 14px !important; box-sizing: border-box !important; background: transparent !important; border-bottom: 1px solid var(--border-color) !important; margin-bottom: 8px !important; gap: 6px !important;">
+      <div class="noSuratWrapV2" style="display: flex !important; flex-direction: column !important; gap: 3px !important; align-items: flex-start !important; text-align: left !important; flex: 0 0 auto !important; background: transparent !important; font-size: 12px !important; font-weight: 400 !important; color: var(--text-main) !important;">
+        <div style="display: flex; align-items: center; white-space: nowrap;">
+          <span style="display: inline-block; width: 75px; opacity: 0.85; font-weight: 400; color: var(--text-main);">NO SURAT</span>
+          <span style="margin-right: 6px; font-weight: 400; opacity: 0.85;">:</span>
+          <span class="noSuratValV2" style="color: var(--primary) !important; font-weight: 500 !important; background: transparent !important;">${req.noSurat || '-'}</span>
+        </div>
+        <div style="display: flex; align-items: center; white-space: nowrap;">
+          <span style="display: inline-block; width: 75px; opacity: 0.85; font-weight: 400; color: var(--text-main);">TOKO</span>
+          <span style="margin-right: 6px; font-weight: 400; opacity: 0.85;">:</span>
+          <span class="tokoValSubV2" style="color: var(--text-main) !important; font-weight: 400 !important; background: transparent !important;">
+            ${req.toko || '-'}${req.area ? `<span style="font-size: 11px; opacity: 0.75; margin-left: 4px; font-weight: 400;">(${req.area})</span>` : ''}
+          </span>
+        </div>
       </div>
       ${topBreakdownButtonsHtml}
     </div>
@@ -12967,6 +12981,7 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
             <div>
               <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
               <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
+              <div style="font-size: 9px; color: #64748b; margin-top: 1px; font-weight: 600; text-transform: uppercase;">${req.toko || ''}</div>
             </div>
           </div>
 
@@ -12993,12 +13008,15 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
           </div>
         </div>
 
-        <div style="margin-top: 28px; display: flex; justify-content: space-between; align-items: center; font-size: 8px; color: #64748b; letter-spacing: 0.2px;">
+        <div style="margin-top: 28px; display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #64748b; letter-spacing: 0.2px;">
+          <div style="font-weight: 700; color: #334155; font-size: 9px; text-transform: uppercase;">
+            TOKO: ${req.toko || '-'}
+          </div>
           ${hasUnfulfilledItem ? `
             <div style="font-weight: 800; color: #b91c1c; font-style: normal; display: flex; align-items: center; gap: 4px; font-size: 8px;">
               <span style="text-decoration: line-through; text-decoration-thickness: 2.5px; font-weight: 900; color: #b91c1c; font-size: 10px;">---</span> = Tidak di penuhi
             </div>
-          ` : '<div></div>'}
+          ` : ''}
           <div style="font-style: italic; opacity: 0.85; font-size: 8px;">
             ${timestampStr}
           </div>
@@ -22481,6 +22499,7 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
             <div>
               <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
               <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
+              <div style="font-size: 9px; color: #64748b; margin-top: 1px; font-weight: 600; text-transform: uppercase;">${req.toko || ''}</div>
             </div>
           </div>
 
@@ -22507,7 +22526,10 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
           </div>
         </div>
 
-        <div style="margin-top: 20px; display: flex; justify-content: flex-end; font-size: 8px; color: #64748b;">
+        <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; font-size: 8px; color: #64748b;">
+          <div style="font-weight: 700; color: #334155; font-size: 9px; text-transform: uppercase;">
+            TOKO: ${req.toko || '-'}
+          </div>
           <div style="font-style: italic; opacity: 0.85;">${timestampStr}</div>
         </div>
       </div>
@@ -22703,10 +22725,11 @@ async function refreshDetailModalManual() {
   const btnRefresh = document.getElementById('btnRefreshDetailV2');
   if (btnRefresh) {
     btnRefresh.style.transition = 'transform 0.5s ease';
-    btnRefresh.style.transform = 'translateY(-50%) rotate(360deg)';
+    btnRefresh.style.transform = 'rotate(360deg)';
   }
 
   if (typeof showLoading === 'function') showLoading('MEMPERBARUI DATA DETAIL...');
+  let hasChanged = false;
   try {
     if (typeof supabase !== 'undefined' && supabase) {
       const { data, error } = await supabase.from('permintaan_toko').select('*').eq('no_surat', noSurat);
@@ -22716,8 +22739,21 @@ async function refreshDetailModalManual() {
           const currentReqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
           const idx = currentReqs.findIndex(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
           if (idx !== -1) {
+            const oldReq = currentReqs[idx];
+            const fieldsToCompare = [
+              'status', 'serviceApprove', 'items', 'photos', 'artemisPhotos',
+              'buktiPermintaan', 'catatan', 'serviceTTD', 'dmTTD', 'pemohonTTD',
+              'serviceUserName', 'dmUserName', 'log', 'tanggal', 'toko', 'area', 'jenis'
+            ];
+            for (const f of fieldsToCompare) {
+              if (JSON.stringify(oldReq[f]) !== JSON.stringify(formatted[f])) {
+                hasChanged = true;
+                break;
+              }
+            }
             currentReqs[idx] = { ...currentReqs[idx], ...formatted };
           } else {
+            hasChanged = true;
             currentReqs.unshift(formatted);
           }
           if (typeof appStorage !== 'undefined') appStorage.setItem(REQUESTS_DB_KEY, JSON.stringify(currentReqs));
@@ -22727,7 +22763,16 @@ async function refreshDetailModalManual() {
     if (typeof lihatDetail === 'function') {
       await lihatDetail(noSurat, true);
     }
-    if (typeof showNotif === 'function') showNotif('DATA DETAIL BERHASIL DIPERBARUI!', 'success');
+    if (btnRefresh) {
+      btnRefresh.style.setProperty('display', 'none', 'important');
+    }
+    if (typeof showNotif === 'function') {
+      if (hasChanged) {
+        showNotif('REFRESH DATA BERHASIL', 'success');
+      } else {
+        showNotif('TIDAK ADA PERUBAHAN DATA', 'info');
+      }
+    }
   } catch(e) {
     if (typeof showNotif === 'function') showNotif('GAGAL MEMPERBARUI DATA: ' + (e.message || e), 'warning');
   } finally {
@@ -22735,7 +22780,7 @@ async function refreshDetailModalManual() {
     if (btnRefresh) {
       setTimeout(() => {
         btnRefresh.style.transition = 'none';
-        btnRefresh.style.transform = 'translateY(-50%) rotate(0deg)';
+        btnRefresh.style.transform = 'rotate(0deg)';
       }, 500);
     }
   }
@@ -22743,15 +22788,25 @@ async function refreshDetailModalManual() {
 window.refreshDetailModalManual = refreshDetailModalManual;
 
 async function validatePreApprovalData(noSurat, expectedType) {
-  if (typeof supabase === 'undefined' || !supabase) return true;
+  const btnRefresh = document.getElementById('btnRefreshDetailV2');
+  if (typeof supabase === 'undefined' || !supabase) {
+    if (btnRefresh) btnRefresh.style.setProperty('display', 'none', 'important');
+    return true;
+  }
   try {
     const { data, error } = await supabase.from('permintaan_toko').select('*').eq('no_surat', noSurat);
-    if (error || !data || data.length === 0) return true;
+    if (error || !data || data.length === 0) {
+      if (btnRefresh) btnRefresh.style.setProperty('display', 'none', 'important');
+      return true;
+    }
     const serverRow = data[0];
     const localReqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
     const local = localReqs.find(r => r && String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase());
 
-    if (!local) return true;
+    if (!local) {
+      if (btnRefresh) btnRefresh.style.setProperty('display', 'none', 'important');
+      return true;
+    }
 
     let hasMismatch = false;
     let mismatchMsg = '';
@@ -22791,8 +22846,8 @@ async function validatePreApprovalData(noSurat, expectedType) {
       if (typeof showNotif === 'function') {
         showNotif('ADA PERUBAHAN DATA DI SURAT INI, REFRESH TERLEBIH DAHULU', 'warning');
       }
-      const btnRefresh = document.getElementById('btnRefreshDetailV2');
       if (btnRefresh) {
+        btnRefresh.style.setProperty('display', 'inline-flex', 'important');
         btnRefresh.style.border = '2px solid #ef4444';
         btnRefresh.style.background = '#ef4444';
         setTimeout(() => {
@@ -22802,8 +22857,13 @@ async function validatePreApprovalData(noSurat, expectedType) {
       }
       return false;
     }
+
+    if (btnRefresh) {
+      btnRefresh.style.setProperty('display', 'none', 'important');
+    }
     return true;
   } catch(e) {
+    if (btnRefresh) btnRefresh.style.setProperty('display', 'none', 'important');
     return true;
   }
 }

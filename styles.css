@@ -12466,7 +12466,7 @@ html body #popupUserManagementModal .btnTutupUserModal .material-symbols-rounded
   color: #ffffff !important;
   width: 32px !important;
   height: 32px !important;
-  border-radius: 50% !important;
+  border-radius: 4px !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;

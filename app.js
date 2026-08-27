@@ -12073,7 +12073,7 @@ function bukaModalForwardService(noSurat) {
   if (catatanInput) catatanInput.value = '';
 
   if (areaSelect) {
-    areaSelect.innerHTML = '<option value="">-- Pilih Service Area / Cabang Tujuan --</option>';
+    areaSelect.innerHTML = '<option value="">-- Pilih Service Area --</option>';
     
     const defaultAreas = [
       'TSM - TASIKMALAYA',

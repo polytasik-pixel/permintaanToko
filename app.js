@@ -6955,6 +6955,7 @@ async function prosesLogin() {
 
       await bukaMainApp(true);
     } else {
+      if (typeof stopPendingSoundAlert === 'function') stopPendingSoundAlert();
       currentUser = null;
       appStorage.removeItem(SESSION_KEY);
       catatLogLogin(u, '-', '-', 'GAGAL - PASSWORD SALAH');
@@ -6991,6 +6992,7 @@ async function logout() {
   showConfirm(confirmMsg, function() {
     var _asyncTask = async function() {
       // Hapus sesi login saja (Penyimpanan lokal & cache tetap aman)
+      if (typeof stopPendingSoundAlert === 'function') stopPendingSoundAlert();
       currentUser = null;
       appStorage.removeItem(SESSION_KEY);
       try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
@@ -7140,6 +7142,7 @@ function forceLogoutThisDevice(customMsg = 'AKUN ANDA TELAH DI-LOGOUT. SILAHKAN 
     _sessionTokenRealtimeRef = null;
   }
 
+  if (typeof stopPendingSoundAlert === 'function') stopPendingSoundAlert();
   currentUser = null;
   appStorage.removeItem(SESSION_KEY);
   appStorage.removeItem('MY_SESSION_TOKEN');
@@ -7640,6 +7643,7 @@ function initMobileBackButtonEngine() {
       { id: 'popupSecurityPinHapusLokal', closeFn: () => { if (typeof tutupModalPinHapusLokal === 'function') tutupModalPinHapusLokal(); } },
       { id: 'popupTTD', closeFn: () => { if (typeof tutupTTD === 'function') tutupTTD(); } },
       { id: 'modalGeminiApiKey', closeFn: () => { if (typeof tutupModalGeminiApiKey === 'function') tutupModalGeminiApiKey(); } },
+      { id: 'popupForwardService', closeFn: () => { if (typeof tutupModalForwardService === 'function') tutupModalForwardService(); } },
       { id: 'popupUbahStatusAdminModal', closeFn: () => { if (typeof tutupModalUbahStatusAdmin === 'function') tutupModalUbahStatusAdmin(); } },
       { id: 'modalViewMasterSqlSupabase', closeFn: () => { if (typeof tutupModalViewMasterSqlSupabase === 'function') tutupModalViewMasterSqlSupabase(); } },
       { id: 'modalSetupSupabaseKeys', closeFn: () => { if (typeof tutupModalSetupSupabaseKeys === 'function') tutupModalSetupSupabaseKeys(); } },
@@ -7738,7 +7742,7 @@ function triggerConfirmBoxFlash() {
   if (card) {
     card.classList.remove('modal-shake-flash');
     void card.offsetWidth; // Trigger reflow
-    card.classList.add('modal-shake-flash');
+    // animation disabled
     setTimeout(() => {
       card.classList.remove('modal-shake-flash');
     }, 450);
@@ -7993,6 +7997,9 @@ function loadDashboard() {
     titleEl.style.display = 'none';
   }
 
+  // CHECK AND PLAY PENDING SOUND ALERT
+  checkAndPlayPendingSoundAlert(data);
+
   const lastDataContainer = document.getElementById('lastData');
   if (!lastDataContainer) return;
   lastDataContainer.innerHTML = '';
@@ -8023,9 +8030,7 @@ function loadDashboard() {
     }
 
     const tr = document.createElement('tr');
-    if (shouldRowBlinkRed(r)) {
-      tr.className = 'blink-row-red';
-    }
+    // Blinking row animation disabled per user request
     tr.style.cursor = 'pointer';
     tr.title = `KLIK BARIS INI UNTUK MEMBUKA PERMINTAAN #${r.noSurat}`;
     tr.onclick = () => bukaDetailDariDashboard(r.noSurat);
@@ -8059,19 +8064,204 @@ function bukaDetailDariDashboard(noSurat) {
 }
 
 function shouldRowBlinkRed(r) {
-  if (!r || !currentUser) return false;
+  return false;
+}
+
+// =============================================================================
+// GLOBAL WEB AUDIO API SOUND NOTIFICATION SYSTEM (MENUKAR ANIMASI KEDIP DENGAN SUARA NOTIFIKASI)
+// =============================================================================
+let _audioCtx = null;
+let _lastSoundPlayedTime = 0;
+
+function getAudioContext() {
+  if (!_audioCtx) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      _audioCtx = new AudioCtx();
+    }
+  }
+  if (_audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(() => {});
+  }
+  return _audioCtx;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('click', function unlockAudioOnFirstClick() {
+    getAudioContext();
+  }, { once: false });
+  window.addEventListener('touchstart', function unlockAudioOnFirstTouch() {
+    getAudioContext();
+  }, { once: false });
+}
+
+function isSoundEnabled() {
+  const pref = localStorage.getItem('app_sound_enabled');
+  return pref === null || pref === 'true';
+}
+
+function toggleAppSound() {
+  const current = isSoundEnabled();
+  const nextState = !current;
+  localStorage.setItem('app_sound_enabled', String(nextState));
+  if (nextState) {
+    playNotificationSound('pending_alert');
+    if (typeof showPopupNotif === 'function') showPopupNotif('🔊 SUARA NOTIFIKASI DIAKTIFKAN');
+  } else {
+    if (typeof showPopupNotif === 'function') showPopupNotif('🔇 SUARA NOTIFIKASI DIMATIKAN');
+  }
+}
+window.toggleAppSound = toggleAppSound;
+
+function playNotificationSound(type = 'pending_alert') {
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+
+    if (type === 'pending_alert' || type === 'alert' || type === 'notif') {
+      // Pleasant 2-tone chime: D5 (587.33Hz) -> A5 (880.00Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, now);
+      gain1.gain.setValueAtTime(0, now);
+      gain1.gain.linearRampToValueAtTime(0.18, now + 0.03);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.35);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(880.00, now + 0.15);
+      gain2.gain.setValueAtTime(0, now + 0.15);
+      gain2.gain.linearRampToValueAtTime(0.22, now + 0.18);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.15);
+      osc2.stop(now + 0.65);
+
+    } else if (type === 'success' || type === 'done') {
+      // Ascending 3-note melody: C5 (523.25) -> E5 (659.25) -> G5 (783.99)
+      const notes = [523.25, 659.25, 783.99];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const startTime = now + idx * 0.1;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startTime);
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.18, startTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startTime);
+        osc.stop(startTime + 0.3);
+      });
+    }
+  } catch (e) {
+    console.warn('[SOUND WARN]: Audio context error:', e);
+  }
+}
+window.playNotificationSound = playNotificationSound;
+
+let pendingAlarmInterval = null;
+let pendingAlertAudio = null;
+
+function playPendingSoundAlert() {
+  if (typeof isAudioMuted === 'function' && isAudioMuted()) {
+    stopPendingSoundAlert();
+    return;
+  }
+
+  if (window._isPendingAlarmActive) return;
+  window._isPendingAlarmActive = true;
+
+  if (!pendingAlarmInterval) {
+    const playBeep = () => {
+      if (!window._isPendingAlarmActive) return;
+      try {
+        const ctx = getAudioContext();
+        if (ctx) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.25);
+          gain.gain.setValueAtTime(0.35, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.25);
+        }
+      } catch (e) {
+        console.warn('[PENDING ALARM SOUND WARN]:', e);
+      }
+    };
+
+    playBeep();
+    pendingAlarmInterval = setInterval(playBeep, 1200);
+  }
+}
+
+function stopPendingSoundAlert() {
+  window._isPendingAlarmActive = false;
+  if (pendingAlarmInterval) {
+    clearInterval(pendingAlarmInterval);
+    pendingAlarmInterval = null;
+  }
+  if (pendingAlertAudio) {
+    try {
+      pendingAlertAudio.pause();
+      pendingAlertAudio.currentTime = 0;
+    } catch(e) {}
+  }
+}
+
+function checkAndPlayPendingSoundAlert(dataList) {
+  if (!currentUser) {
+    stopPendingSoundAlert();
+    return;
+  }
+
+  if (!Array.isArray(dataList)) {
+    dataList = typeof getAccessibleRequests === 'function' ? getAccessibleRequests() : [];
+  }
+
   const cat = String(currentUser.category || currentUser.kategori || currentUser.role || '').trim().toUpperCase();
   const username = String(currentUser.username || '').trim().toUpperCase();
   const isAdm = cat === 'ADMIN' || username === 'ADMIN';
 
-  const isWaitingService = (r.status === 'PENDING' && !r.serviceApprove);
-  const isWaitingDM = (r.status === 'PENDING' && r.serviceApprove);
+  let hasPending = false;
+  if (isAdm) {
+    hasPending = dataList.some(r => r && (r.status === 'PENDING' || r.status === 'APPROVE' || shouldRowBlinkRed(r)));
+  } else if (cat === 'SERVICE' || cat === 'IT' || cat === 'HODS' || cat === 'GBJ') {
+    hasPending = dataList.some(r => r && r.status === 'PENDING' && !r.serviceApprove);
+  } else if (cat === 'DM' || cat === 'MANAGER') {
+    hasPending = dataList.some(r => r && (r.status === 'APPROVE' || (r.status === 'PENDING' && r.serviceApprove)));
+  } else {
+    hasPending = false;
+  }
 
-  if ((cat === 'SERVICE' || isAdm) && isWaitingService) return true;
-  if ((cat === 'DM' || isAdm) && isWaitingDM) return true;
-
-  return false;
+  if (hasPending) {
+    playPendingSoundAlert();
+  } else {
+    stopPendingSoundAlert();
+  }
 }
+window.checkAndPlayPendingSoundAlert = checkAndPlayPendingSoundAlert;
+window.playPendingSoundAlert = playPendingSoundAlert;
+window.stopPendingSoundAlert = stopPendingSoundAlert;
 
 function getBadgeStatusHTML(r) {
   if (!r) return '-';
@@ -9397,6 +9587,7 @@ function filterRiwayat() {
         } else if (r.status === 'APPROVE') {
           aksi += `
             <button class="btnIcon btnDone" onclick="doneService('${r.noSurat}')" title="DONE"><span class="material-symbols-rounded">task_alt</span></button>
+            <button class="btnIcon" onclick="bukaModalForwardService('${r.noSurat}')" title="FORWARD SERVICE AREA" style="background: linear-gradient(135deg, #7c3aed, #6d28d9) !important; color: #ffffff !important;"><span class="material-symbols-rounded">forward</span></button>
           `;
         }
       } else if (role === 'SERVICE') {
@@ -9408,6 +9599,7 @@ function filterRiwayat() {
         } else if (r.status === 'APPROVE') {
           aksi += `
             <button class="btnIcon btnDone" onclick="doneService('${r.noSurat}')" title="DONE"><span class="material-symbols-rounded">task_alt</span></button>
+            <button class="btnIcon" onclick="bukaModalForwardService('${r.noSurat}')" title="FORWARD SERVICE AREA" style="background: linear-gradient(135deg, #7c3aed, #6d28d9) !important; color: #ffffff !important;"><span class="material-symbols-rounded">forward</span></button>
           `;
         }
       } else if (role === 'DM') {
@@ -9499,9 +9691,7 @@ function filterRiwayat() {
     }
 
     const tr = document.createElement('tr');
-    if (shouldRowBlinkRed(r)) {
-      tr.className = 'blink-row-red';
-    }
+    // Blinking row animation disabled per user request
     tr.innerHTML = `
       <td style="width: 6cm !important; min-width: 6cm !important; max-width: 6cm !important; box-sizing: border-box !important;"><div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap; justify-content:flex-start;">${aksi}</div></td>
       <td>${getBadgeStatus(r)}</td>
@@ -9989,7 +10179,7 @@ function doneService(noSurat) {
   const overlay = document.getElementById('artemisOverlay');
   if (overlay) {
     overlay.classList.add('show');
-    overlay.style.setProperty('z-index', '99999999', 'important');
+    overlay.style.setProperty('z-index', '500000000', 'important');
     overlay.style.setProperty('display', 'flex', 'important');
     overlay.style.setProperty('visibility', 'visible', 'important');
     overlay.style.setProperty('opacity', '1', 'important');
@@ -11487,31 +11677,69 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   itemsHtml += emptyGridRowsHtml;
 
   let bottomActionsHtml = '';
-  let actionButtons = [];
+  let group1Buttons = []; // Group 1: Media & Export (Upload Bukti, View Foto, Download Excel)
+  let group2Buttons = []; // Group 2: Approval & Operations (Approve, Tolak, PDF, Set Done, Edit, Batal Approve, Ubah Status)
+  let rightButtons = [];  // Right Group: Hapus, Forward FW
 
   const isDeletedReq = (req.status === 'BATAL' || req.unfulfilled === true);
 
+  // --- GROUP 1: MEDIA & EXPORT (Upload Bukti, View Foto, Download Excel) ---
+  const buktiPhotos = Array.isArray(req.bukti_permintaan || req.buktiPermintaan) ? (req.bukti_permintaan || req.buktiPermintaan) : [];
+  const countBukti = buktiPhotos.length;
+
+  if (req.status === 'APPROVE' && !isStrictDMUser && !isDeletedReq) {
+    group1Buttons.push(`
+      <button type="button" class="btnIcon btnIconOnly" title="UPLOAD / KELOLA BUKTI PERMINTAAN ${countBukti > 0 ? '(' + countBukti + ' FOTO)' : ''}" onclick="bukaModalUploadBuktiPermintaan('${req.noSurat}');" style="background: linear-gradient(135deg, #0284c7, #0369a1) !important; color: #ffffff !important; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3) !important;">
+        <span class="material-symbols-rounded">cloud_upload</span>
+      </button>
+    `);
+  }
+
+  const allReqPhotos = [
+    ...(Array.isArray(req.photos) ? req.photos : []),
+    ...(Array.isArray(req.artemisPhotos) ? req.artemisPhotos : []),
+    ...buktiPhotos
+  ].filter(Boolean);
+
+  if (allReqPhotos.length > 0) {
+    const isDoneState = req.status === 'DONE';
+    group1Buttons.push(`
+      <button type="button" class="btnIcon btnPhotoView btnIconOnly" title="${isDoneState ? 'LIHAT BUKTI PROSES ARTEMIS / DONE' : 'LIHAT FOTO BUKTI BARANG'} (${allReqPhotos.length})" onclick="lihatFotoByNoSurat('${req.noSurat || req.id}');" style="${isDoneState ? 'background: linear-gradient(135deg, #059669, #10b981) !important; color: #ffffff !important;' : ''}">
+        <span class="material-symbols-rounded">image</span>
+      </button>
+    `);
+  }
+
+  if (!isDeletedReq) {
+    group1Buttons.push(`
+      <button type="button" class="btnIcon btnIconOnly" title="DOWNLOAD EXCEL DETAIL (.XLSX)" onclick="downloadSingleDetailExcel('${req.noSurat}');" style="background: #107c41 !important; color: #ffffff !important;">
+        <span class="material-symbols-rounded">file_download</span>
+      </button>
+    `);
+  }
+
+  // --- GROUP 2 & RIGHT GROUP: APPROVAL, OPERATIONS, EDIT, DELETE, FW ---
   if (!isDeletedReq) {
     if (req.status === 'PENDING') {
       if (role === 'SERVICE' || isAdminUser) {
         if (!req.serviceApprove) {
-          actionButtons.push(`
+          group2Buttons.push(`
             <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="approveService('${req.noSurat}');">
               <span class="material-symbols-rounded">check_circle</span>
             </button>
           `);
-          actionButtons.push(`
+          group2Buttons.push(`
             <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tolakServiceModal('${req.noSurat}', 'SERVICE');">
               <span class="material-symbols-rounded">cancel</span>
             </button>
           `);
         } else if (isAdminUser) {
-          actionButtons.push(`
+          group2Buttons.push(`
             <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="approveDM('${req.noSurat}');">
               <span class="material-symbols-rounded">check_circle</span>
             </button>
           `);
-          actionButtons.push(`
+          group2Buttons.push(`
             <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tolakServiceModal('${req.noSurat}', 'DM');">
               <span class="material-symbols-rounded">cancel</span>
             </button>
@@ -11520,12 +11748,12 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       }
       
       if (role === 'DM' && req.serviceApprove) {
-        actionButtons.push(`
+        group2Buttons.push(`
           <button type="button" class="btnIcon btnApprove btnIconOnly" title="APPROVE" onclick="approveDM('${req.noSurat}');">
             <span class="material-symbols-rounded">check_circle</span>
           </button>
         `);
-        actionButtons.push(`
+        group2Buttons.push(`
           <button type="button" class="btnIcon btnReject btnIconOnly" title="TOLAK" onclick="tolakServiceModal('${req.noSurat}', 'DM');">
             <span class="material-symbols-rounded">cancel</span>
           </button>
@@ -11535,7 +11763,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
 
     const isPdfVisible = isPdfButtonAllowed(req);
     if (isPdfVisible) {
-      actionButtons.push(`
+      group2Buttons.push(`
         <button type="button" class="btnIcon btnPdf btnIconOnly" title="CETAK PDF" onclick="tampilkanPilihanCetakPdf('${req.noSurat}');">
           <span class="material-symbols-rounded">picture_as_pdf</span>
         </button>
@@ -11543,26 +11771,24 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     }
 
     if (req.status === 'APPROVE' && (role === 'SERVICE' || isAdminUser)) {
-      actionButtons.push(`
+      group2Buttons.push(`
         <button type="button" class="btnIcon btnDone btnIconOnly" title="SET DONE" onclick="doneService('${req.noSurat}');">
           <span class="material-symbols-rounded">task_alt</span>
         </button>
       `);
     }
 
-    // Button SIMPAN PERUBAHAN removed as per user request
-
-    // BATAL APPROVE SERVICE / DM BUTTONS EXCLUSIVELY VISIBLE FOR ADMIN LOGIN ACCOUNT ONLY (HILANGKAN DARI SERVICE, DM, TOKO, SALES)
+    // BATAL APPROVE SERVICE / DM BUTTONS EXCLUSIVELY VISIBLE FOR ADMIN LOGIN ACCOUNT ONLY
     if (isAdminUser) {
       if (req.serviceApprove) {
-        actionButtons.push(`
+        group2Buttons.push(`
           <button type="button" class="btnIcon btnIconOnly" title="BATAL APPROVE SERVICE" onclick="batalApproveService('${req.noSurat}');" style="background: #eab308 !important; color: #ffffff !important;">
             <span class="material-symbols-rounded">undo</span>
           </button>
         `);
       }
       if (req.status === 'APPROVE' || req.dmUserName || req.dmTTD) {
-        actionButtons.push(`
+        group2Buttons.push(`
           <button type="button" class="btnIcon btnIconOnly" title="BATAL APPROVE DM" onclick="batalApproveDM('${req.noSurat}');" style="background: #f97316 !important; color: #ffffff !important;">
             <span class="material-symbols-rounded">undo</span>
           </button>
@@ -11580,66 +11806,67 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     const canDeleteReq = canCreatorEditDelete || canServiceDelete || canAdminEditDelete;
 
     if (canEditReq) {
-      actionButtons.push(`
+      group2Buttons.push(`
         <button type="button" class="btnIcon btnEdit btnIconOnly" title="EDIT" onclick="editPermintaan('${req.noSurat}');">
           <span class="material-symbols-rounded">edit</span>
         </button>
       `);
     }
 
-    if (canDeleteReq) {
-      actionButtons.push(`
-        <button type="button" class="btnIcon btnDelete btnIconOnly" title="HAPUS PERMINTAAN" onclick="hapusData('${req.noSurat}');">
-          <span class="material-symbols-rounded">delete</span>
-        </button>
-      `);
-    }
-  }
-
-        actionButtons.push(`
-        <button type="button" class="btnIcon btnIconOnly" title="DOWNLOAD EXCEL DETAIL (.XLSX)" onclick="downloadSingleDetailExcel('${req.noSurat}');" style="background: #107c41 !important; color: #ffffff !important;">
-          <span class="material-symbols-rounded">file_download</span>
-        </button>
-      `);
-
     if (isAdminUser) {
-      actionButtons.push(`
+      group2Buttons.push(`
         <button type="button" class="btnIcon btnIconOnly" title="UBAH STATUS SUPABASE (ADMIN ONLY)" onclick="bukaModalUbahStatusAdmin('${req.noSurat}');" style="background: #8b5cf6 !important; color: #ffffff !important;">
           <span class="material-symbols-rounded">published_with_changes</span>
         </button>
       `);
     }
 
-  const buktiPhotos = Array.isArray(req.bukti_permintaan || req.buktiPermintaan) ? (req.bukti_permintaan || req.buktiPermintaan) : [];
-  const countBukti = buktiPhotos.length;
+    // --- RIGHT GROUP BUTTONS: HAPUS & FORWARD (FW) ---
+    if (canDeleteReq) {
+      rightButtons.push(`
+        <button type="button" class="btnIcon btnDelete btnIconOnly" title="HAPUS PERMINTAAN" onclick="hapusData('${req.noSurat}');">
+          <span class="material-symbols-rounded">delete</span>
+        </button>
+      `);
+    }
 
-  if (req.status === 'APPROVE' && !isStrictDMUser) {
-    actionButtons.push(`
-      <button type="button" class="btnIcon btnIconOnly" title="UPLOAD / KELOLA BUKTI PERMINTAAN ${countBukti > 0 ? '(' + countBukti + ' FOTO)' : ''}" onclick="bukaModalUploadBuktiPermintaan('${req.noSurat}');" style="margin-left: 5mm !important; background: linear-gradient(135deg, #0284c7, #0369a1) !important; color: #ffffff !important; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3) !important;">
-        <span class="material-symbols-rounded">cloud_upload</span>
-      </button>
-    `);
+    const isDoneOrBatalState = (
+      req.status === 'DONE' ||
+      req.status === 'SELESAI' ||
+      req.status === 'BATAL' ||
+      req.status === 'REJECT' ||
+      req.status === 'KOSONG / BATAL' ||
+      req.unfulfilled === true
+    );
+
+    if ((role === 'SERVICE' || isAdminUser) && !isDoneOrBatalState) {
+      rightButtons.push(`
+        <button type="button" class="btnIcon btnIconOnly" title="FORWARD SERVICE AREA" onclick="bukaModalForwardService('${req.noSurat}');" style="background: var(--primary) !important; color: #ffffff !important; box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;">
+          <span class="material-symbols-rounded">forward</span>
+        </button>
+      `);
+    }
   }
 
-  const allReqPhotos = [
-    ...(Array.isArray(req.photos) ? req.photos : []),
-    ...(Array.isArray(req.artemisPhotos) ? req.artemisPhotos : []),
-    ...buktiPhotos
-  ].filter(Boolean);
-
-  if (allReqPhotos.length > 0) {
-    const isDoneState = req.status === 'DONE';
-    actionButtons.push(`
-      <button type="button" class="btnIcon btnPhotoView btnIconOnly" title="${isDoneState ? 'LIHAT BUKTI PROSES ARTEMIS / DONE' : 'LIHAT FOTO BUKTI BARANG'} (${allReqPhotos.length})" onclick="lihatFotoByNoSurat('${req.noSurat || req.id}');" style="${isDoneState ? 'background: linear-gradient(135deg, #059669, #10b981) !important; color: #ffffff !important;' : ''}">
-        <span class="material-symbols-rounded">image</span>
-      </button>
-    `);
-  }
-
-  if (actionButtons.length > 0) {
+  const hasAnyActions = group1Buttons.length > 0 || group2Buttons.length > 0 || rightButtons.length > 0;
+  if (hasAnyActions) {
     bottomActionsHtml = `
       <div class="popupDetailActionsV2" style="margin: 0 !important; margin-top: 0 !important; margin-bottom: 2mm !important; padding: 0px 14px !important; padding-bottom: 0px !important; flex-shrink: 0 !important; width: 100% !important; box-sizing: border-box !important; display: flex !important; align-items: center !important; flex-wrap: wrap !important; gap: 6px !important;">
-        ${actionButtons.join('')}
+        ${group2Buttons.length > 0 ? `
+          <div class="btn-group-approval-ops" style="display: flex !important; align-items: center !important; gap: 4px !important; ${group1Buttons.length > 0 ? 'margin-right: 10px !important; padding-right: 10px !important; border-right: 1px solid rgba(255, 255, 255, 0.2) !important;' : ''}">
+            ${group2Buttons.join('')}
+          </div>
+        ` : ''}
+        ${group1Buttons.length > 0 ? `
+          <div class="btn-group-media-export" style="display: flex !important; align-items: center !important; gap: 4px !important;">
+            ${group1Buttons.join('')}
+          </div>
+        ` : ''}
+        ${rightButtons.length > 0 ? `
+          <div class="btn-group-right-actions" style="display: flex !important; align-items: center !important; gap: 4px !important; margin-left: auto !important;">
+            ${rightButtons.join('')}
+          </div>
+        ` : ''}
       </div>
     `;
   }
@@ -11827,6 +12054,142 @@ function tutupModalEditStatusPart() {
   }
 }
 window.tutupModalEditStatusPart = tutupModalEditStatusPart;
+
+// ----------------------------------------------------
+// FITUR FORWARD SERVICE AREA (TERUSKAN NOMOR SURAT KE SERVICE/CABANG LAIN)
+// ----------------------------------------------------
+function bukaModalForwardService(noSurat) {
+  if (!noSurat) return;
+  const targetNo = String(noSurat).trim().toUpperCase();
+  const inputNo = document.getElementById('forwardServiceNoSurat');
+  const displayNo = document.getElementById('forwardDisplayNoSurat');
+  const titleText = document.getElementById('forwardPopupTitleText');
+  if (inputNo) inputNo.value = targetNo;
+  if (displayNo) displayNo.value = targetNo;
+  if (titleText) titleText.textContent = 'TERUSKAN PERMINTAAN';
+
+  const areaSelect = document.getElementById('forwardServiceAreaSelect');
+  const catatanInput = document.getElementById('forwardServiceCatatan');
+  if (catatanInput) catatanInput.value = '';
+
+  if (areaSelect) {
+    areaSelect.innerHTML = '<option value="">-- Pilih Service Area / Cabang Tujuan --</option>';
+    
+    const defaultAreas = [
+      'TSM - TASIKMALAYA',
+      'BDG - BANDUNG',
+      'BDU - BANDUNG UTARA',
+      'SKB - SUKABUMI',
+      'SBN - SUBANG',
+      'CRB - CIREBON'
+    ];
+
+    defaultAreas.forEach(da => {
+      areaSelect.innerHTML += `<option value="${da}">${da}</option>`;
+    });
+  }
+
+  const modal = document.getElementById('popupForwardService');
+  if (modal) {
+    modal.style.setProperty('display', 'flex', 'important');
+    modal.style.setProperty('z-index', '2000000000', 'important');
+    modal.classList.add('show');
+    try { history.pushState({ modal: 'forwardService' }, '', location.href); } catch(e) {}
+  }
+}
+window.bukaModalForwardService = bukaModalForwardService;
+
+function tutupModalForwardService() {
+  const modal = document.getElementById('popupForwardService');
+  if (modal) {
+    modal.style.setProperty('display', 'none', 'important');
+    modal.classList.remove('show');
+  }
+  if (typeof pastikanDetailPermintaanTetapTerbuka === 'function') {
+    pastikanDetailPermintaanTetapTerbuka();
+  }
+}
+window.tutupModalForwardService = tutupModalForwardService;
+
+function prosesForwardService() {
+  const inputNo = document.getElementById('forwardServiceNoSurat');
+  const noSurat = inputNo ? inputNo.value.trim() : '';
+  const areaSelect = document.getElementById('forwardServiceAreaSelect');
+  const newServiceArea = areaSelect ? areaSelect.value.trim() : '';
+  const catatanInput = document.getElementById('forwardServiceCatatan');
+  const catatan = catatanInput ? catatanInput.value.trim() : '';
+
+  if (!noSurat) {
+    showNotif('NOMOR SURAT TIDAK VALID!', 'warning');
+    return;
+  }
+  if (!newServiceArea) {
+    showNotif('HARAP PILIH SERVICE AREA / CABANG TUJUAN!', 'warning');
+    return;
+  }
+
+  showConfirm(`KONFIRMASI FORWARD SERVICE AREA\n\nYakin ingin meneruskan Surat #${noSurat} ke Service Area '${newServiceArea.toUpperCase()}'?`, async () => {
+    try {
+      showLoading('Meneruskan ke Service Area...');
+      const requests = getRequestsFromDB();
+      const targetNo = String(noSurat).trim().toUpperCase();
+      const idx = requests.findIndex(r => r && (
+        String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+        String(r.id || '').trim().toUpperCase() === targetNo
+      ));
+
+      if (idx === -1) {
+        hideLoading();
+        showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+        return;
+      }
+
+      const req = requests[idx];
+      const prevArea = req.serviceArea || req.serviceUserName || 'SERVICE';
+      
+      req.serviceArea = newServiceArea;
+      req.forwardedBy = currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE';
+      req.forwardedAt = new Date().toISOString();
+
+      if (!req.log) req.log = [];
+      req.log.push({
+        action: 'FORWARD_SERVICE_AREA',
+        user: currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE',
+        notes: `Diteruskan dari '${prevArea}' ke Service Area '${newServiceArea}'${catatan ? '. Catatan: ' + catatan : ''}`,
+        time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+      });
+
+      saveRequestsToDB(requests);
+
+      if (typeof syncRealtimeToCentral === 'function') {
+        syncRealtimeToCentral(req);
+      }
+      if (typeof supabase !== 'undefined' && supabase) {
+        supabase.from('permintaan_toko').update({
+          service_area: newServiceArea,
+          forwarded_by: req.forwardedBy,
+          forwarded_at: req.forwardedAt,
+          log: req.log,
+          updated_at: new Date().toISOString()
+        }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE FORWARD UPDATE NOTICE]:', e));
+      }
+
+      hideLoading();
+      tutupModalForwardService();
+      showNotif(`SURAT #${noSurat} BERHASIL DITERUSKAN KE SERVICE AREA '${newServiceArea.toUpperCase()}'!`, 'success');
+
+      if (typeof loadRiwayat === 'function') loadRiwayat();
+      if (typeof loadDashboard === 'function') loadDashboard();
+      if (typeof lihatDetail === 'function') lihatDetail(noSurat, true);
+    } catch (err) {
+      hideLoading();
+      console.error('[FORWARD SERVICE ERROR]:', err);
+      showNotif('GAGAL MENERUSKAN SURAT: ' + (err.message || err), 'error');
+    }
+  });
+}
+window.prosesForwardService = prosesForwardService;
+
 
 function simpanStatusPart() {
   const noSuratInput = document.getElementById('editStatusPartNoSurat');
@@ -12846,7 +13209,7 @@ window.tutupPilihanCetakPdf = tutupPilihanCetakPdf;
 
 async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
   if (typeof tampilkanLoadingProses === 'function') {
-    tampilkanLoadingProses('MENYIAPKAN DOKUMEN PDF...');
+    tampilkanLoadingProses('MENYIAPKAN DOKUMEN PDF & GAMBAR...');
   }
   try {
     const requests = getRequestsFromDB();
@@ -15217,103 +15580,87 @@ function startGlobalRealtimeLoop() {
 }
 window.startGlobalRealtimeLoop = startGlobalRealtimeLoop;
 
-// GLOBAL EVENT LISTENER: CLICK OUTSIDE BACKDROP TO CLOSE POPUPS (PC / LAPTOP / MOBILE)
+// GLOBAL UTILITY: TRIGGER RED FLASH / BLINK ANIMATION ON MODAL CARD WHEN BACKDROP IS CLICKED
+function triggerModalBlink(modalEl) {
+  if (!modalEl) return;
+  if (typeof modalEl === 'string') {
+    modalEl = document.getElementById(modalEl);
+  }
+  if (!modalEl) return;
+
+  // Find inner content container/card
+  const innerCard = modalEl.querySelector('.rejectBoxPopup, .confirmBoxCard, .popupNotifCard, .modal-content, .popupCard, .popupBodyV2, .popupContent, div[class*="Box"], div[class*="Card"], div[class*="Content"]') || modalEl.firstElementChild || modalEl;
+
+  if (innerCard) {
+    innerCard.classList.remove('modal-blink-anim');
+    void innerCard.offsetWidth; // Force DOM reflow for animation reset
+    // animation disabled
+    setTimeout(() => {
+      innerCard.classList.remove('modal-blink-anim');
+    }, 450);
+  }
+}
+window.triggerModalBlink = triggerModalBlink;
+
+// GLOBAL EVENT LISTENER: CLICK OUTSIDE BACKDROP FOR POPUPS
 window.addEventListener('click', function (e) {
-  // Backdrop click for uploadBuktiPermintaanOverlay -> trigger tutupModalUploadBuktiPermintaan()
-  const uploadBuktiPermintaanOverlay = document.getElementById('uploadBuktiPermintaanOverlay');
-  if (uploadBuktiPermintaanOverlay && e.target === uploadBuktiPermintaanOverlay) {
-    if (typeof tutupModalUploadBuktiPermintaan === 'function') {
-      tutupModalUploadBuktiPermintaan();
+  // POPUPS WITH BATAL / TIDAK BUTTONS -> DO NOT CLOSE & BLINK
+  const protectedModals = [
+    'uploadBuktiPermintaanOverlay',
+    'popupForwardService',
+    'popupUbahStatusAdminModal',
+    'confirmOverlay',
+    'popupSecurityPinHapusLokal',
+    'popupAkun',
+    'popupPdfModelsModal',
+    'popupUserForm',
+    'popupTambahToko',
+    'rejectOverlay',
+    'popupTTD',
+    'artemisOverlay',
+    'popupEditStatusPart',
+    'popupEditKeteranganPartSingle',
+    'modalSetupSupabaseKeys',
+    'excelTemplateOverlay',
+    'modalGeminiApiKey',
+    'modalRejectBreakdown',
+    'modalBuatParsial'
+  ];
+
+  for (let id of protectedModals) {
+    const modalEl = document.getElementById(id);
+    if (modalEl && e.target === modalEl) {
+      triggerModalBlink(modalEl);
+      return;
     }
   }
 
-  // Backdrop click for popupUbahStatusAdminModal -> trigger tutupModalUbahStatusAdmin()
-  const popupUbahStatusAdminModal = document.getElementById('popupUbahStatusAdminModal');
-  if (popupUbahStatusAdminModal && e.target === popupUbahStatusAdminModal) {
-    if (typeof tutupModalUbahStatusAdmin === 'function') {
-      tutupModalUbahStatusAdmin();
-    }
-  }
-  // Backdrop click for confirmOverlay -> trigger confirmNo() (select TIDAK / BATAL)
-  const confirmOverlay = document.getElementById('confirmOverlay');
-  if (confirmOverlay && e.target === confirmOverlay) {
-    if (typeof confirmNo === 'function') {
-      confirmNo();
-    } else if (typeof closeConfirm === 'function') {
-      closeConfirm();
-    }
-  }
-
-  // Backdrop click for popupNotif -> trigger closePopup()
+  // OTHER POPUPS WITHOUT BATAL BUTTON (INFO / VIEWERS)
+  // 1. Notifikasi Single Alert (#popupNotif)
   const popupNotif = document.getElementById('popupNotif');
-  if (popupNotif && e.target === popupNotif) {
-    if (typeof closePopup === 'function') {
-      closePopup();
-    }
+  if (popupNotif && e.target === popupNotif && typeof closePopup === 'function') {
+    closePopup();
   }
 
-  // Backdrop click for popupSecurityPinHapusLokal -> trigger tutupModalPinHapusLokal()
-  const pinModal = document.getElementById('popupSecurityPinHapusLokal');
-  if (pinModal && e.target === pinModal) {
-    if (typeof tutupModalPinHapusLokal === 'function') {
-      tutupModalPinHapusLokal();
-    }
-  }
-  // 1. Detail Barang Popup (#popupDetail)
+  // 2. Detail Barang Popup (#popupDetail)
   const popupDetail = document.getElementById('popupDetail');
   if (popupDetail && e.target === popupDetail && typeof closeDetail === 'function') {
     closeDetail();
   }
 
-  // 2. Akun Profile Popup (#popupAkun)
-  const popupAkun = document.getElementById('popupAkun');
-  if (popupAkun && e.target === popupAkun && typeof tutupAkun === 'function') {
-    tutupAkun();
-  }
-
-  // 3. PDF Models Selector Modal (#popupPdfModelsModal)
-  const popupPdfModelsModal = document.getElementById('popupPdfModelsModal');
-  if (popupPdfModelsModal && e.target === popupPdfModelsModal && typeof tutupModalPdfModels === 'function') {
-    tutupModalPdfModels();
-  }
-
-  // 4. PDF Document Modal (#pdfModal)
+  // 3. PDF Document Modal (#pdfModal)
   const pdfModal = document.getElementById('pdfModal');
   if (pdfModal && e.target === pdfModal && typeof tutupPdfModal === 'function') {
     tutupPdfModal();
   }
 
-  // 5. User Form Modal (#popupUserForm)
-  const popupUserForm = document.getElementById('popupUserForm');
-  if (popupUserForm && e.target === popupUserForm && typeof tutupUserModal === 'function') {
-    tutupUserModal();
-  }
-
-  // 6. Tambah Toko Modal (#popupTambahToko)
-  const popupTambahToko = document.getElementById('popupTambahToko');
-  if (popupTambahToko && e.target === popupTambahToko && typeof tutupModalTambahToko === 'function') {
-    tutupModalTambahToko();
-  }
-
-  // 7. Reject Reason Modal (#rejectOverlay)
-  const rejectOverlay = document.getElementById('rejectOverlay');
-  if (rejectOverlay && e.target === rejectOverlay && typeof closeReject === 'function') {
-    closeReject();
-  }
-
-  // 8. TTD Modal (#popupTTD)
-  const popupTTD = document.getElementById('popupTTD');
-  if (popupTTD && e.target === popupTTD && typeof tutupTTD === 'function') {
-    tutupTTD();
-  }
-
-  // 9. Image Viewer Modal (#imageViewer)
+  // 4. Image Viewer Modal (#imageViewer)
   const imageViewer = document.getElementById('imageViewer');
   if (imageViewer && e.target === imageViewer && typeof tutupImageViewer === 'function') {
     tutupImageViewer();
   }
 
-  // 10. Chat Bantuan Popup (#popupBantuan) - Click outside to close
+  // 5. Chat Bantuan Popup (#popupBantuan)
   const popupBantuan = document.getElementById('popupBantuan');
   const helpBtn = document.getElementById('helpButton');
   if (popupBantuan && (popupBantuan.classList.contains('show') || popupBantuan.style.display === 'block')) {
@@ -15324,16 +15671,10 @@ window.addEventListener('click', function (e) {
     }
   }
 
-  // 11. Notifikasi Sistem Popup List (#popupNotifList) - Click outside to close
+  // 6. Notifikasi Sistem Popup List (#popupNotifList)
   const popupNotifList = document.getElementById('popupNotifList');
   if (popupNotifList && e.target === popupNotifList && typeof tutupNotificationModal === 'function') {
     tutupNotificationModal();
-  }
-
-  // 12. Artemis Upload Popup (#artemisOverlay) - Click outside to close
-  const artemisOverlay = document.getElementById('artemisOverlay');
-  if (artemisOverlay && e.target === artemisOverlay && typeof closeArtemisModal === 'function') {
-    closeArtemisModal();
   }
 });
 
@@ -16512,9 +16853,7 @@ function loadMasterDbTable() {
     }).join('');
 
     const tr = document.createElement('tr');
-    if (shouldRowBlinkRed(r)) {
-      tr.className = 'blink-row-red';
-    }
+    // Blinking row animation disabled per user request
     const isChecked = checkedSet.has(r.noSurat) ? 'checked' : '';
     tr.innerHTML = `
       <td style="text-align:center;"><input type="checkbox" class="masterDbCheckbox" value="${r.noSurat}" ${isChecked} onchange="updateMultiMasterDbBtnState()" style="cursor:pointer; width:16px; height:16px;"></td>
@@ -21398,7 +21737,7 @@ function bukaModalDoneParsial(noSurat, partialId) {
   const overlay = document.getElementById('artemisOverlay');
   if (overlay) {
     overlay.classList.add('show');
-    overlay.style.setProperty('z-index', '99999999', 'important');
+    overlay.style.setProperty('z-index', '500000000', 'important');
     overlay.style.setProperty('display', 'flex', 'important');
     overlay.style.setProperty('visibility', 'visible', 'important');
     overlay.style.setProperty('opacity', '1', 'important');

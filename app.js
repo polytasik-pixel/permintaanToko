@@ -4465,15 +4465,16 @@ async function syncSupabaseUsersToLocalCache() {
           canPrint = (oldUser.canPrintPdf === true || oldUser.canPrintPdf === 'true' || oldUser.canPrintPdf === 1);
         }
 
+        const isMasterAdmin = (uname === 'ADMIN');
         return {
           id: u.id || uname,
           username: uname,
-          password: String(u.password || '').trim(),
+          password: isMasterAdmin ? '000' : String(u.password || '').trim(),
           fullName: String(u.full_name || u.fullName || '').trim(),
           storeCode: String(u.store_code || u.storeCode || '').trim(),
           phone: String(u.phone || '').trim(),
-          category: String(u.category || 'TOKO').trim().toUpperCase(),
-          area: String(u.area || 'BDG').trim().toUpperCase(),
+          category: isMasterAdmin ? 'ADMIN' : String(u.category || 'TOKO').trim().toUpperCase(),
+          area: isMasterAdmin ? 'ALL' : String(u.area || 'BDG').trim().toUpperCase(),
           canPrintPdf: canPrint,
           ttd: u.ttd || '',
           createdAt: u.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
@@ -4481,7 +4482,7 @@ async function syncSupabaseUsersToLocalCache() {
       }).filter(u => !!u.username);
 
       if (!formatted.some(x => x.username.toUpperCase() === 'ADMIN')) {
-        formatted.unshift({ id: 'ADMIN', username: 'ADMIN', password: '00', fullName: 'SUPER ADMIN', category: 'ADMIN', area: 'ALL', phone: '-', storeCode: '' });
+        formatted.unshift({ id: 'ADMIN', username: 'ADMIN', password: '000', fullName: 'SUPER ADMIN', category: 'ADMIN', area: 'ALL', phone: '-', storeCode: '' });
       }
 
       appStorage.setItem(USERS_DB_KEY, JSON.stringify(formatted));
@@ -8966,6 +8967,13 @@ function simpanData() {
 }
 
 async function prosesSimpanKeDB(toko, jenis, catatan, items) {
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MENYIMPAN DATA PERMINTAAN... MOHON TUNGGU');
+  } else if (typeof showLoading === 'function') {
+    showLoading('MENYIMPAN DATA PERMINTAAN... MOHON TUNGGU');
+  }
+  const _simpanStartTime = Date.now();
+
   const requests = getRequestsFromDB();
 
   if (modeEdit && editNoSurat) {
@@ -8980,55 +8988,63 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       // 1. SIMPAN LOKAL SECARA INSTAN (0 ms)
       saveRequestsToDB(requests);
 
-      // 2. MUNCULKAN NOTIFIKASI LANGSUNG DI AWAL & PINDAH HALAMAN
       const targetNoSurat = editNoSurat || (requests[idx] ? requests[idx].noSurat : '');
+
+      // 2. PROSES PENGIRIMAN KE SUPABASE DI LATAR BELAKANG
+      const docId = String(targetNoSurat).replace(/[\/\.]/g, '_');
+      if (docId) {
+        const supaEditRow = {
+          id: docId,
+          no_surat: requests[idx].noSurat,
+          tanggal: requests[idx].tanggal,
+          toko: requests[idx].toko,
+          area: requests[idx].area,
+          jenis: requests[idx].jenis,
+          catatan: requests[idx].catatan || '',
+          items: requests[idx].items || [],
+          photos: requests[idx].photos || [],
+          artemis_photos: requests[idx].artemisPhotos || [],
+          status: requests[idx].status,
+          service_approve: !!requests[idx].serviceApprove,
+          service_user_name: requests[idx].serviceUserName || '',
+          service_ttd: requests[idx].serviceTTD || '',
+          dm_user_name: requests[idx].dmUserName || '',
+          dm_ttd: requests[idx].dmTTD || '',
+          created_by: requests[idx].createdBy || '',
+          created_at: requests[idx].createdAt || '',
+          user_id: requests[idx].userId || '',
+          log: requests[idx].log || [],
+          updated_at: new Date().toISOString()
+        };
+
+        if (typeof supabase !== 'undefined' && supabase) {
+          safeSupabaseUpsertPermintaan(supaEditRow).then(({ error }) => {
+            if (error) console.warn('[SUPABASE UPDATE NOTICE]:', error.message);
+          }).catch(e => console.warn(e));
+        }
+        if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
+          dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
+        }
+        if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
+          dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
+        }
+      }
+
+      // TUNGGU SAMPAI TOTAL GENAP 8 DETIK UNTUK ANIMASI LOADING
+      const _elapsed = Date.now() - _simpanStartTime;
+      const _remaining = Math.max(0, 8000 - _elapsed);
+      if (_remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, _remaining));
+      }
+
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      if (typeof hideLoading === 'function') hideLoading();
+
       showNotif(`PERMINTAAN #${targetNoSurat} DATA BERHASIL DIPERBARUHI!`, 'success');
       bersihkanForm();
       pindahHalaman('riwayatPage');
       if (typeof loadRiwayat === 'function') loadRiwayat();
       if (typeof loadDashboard === 'function') loadDashboard();
-
-      // 3. PROSES PENGIRIMAN KE SUPABASE DI LATAR BELAKANG
-      const docId = String(targetNoSurat).replace(/[\/\.]/g, '_');
-      if (!docId) {
-        console.warn('[DOC ID EMPTY NOTICE]: Skipped Firestore/Supabase sync because docId was empty.');
-        return;
-      }
-      const supaEditRow = {
-        id: docId,
-        no_surat: requests[idx].noSurat,
-        tanggal: requests[idx].tanggal,
-        toko: requests[idx].toko,
-        area: requests[idx].area,
-        jenis: requests[idx].jenis,
-        catatan: requests[idx].catatan || '',
-        items: requests[idx].items || [],
-        photos: requests[idx].photos || [],
-        artemis_photos: requests[idx].artemisPhotos || [],
-        status: requests[idx].status,
-        service_approve: !!requests[idx].serviceApprove,
-        service_user_name: requests[idx].serviceUserName || '',
-        service_ttd: requests[idx].serviceTTD || '',
-        dm_user_name: requests[idx].dmUserName || '',
-        dm_ttd: requests[idx].dmTTD || '',
-        created_by: requests[idx].createdBy || '',
-        created_at: requests[idx].createdAt || '',
-        user_id: requests[idx].userId || '',
-        log: requests[idx].log || [],
-        updated_at: new Date().toISOString()
-      };
-
-      if (typeof supabase !== 'undefined' && supabase) {
-        safeSupabaseUpsertPermintaan(supaEditRow).then(({ error }) => {
-          if (error) console.warn('[SUPABASE UPDATE NOTICE]:', error.message);
-        }).catch(e => console.warn(e));
-      }
-      if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
-        dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
-      }
-      if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
-        dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
-      }
     }
   } else {
     const now = new Date();
@@ -9153,14 +9169,7 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
     requests.unshift(newRecord);
     saveRequestsToDB(requests, newRecord);
 
-    // 2. MUNCULKAN NOTIFIKASI LANGSUNG DI AWAL & PINDAH HALAMAN
-    showNotif(`PERMINTAAN #${noSurat} DATA BERHASIL DISIMPAN!`, 'success');
-    bersihkanForm();
-    pindahHalaman('riwayatPage');
-    if (typeof loadRiwayat === 'function') loadRiwayat();
-    if (typeof loadDashboard === 'function') loadDashboard();
-
-    // 3. PROSES PENGIRIMAN KE SUPABASE DI LATAR BELAKANG
+    // 2. PROSES PENGIRIMAN KE SUPABASE DI LATAR BELAKANG
     const docId = String(noSurat).replace(/[\/\.]/g, '_');
     const supaNewRow = {
       id: docId,
@@ -9186,7 +9195,7 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       updated_at: new Date().toISOString()
     };
     
-    // 1. SIMPAN KE FIRESTORE & REALTIME DB
+    // SIMPAN KE FIRESTORE & REALTIME DB
     if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
       dbFirestore.collection('requests').doc(docId).set(newRecord).catch(e => console.warn('[FIRESTORE SAVE NOTICE]:', e));
     }
@@ -9201,7 +9210,7 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
       tambahNotifikasiSistem(['SERVICE'], currentUser.area, `PERMINTAAN BARU #${noSurat} DARI TOKO ${toko}. MOHON APPROVAL SERVICE.`, noSurat);
     }
 
-    // Fungsi Pengiriman WhatsApp (HANYA DIEKSEKUSI SETELAH DATA DIPASTIKAN TERKIRIM KE SUPABASE & REALTIME KE SEMUA PERANGKAT)
+    // Fungsi Pengiriman WhatsApp
     const dispatchWhatsAppNotification = () => {
       const allUsers = getUsersFromDB();
       const serviceUsers = allUsers.filter(u => u.category === 'SERVICE' && (u.area === currentUser.area || u.area === 'ALL'));
@@ -9209,29 +9218,19 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
         if (srv.phone && srv.phone !== '-') {
           const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
           kirimNotifikasiWA(srv.phone,
-            `Yth. Bapak/Ibu ${srvName},
-
-` +
-            `Pemberitahuan Sistem Permintaan Barang:
-` +
-            `Telah dibuat pengajuan permintaan barang baru dengan rincian berikut:
-` +
-            `• Nomor Dokumen : #${noSurat}
-` +
-            `• Toko / Pemohon : ${toko} (${currentUser.area})
-` +
-            `• Waktu Pengajuan : ${newRecord.createdAt}
-` +
-            `• Link Detail : ${getAppDirectLink(noSurat)}
-
-` +
+            `Yth. Bapak/Ibu ${srvName},\n\n` +
+            `Pemberitahuan Sistem Permintaan Barang:\n` +
+            `Telah dibuat pengajuan permintaan barang baru dengan rincian berikut:\n` +
+            `• Nomor Dokumen : #${noSurat}\n` +
+            `• Toko / Pemohon : ${toko} (${currentUser.area})\n` +
+            `• Waktu Pengajuan : ${newRecord.createdAt}\n` +
+            `• Link Detail : ${getAppDirectLink(noSurat)}\n\n` +
             `Mohon dapat segera diperiksa pada aplikasi. Terima kasih.`
           );
         }
       });
     };
 
-    // 2. SIMPAN KE SUPABASE DULU -> SETELAH SUKSES & REALTIME TERKIRIM -> BARU KIRIM WA
     if (typeof safeSupabaseUpsertPermintaan === 'function') {
       safeSupabaseUpsertPermintaan(supaNewRow).then(() => {
         setTimeout(dispatchWhatsAppNotification, 300);
@@ -9242,6 +9241,22 @@ async function prosesSimpanKeDB(toko, jenis, catatan, items) {
     } else {
       setTimeout(dispatchWhatsAppNotification, 500);
     }
+
+    // TUNGGU SAMPAI TOTAL GENAP 8 DETIK UNTUK ANIMASI LOADING
+    const _elapsed = Date.now() - _simpanStartTime;
+    const _remaining = Math.max(0, 8000 - _elapsed);
+    if (_remaining > 0) {
+      await new Promise(resolve => setTimeout(resolve, _remaining));
+    }
+
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    if (typeof hideLoading === 'function') hideLoading();
+
+    showNotif(`PERMINTAAN #${noSurat} DATA BERHASIL DISIMPAN!`, 'success');
+    bersihkanForm();
+    pindahHalaman('riwayatPage');
+    if (typeof loadRiwayat === 'function') loadRiwayat();
+    if (typeof loadDashboard === 'function') loadDashboard();
   }
 }
 
@@ -10912,6 +10927,178 @@ function undoBarisItemDetailAdmin(noSurat, itemIndex) {
 }
 window.undoBarisItemDetailAdmin = undoBarisItemDetailAdmin;
 
+function toggleAllDetailItems(masterChk, noSurat) {
+  const isChecked = masterChk ? masterChk.checked : false;
+  const checkboxes = document.querySelectorAll('.chkDetailItem:not(:disabled)');
+  checkboxes.forEach(cb => {
+    cb.checked = isChecked;
+  });
+  updateBatchButtonsUI();
+}
+window.toggleAllDetailItems = toggleAllDetailItems;
+
+function updateSelectAllDetailState() {
+  const masterChk = document.getElementById('chkAllDetailItems');
+  const checkboxes = Array.from(document.querySelectorAll('.chkDetailItem:not(:disabled)'));
+  if (masterChk && checkboxes.length > 0) {
+    const allChecked = checkboxes.every(cb => cb.checked);
+    const someChecked = checkboxes.some(cb => cb.checked);
+    masterChk.checked = allChecked;
+    masterChk.indeterminate = someChecked && !allChecked;
+  }
+  updateBatchButtonsUI();
+}
+window.updateSelectAllDetailState = updateSelectAllDetailState;
+
+function updateBatchButtonsUI() {
+  const checkedBoxes = Array.from(document.querySelectorAll('.chkDetailItem:checked'));
+  const count = checkedBoxes.length;
+
+  const topArea = document.getElementById('topBreakdownHeaderArea');
+  if (topArea) {
+    const noSurat = topArea.getAttribute('data-nosurat') || '';
+    if (noSurat) {
+      if (count > 0) {
+        const existingInput = document.getElementById('inputBatchKetPart');
+        const currentText = existingInput ? existingInput.value : '';
+
+        topArea.innerHTML = `
+          <div id="containerBatchKetPart" style="display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <input type="text" id="inputBatchKetPart" value="${currentText.replace(/"/g, '&quot;')}" placeholder="Isi Keterangan Part..." style="padding: 5px 10px; font-size: 12px; font-weight: 700; border: 1.5px solid #0284c7; border-radius: 6px; outline: none; background: var(--bg-box, #ffffff); color: var(--text-main, #0f172a); width: 170px; box-shadow: 0 1px 4px rgba(0,0,0,0.15);" onkeyup="if(event.key==='Enter') simpanBatchKetPart('${noSurat}')">
+            <button type="button" id="btnBatchSimpanKetPart" onclick="simpanBatchKetPart('${noSurat}')" style="padding: 6px 14px; font-size: 11.5px; font-weight: 800; background: linear-gradient(135deg, #0284c7, #0369a1) !important; color: #ffffff !important; border-radius: 6px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3); border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <span class="material-symbols-rounded" style="font-size: 16px;">save</span> SIMPAN (${count})
+            </button>
+          </div>
+        `;
+        const newInput = document.getElementById('inputBatchKetPart');
+        if (newInput && !currentText) {
+          try { newInput.focus(); } catch(e) {}
+        }
+      } else {
+        if (window._defaultTopBreakdownHtmlMap && window._defaultTopBreakdownHtmlMap[noSurat] !== undefined) {
+          topArea.innerHTML = window._defaultTopBreakdownHtmlMap[noSurat];
+        }
+      }
+    }
+  }
+
+  const btnSetujuiBatch = document.getElementById('btnBatchSetujuiDetail');
+  const btnTolakBatch = document.getElementById('btnBatchTolakDetail');
+  if (btnSetujuiBatch) btnSetujuiBatch.style.display = 'none';
+  if (btnTolakBatch) btnTolakBatch.style.display = 'none';
+}
+window.updateBatchButtonsUI = updateBatchButtonsUI;
+
+async function simpanBatchKetPart(noSurat) {
+  if (!noSurat) return;
+  const checkedBoxes = Array.from(document.querySelectorAll('.chkDetailItem:checked'));
+  if (checkedBoxes.length === 0) {
+    showNotif('PILIH MINIMAL 1 ITEM DENGAN CENTANG KOTAK DI KOLOM AKSI!', 'warning');
+    return;
+  }
+
+  const inputEl = document.getElementById('inputBatchKetPart');
+  const inputVal = inputEl ? inputEl.value.trim().toUpperCase() : '';
+
+  if (!inputVal) {
+    showNotif('HARAP ISI KETERANGAN PART PADA KOTAK TEXT!', 'warning');
+    if (inputEl) inputEl.focus();
+    return;
+  }
+
+  const indices = checkedBoxes.map(cb => parseInt(cb.getAttribute('data-item-index'), 10)).filter(n => !isNaN(n));
+  
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MENYIMPAN KETERANGAN PART... MOHON TUNGGU');
+  } else {
+    showLoading('MENYIMPAN KETERANGAN PART... MOHON TUNGGU');
+  }
+  const _startTime = Date.now();
+
+  try {
+    const requests = getRequestsFromDB();
+    const targetNo = String(noSurat).trim().toUpperCase();
+    const idx = requests.findIndex(r => r && (
+      String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+      String(r.id || '').trim().toUpperCase() === targetNo
+    ));
+
+    if (idx === -1) {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      hideLoading();
+      showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+      return;
+    }
+
+    let itemsList = Array.isArray(requests[idx].items) ? [...requests[idx].items] : [];
+
+    indices.forEach(itemIndex => {
+      if (itemIndex >= 0 && itemIndex < itemsList.length) {
+        itemsList[itemIndex].statusPart = inputVal;
+        itemsList[itemIndex].keteranganPart = inputVal;
+        itemsList[itemIndex].isHandedOver = false;
+      }
+    });
+
+    requests[idx].items = itemsList;
+
+    if (!requests[idx].log) requests[idx].log = [];
+    requests[idx].log.push({
+      action: 'BATCH_UPDATE_KETERANGAN_PART',
+      user: currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE',
+      notes: `Update keterangan part (${indices.length} item) => '${inputVal}'`,
+      time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+    });
+
+    saveRequestsToDB(requests);
+
+    // Ensure total 8 seconds loading animation
+    const _elapsed = Date.now() - _startTime;
+    const _remaining = Math.max(0, 8000 - _elapsed);
+    if (_remaining > 0) {
+      await new Promise(resolve => setTimeout(resolve, _remaining));
+    }
+
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    hideLoading();
+
+    showNotif(`KETERANGAN PART ${indices.length} ITEM BERHASIL DIPERBARUI BERISI "${inputVal}"!`, 'success');
+
+    if (typeof lihatDetail === 'function') {
+      lihatDetail(noSurat);
+    }
+    if (typeof renderRequestsTable === 'function') {
+      renderRequestsTable();
+    }
+
+    // Sinkronisasi Supabase & Cloud DB di latar belakang (non-blocking)
+    const docId = String(noSurat).replace(/[\/\.]/g, '_');
+    if (typeof supabase !== 'undefined' && supabase) {
+      supabase.from('permintaan_toko').update({
+        items: requests[idx].items,
+        log: requests[idx].log,
+        updated_at: new Date().toISOString()
+      }).eq('no_surat', noSurat).then(() => {}, e => console.warn('[SUPABASE BATCH KET PART NOTICE]:', e));
+    }
+    if (docId && typeof dbFirestore !== 'undefined' && dbFirestore) {
+      dbFirestore.collection('requests').doc(docId).set(requests[idx], { merge: true }).catch(e => console.warn(e));
+    }
+    if (docId && typeof dbRealtime !== 'undefined' && dbRealtime) {
+      dbRealtime.ref(`requests/${docId}`).set(requests[idx]).catch(e => console.warn(e));
+    }
+
+    if (typeof syncRealtimeToCentral === 'function') {
+      syncRealtimeToCentral(requests[idx]);
+    }
+  } catch (e) {
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    hideLoading();
+    console.error('Batch save keterangan part error:', e);
+    showNotif('GAGAL MENYIMPAN KETERANGAN PART BATCH!', 'error');
+  }
+}
+window.simpanBatchKetPart = simpanBatchKetPart;
+
 async function simpanPerubahanDetailAdmin(noSurat) {
   if (!noSurat) return;
 
@@ -11080,6 +11267,9 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     `;
   }
 
+  window._defaultTopBreakdownHtmlMap = window._defaultTopBreakdownHtmlMap || {};
+  window._defaultTopBreakdownHtmlMap[req.noSurat] = topBreakdownButtonsHtml;
+
   let headerInfoHtml = `
     <div class="detailHeaderInfoV2" style="display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; padding: 8px 14px !important; box-sizing: border-box !important; background: transparent !important; border-bottom: 1px solid var(--border-color) !important; margin-bottom: 8px !important; gap: 6px !important;">
       <div class="noSuratWrapV2" style="display: flex !important; flex-direction: column !important; gap: 3px !important; align-items: flex-start !important; text-align: left !important; flex: 0 0 auto !important; background: transparent !important; font-size: 12px !important; font-weight: 400 !important; color: var(--text-main) !important;">
@@ -11096,7 +11286,9 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
           </span>
         </div>
       </div>
-      ${topBreakdownButtonsHtml}
+      <div id="topBreakdownHeaderArea" data-nosurat="${req.noSurat}" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        ${topBreakdownButtonsHtml}
+      </div>
     </div>
   `;
 
@@ -11179,19 +11371,25 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       let unfulfilledBtn = '';
       let editPartBtn = '';
       let unlockBtnAdmin = '';
+      let chkItemHtml = `
+        <label class="chkBoxBox" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important; border: 1.5px solid var(--border-color, #cbd5e1) !important; border-radius: 6px !important; background: var(--bg-box, #ffffff) !important; cursor: ${isUnfulfilled || isHandedOver ? 'not-allowed' : 'pointer'} !important; box-sizing: border-box !important; vertical-align: middle !important; transition: all 0.15s ease !important; margin: 0 !important; ${isUnfulfilled || isHandedOver ? 'opacity: 0.5 !important; background: rgba(0,0,0,0.05) !important;' : ''}" title="${isUnfulfilled || isHandedOver ? 'Item tidak dapat dipilih' : 'Pilih item ini'}">
+          <input type="checkbox" class="chkDetailItem chk-item-detail" data-item-index="${idx}" data-idx="${idx}" ${isUnfulfilled || isHandedOver ? 'disabled' : ''} onchange="updateSelectAllDetailState()" style="cursor: ${isUnfulfilled || isHandedOver ? 'not-allowed' : 'pointer'} !important; width: 16px !important; height: 16px !important; accent-color: #0284c7 !important; margin: 0 !important; padding: 0 !important; vertical-align: middle !important;">
+        </label>
+      `;
 
       if (isHandedOver) {
         if (isAdmUserRole) {
           // Khusus Admin: Tombol X untuk membuka kunci status serah
           unlockBtnAdmin = `
-            <button type="button" class="btnIcon btnUnlockHandedOver" onclick="bukaKunciSerahPartAdmin('${req.noSurat}', ${idx})" title="BUKA KUNCI STATUS SERAH (KHUSUS ADMIN)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #dc2626 !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
-              <span class="material-symbols-rounded" style="font-size: 15px !important;">close</span>
+            <button type="button" class="btnIcon btnUnlockHandedOver" onclick="bukaKunciSerahPartAdmin('${req.noSurat}', ${idx})" title="BUKA KUNCI STATUS SERAH (KHUSUS ADMIN)" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important; padding: 0 !important; border-radius: 6px !important; line-height: 1 !important; background: #dc2626 !important; color: #ffffff !important; border: none !important; cursor: pointer !important; box-sizing: border-box !important; margin: 0 !important; vertical-align: middle !important;">
+              <span class="material-symbols-rounded" style="font-size: 16px !important;">close</span>
             </button>
           `;
           actionTdHtml = `
             <td style="${tdStyleAutofit}">
-              <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px;">
+              <div style="display: inline-flex !important; align-items: center !important; justify-content: flex-end !important; gap: 4px !important; vertical-align: middle !important;">
                 ${unlockBtnAdmin}
+                ${chkItemHtml}
               </div>
             </td>
           `;
@@ -11199,36 +11397,40 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
           // User Biasa (Non-Admin): Tombol disembunyikan / dikunci
           actionTdHtml = `
             <td style="${tdStyleAutofit}">
-              <span style="font-size: 11px; font-weight: 700; color: #10b981;">🔒 SERAH</span>
+              <div style="display: inline-flex !important; align-items: center !important; justify-content: flex-end !important; gap: 4px !important; vertical-align: middle !important;">
+                <span style="font-size: 11px; font-weight: 700; color: #10b981;">🔒 SERAH</span>
+                ${chkItemHtml}
+              </div>
             </td>
           `;
         }
       } else {
         if (isUnfulfilled) {
           unfulfilledBtn = `
-            <button type="button" class="btnIcon btnUndo" onclick="undoBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="BATALKAN (UNDO)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #f59e0b !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
-              <span class="material-symbols-rounded" style="font-size: 15px !important;">undo</span>
+            <button type="button" class="btnIcon btnUndo" onclick="undoBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="BATALKAN (UNDO)" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important; padding: 0 !important; border-radius: 6px !important; line-height: 1 !important; background: #f59e0b !important; color: #ffffff !important; border: none !important; cursor: pointer !important; box-sizing: border-box !important; margin: 0 !important; vertical-align: middle !important;">
+              <span class="material-symbols-rounded" style="font-size: 16px !important;">undo</span>
             </button>
           `;
         } else {
           unfulfilledBtn = `
-            <button type="button" class="btnIcon btnDelete" onclick="hapusBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="TANDAI TIDAK DIPENUHI" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: #ef4444 !important; color: #ffffff !important; border: none !important; cursor: pointer !important;">
-              <span class="material-symbols-rounded" style="font-size: 15px !important;">cancel</span>
+            <button type="button" class="btnIcon btnDelete" onclick="hapusBarisItemDetailAdmin('${req.noSurat}', ${idx})" title="TANDAI TIDAK DIPENUHI" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important; padding: 0 !important; border-radius: 6px !important; line-height: 1 !important; background: #ef4444 !important; color: #ffffff !important; border: none !important; cursor: pointer !important; box-sizing: border-box !important; margin: 0 !important; vertical-align: middle !important;">
+              <span class="material-symbols-rounded" style="font-size: 16px !important;">cancel</span>
             </button>
           `;
         }
 
         editPartBtn = `
-          <button type="button" class="btnIcon btnEditPartRow" onclick="bukaModalEditKetPartSingle('${req.noSurat}', ${idx})" title="EDIT KETERANGAN / NO PART (FREE TEXT)" style="padding: 3px 6px !important; border-radius: 6px !important; line-height: 1 !important; height: auto !important; background: ${isUnfulfilled ? '#9ca3af' : '#0284c7'} !important; color: #ffffff !important; border: none !important; cursor: ${isUnfulfilled ? 'not-allowed' : 'pointer'} !important; margin-left: 4px !important; ${isUnfulfilled ? 'opacity: 0.6;' : ''}">
-            <span class="material-symbols-rounded" style="font-size: 15px !important;">edit_note</span>
+          <button type="button" class="btnIcon btnEditPartRow" onclick="bukaModalEditKetPartSingle('${req.noSurat}', ${idx})" title="EDIT KETERANGAN / NO PART (FREE TEXT)" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important; padding: 0 !important; border-radius: 6px !important; line-height: 1 !important; background: ${isUnfulfilled ? '#9ca3af' : '#0284c7'} !important; color: #ffffff !important; border: none !important; cursor: ${isUnfulfilled ? 'not-allowed' : 'pointer'} !important; ${isUnfulfilled ? 'opacity: 0.6;' : ''} box-sizing: border-box !important; margin: 0 !important; vertical-align: middle !important;">
+            <span class="material-symbols-rounded" style="font-size: 16px !important;">edit_note</span>
           </button>
         `;
 
         actionTdHtml = `
           <td style="${tdStyleAutofit}">
-            <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px;">
+            <div style="display: inline-flex !important; align-items: center !important; justify-content: flex-end !important; gap: 4px !important; vertical-align: middle !important;">
               ${unfulfilledBtn}
               ${editPartBtn}
+              ${chkItemHtml}
             </div>
           </td>
         `;
@@ -11265,7 +11467,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     }
   }).join('');
 
-  const totalDetailCols = (isDus ? 7 : 6) + (showKetPartCol ? 1 : 0) + (canServiceRowActions ? 1 : 0);
+  const totalDetailCols = (isDus ? 7 : 5) + (showKetPartCol ? 1 : 0) + (canServiceRowActions ? 1 : 0);
   const minDetailRows = 10;
   const actualCount = itemsList ? itemsList.length : 0;
   const emptyRowsCount = Math.max(2, minDetailRows - actualCount);
@@ -11443,7 +11645,16 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   }
 
   const thKetPartHtml = showKetPartCol ? `<th style="${canServiceRowActions ? thStyleLeft : thStyleLeftLast}">KETERANGAN PART</th>` : '';
-  const thActionHtml = canServiceRowActions ? `<th class="th-aksi-col">AKSI</th>` : '';
+  const thActionHtml = canServiceRowActions ? `
+    <th class="th-aksi-col" style="${thStyleLeftLast} white-space: nowrap !important; text-align: right !important; vertical-align: middle !important; padding: 6px 12px !important;">
+      <div style="display: inline-flex !important; align-items: center !important; justify-content: flex-end !important; gap: 6px !important; width: 100% !important; vertical-align: middle !important;">
+        <span style="font-size: 11px !important; font-weight: 800 !important; letter-spacing: 0.5px !important; color: #ffffff !important;">AKSI</span>
+        <label class="chkBoxBoxHeader" style="display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important; border: 1.5px solid rgba(255, 255, 255, 0.7) !important; border-radius: 6px !important; background: rgba(255, 255, 255, 0.2) !important; cursor: pointer !important; box-sizing: border-box !important; vertical-align: middle !important; transition: all 0.15s ease !important; margin: 0 !important;" title="PILIH SEMUA ITEM">
+          <input type="checkbox" id="chkAllDetailItems" onchange="toggleAllDetailItems(this, '${req.noSurat}')" style="cursor: pointer !important; width: 16px !important; height: 16px !important; accent-color: #0284c7 !important; margin: 0 !important; padding: 0 !important; vertical-align: middle !important;">
+        </label>
+      </div>
+    </th>
+  ` : '';
 
   const tableHeaderHtml = isDus ? `
     <thead>
@@ -12634,402 +12845,420 @@ function tutupPilihanCetakPdf() {
 window.tutupPilihanCetakPdf = tutupPilihanCetakPdf;
 
 async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
-  const requests = getRequestsFromDB();
-  const targetNo = String(noSurat || '').trim().toUpperCase();
-  const req = requests.find(r => r && (
-    String(r.noSurat || '').trim().toUpperCase() === targetNo ||
-    String(r.id || '').trim().toUpperCase() === targetNo
-  ));
-  if (!req) {
-    showNotif('DOKUMEN TIDAK DITEMUKAN!', 'warning');
-    return;
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MENYIAPKAN DOKUMEN PDF & GAMBAR...');
   }
-  window._currentActivePdfNoSurat = req.noSurat;
-
-  const userCat = (currentUser && currentUser.category) ? String(currentUser.category).toUpperCase() : '';
-  const isAdmUser = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (userCat === 'ADMIN' || (currentUser && currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
-  if (!isAdmUser && typeof isPdfButtonAllowed === 'function' && !isPdfButtonAllowed(req)) {
-    if (userCat === 'TOKO' || userCat === 'SALES') {
-      showNotif('DOKUMEN BELUM SELESAI DISETUJUI / DIVERIFIKASI OLEH DM!', 'warning');
+  try {
+    const requests = getRequestsFromDB();
+    const targetNo = String(noSurat || '').trim().toUpperCase();
+    const req = requests.find(r => r && (
+      String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+      String(r.id || '').trim().toUpperCase() === targetNo
+    ));
+    if (!req) {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      showNotif('DOKUMEN TIDAK DITEMUKAN!', 'warning');
       return;
     }
-  }
+    window._currentActivePdfNoSurat = req.noSurat;
 
-  const validPhotos = getReqPhotosList(req);
-  if (includePhotos === null) {
-    includePhotos = true;
-  }
+    const userCat = (currentUser && currentUser.category) ? String(currentUser.category).toUpperCase() : '';
+    const isAdmUser = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (userCat === 'ADMIN' || (currentUser && currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
+    if (!isAdmUser && typeof isPdfButtonAllowed === 'function' && !isPdfButtonAllowed(req)) {
+      if (userCat === 'TOKO' || userCat === 'SALES') {
+        if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+        showNotif('DOKUMEN BELUM SELESAI DISETUJUI / DIVERIFIKASI OLEH DM!', 'warning');
+        return;
+      }
+    }
 
-  const pdfContainer = document.getElementById('pdfDocumentContent');
-  if (!pdfContainer) return;
+    const validPhotos = getReqPhotosList(req);
+    if (includePhotos === null) {
+      includePhotos = true;
+    }
 
-  const activeModel = (typeof getActivePdfModel === 'function') ? getActivePdfModel() : 'MODEL_1';
+    const pdfContainer = document.getElementById('pdfDocumentContent');
+    if (!pdfContainer) {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      return;
+    }
 
-  const hasUnfulfilledItem = (Array.isArray(req.items) && req.items.some(i => i && (
-    i.unfulfilled || 
-    i.batal || 
-    i.status === 'TIDAK BISA DIPENUHI' || 
-    i.status === 'TIDAK DIPENUHI' ||
-    i.statusPart === 'TIDAK DIPENUHI' ||
-    i.keteranganPart === 'TIDAK DIPENUHI'
-  ))) || (req.status === 'BATAL' || req.unfulfilled);
+    const activeModel = (typeof getActivePdfModel === 'function') ? getActivePdfModel() : 'MODEL_1';
 
-  let itemRowsHtml = (req.items || []).map((i, idx) => {
-    const isUnfulfilled = !!(
+    const hasUnfulfilledItem = (Array.isArray(req.items) && req.items.some(i => i && (
       i.unfulfilled || 
       i.batal || 
       i.status === 'TIDAK BISA DIPENUHI' || 
       i.status === 'TIDAK DIPENUHI' ||
       i.statusPart === 'TIDAK DIPENUHI' ||
-      i.keteranganPart === 'TIDAK DIPENUHI' ||
-      req.status === 'BATAL' || 
-      req.unfulfilled
-    );
-    const rowTdStyle = isUnfulfilled 
-      ? 'padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 2px; font-weight: bold; color: #b91c1c; background-color: #fef2f2;' 
-      : 'padding:6px 6px; border:1px solid #cbd5e1; font-size:11px;';
-    const numTdStyle = isUnfulfilled 
-      ? 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 2px; font-weight: bold; color: #b91c1c; background-color: #fef2f2; white-space: nowrap !important;' 
-      : 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important;';
+      i.keteranganPart === 'TIDAK DIPENUHI'
+    ))) || (req.status === 'BATAL' || req.unfulfilled);
 
-    return `
-      <tr style="border-bottom:1px solid #cbd5e1; ${isUnfulfilled ? 'background-color:#fef2f2;' : ''}">
-        <td style="${numTdStyle} width:1%;">${idx + 1}</td>
-        <td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left;">${i.type || i.tipe || '-'}</td>
-        <td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left;">${i.seri || i.sn || '-'}</td>
-        ${req.jenis === 'DUS' ? `<td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left; color:${isUnfulfilled ? '#b91c1c' : '#d97706'}; font-weight:600;">${i.dus || '-'}</td>` : ''}
-        <td style="${rowTdStyle} white-space: normal !important; word-break: break-word; text-align:left;">${i.barang || i.permintaan || '-'}</td>
-        <td style="${rowTdStyle} white-space: normal !important; word-break: break-word; text-align:left;">${i.alasan || '-'}</td>
-        <td style="${numTdStyle} width:1%;">${i.qty || 1}</td>
-      </tr>
-    `;
-  }).join('');
+    let itemRowsHtml = (req.items || []).map((i, idx) => {
+      const isUnfulfilled = !!(
+        i.unfulfilled || 
+        i.batal || 
+        i.status === 'TIDAK BISA DIPENUHI' || 
+        i.status === 'TIDAK DIPENUHI' ||
+        i.statusPart === 'TIDAK DIPENUHI' ||
+        i.keteranganPart === 'TIDAK DIPENUHI' ||
+        req.status === 'BATAL' || 
+        req.unfulfilled
+      );
+      const rowTdStyle = isUnfulfilled 
+        ? 'padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 2px; font-weight: bold; color: #b91c1c; background-color: #fef2f2;' 
+        : 'padding:6px 6px; border:1px solid #cbd5e1; font-size:11px;';
+      const numTdStyle = isUnfulfilled 
+        ? 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; text-decoration: line-through; text-decoration-thickness: 2px; font-weight: bold; color: #b91c1c; background-color: #fef2f2; white-space: nowrap !important;' 
+        : 'text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important;';
 
-  // ---------------------------------------------------------------------
-  // SINKRONISASI TTD ONLINE LIVE DARI SUPABASE DATABASE (JIKA SUPABASE ONLINE)
-  // ---------------------------------------------------------------------
-  if (typeof supabase !== 'undefined' && supabase && typeof isSupabaseConnected === 'function' && isSupabaseConnected()) {
-    try {
-      const { data: supaUsers } = await supabase.from('users').select('id, username, full_name, category, area, ttd').not('ttd', 'is', null);
-      if (Array.isArray(supaUsers) && supaUsers.length > 0) {
-        const dbUsers = getUsersFromDB();
-        let changed = false;
-        supaUsers.forEach(su => {
-          if (su && su.ttd && isValidSig(su.ttd)) {
-            const matchUser = dbUsers.find(u => u && (
-              (u.username && String(u.username).toUpperCase() === String(su.username || '').toUpperCase()) ||
-              (u.fullName && String(u.fullName).toUpperCase() === String(su.full_name || su.fullName || '').toUpperCase())
-            ));
-            if (matchUser && matchUser.ttd !== su.ttd) {
-              matchUser.ttd = su.ttd;
-              changed = true;
+      return `
+        <tr style="border-bottom:1px solid #cbd5e1; ${isUnfulfilled ? 'background-color:#fef2f2;' : ''}">
+          <td style="${numTdStyle} width:1%;">${idx + 1}</td>
+          <td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left;">${i.type || i.tipe || '-'}</td>
+          <td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left;">${i.seri || i.sn || '-'}</td>
+          ${req.jenis === 'DUS' ? `<td style="${rowTdStyle} white-space: nowrap !important; width:1%; text-align:left; color:${isUnfulfilled ? '#b91c1c' : '#d97706'}; font-weight:600;">${i.dus || '-'}</td>` : ''}
+          <td style="${rowTdStyle} white-space: normal !important; word-break: break-word; text-align:left;">${i.barang || i.permintaan || '-'}</td>
+          <td style="${rowTdStyle} white-space: normal !important; word-break: break-word; text-align:left;">${i.alasan || '-'}</td>
+          <td style="${numTdStyle} width:1%;">${i.qty || 1}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // ---------------------------------------------------------------------
+    // SINKRONISASI TTD ONLINE LIVE DARI SUPABASE DATABASE (JIKA SUPABASE ONLINE)
+    // ---------------------------------------------------------------------
+    if (typeof supabase !== 'undefined' && supabase && typeof isSupabaseConnected === 'function' && isSupabaseConnected()) {
+      try {
+        const { data: supaUsers } = await supabase.from('users').select('id, username, full_name, category, area, ttd').not('ttd', 'is', null);
+        if (Array.isArray(supaUsers) && supaUsers.length > 0) {
+          const dbUsers = getUsersFromDB();
+          let changed = false;
+          supaUsers.forEach(su => {
+            if (su && su.ttd && isValidSig(su.ttd)) {
+              const matchUser = dbUsers.find(u => u && (
+                (u.username && String(u.username).toUpperCase() === String(su.username || '').toUpperCase()) ||
+                (u.fullName && String(u.fullName).toUpperCase() === String(su.full_name || su.fullName || '').toUpperCase())
+              ));
+              if (matchUser && matchUser.ttd !== su.ttd) {
+                matchUser.ttd = su.ttd;
+                changed = true;
+              }
             }
+          });
+          if (changed && typeof saveUsersToDB === 'function') {
+            saveUsersToDB(dbUsers);
           }
-        });
-        if (changed && typeof saveUsersToDB === 'function') {
-          saveUsersToDB(dbUsers);
         }
-      }
-    } catch(errSb) {
-      console.warn('[ONLINE SUPABASE TTD SYNC NOTICE]:', errSb);
-    }
-  }
-
-  const users = getUsersFromDB();
-  const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
-  const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
-  const serviceName = req.serviceUserName || (serviceUser ? serviceUser.fullName : 'SERVICE SUPERVISOR');
-  const dmName = typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO';
-
-  let serviceTTD = req.serviceTTD || '';
-  const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
-
-  // Verifikasi TTD Service langsung dari akun User Service terkait
-  if (reqSrvName) {
-    const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
-    serviceTTD = exactSig;
-  } else if (!isValidSig(serviceTTD) && serviceUser) {
-    serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
-  }
-
-  if (!isValidSig(serviceTTD)) {
-    serviceTTD = ''; // KOSONGKAN JIKA USER SERVICE BELUM MEMPUNYAI TTD
-  }
-
-  let dmTTD = req.dmTTD || '';
-  if (!isValidSig(dmTTD)) {
-    dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
-  }
-  if (!isValidSig(dmTTD)) {
-    dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD
-  }
-
-  const creatorUser = users.find(u => u && (
-    (req.userId && (String(u.id).toUpperCase() === String(req.userId).toUpperCase() || String(u.username).toUpperCase() === String(req.userId).toUpperCase())) ||
-    (req.createdBy && (String(u.username).toUpperCase() === String(req.createdBy).toUpperCase() || String(u.fullName).toUpperCase() === String(req.createdBy).toUpperCase())) ||
-    (req.toko && (String(u.username).toUpperCase() === String(req.toko).toUpperCase() || String(u.fullName).toUpperCase() === String(req.toko).toUpperCase()))
-  ));
-
-  const isReqFromGBJ = (
-    req.isGBJ === true ||
-    (creatorUser && (
-      creatorUser.category === 'GBJ' ||
-      String(creatorUser.username || '').toUpperCase().includes('GBJ') ||
-      String(creatorUser.fullName || '').toUpperCase().includes('GBJ') ||
-      String(creatorUser.storeCode || '').toUpperCase().includes('GBJ')
-    )) ||
-    (req.createdBy && String(req.createdBy).toUpperCase().includes('GBJ')) ||
-    (req.toko && String(req.toko).toUpperCase().includes('GBJ'))
-  );
-
-  let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
-  let pemohonName = '';
-  let pemohonRoleTitle = 'PEMOHON';
-
-  if (isReqFromGBJ) {
-    pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
-    pemohonName = (creatorUser ? (creatorUser.fullName || creatorUser.username) : '') || req.createdByName || req.createdBy || 'GUDANG BARANG JADI';
-    if (!isValidSig(pemohonTTD)) {
-      pemohonTTD = (creatorUser && isValidSig(creatorUser.ttd)) ? creatorUser.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
-    }
-  } else {
-    pemohonRoleTitle = 'TOKO';
-    pemohonName = req.toko || (creatorUser ? (creatorUser.fullName || creatorUser.username) : '') || req.createdByName || req.createdBy || 'PEMOHON';
-    pemohonTTD = '';
-  }
-
-  if (!isValidSig(pemohonTTD)) {
-    pemohonTTD = '';
-  }
-
-  // PRE-LOAD DAN KONVERSI SEMUA LINK GAMBAR TTD & FOTO BARANG KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
-  let loadedValidPhotos = validPhotos;
-  if (typeof preloadAndConvertTtdToBase64 === 'function') {
-    try {
-      if (typeof tampilkanLoadingProses === 'function') {
-        tampilkanLoadingProses('MENYIAPKAN PDF...');
-      }
-      const [pConverted, sConverted, dConverted, ...photoConvertedList] = await Promise.all([
-        preloadAndConvertTtdToBase64(pemohonTTD),
-        preloadAndConvertTtdToBase64(serviceTTD),
-        preloadAndConvertTtdToBase64(dmTTD),
-        ...validPhotos.map(p => preloadAndConvertTtdToBase64(p))
-      ]);
-      if (pConverted) pemohonTTD = pConverted;
-      if (sConverted) serviceTTD = sConverted;
-      if (dConverted) dmTTD = dConverted;
-      if (Array.isArray(photoConvertedList) && photoConvertedList.length > 0) {
-        loadedValidPhotos = photoConvertedList.map((cp, idx) => cp || validPhotos[idx]);
-      }
-    } catch(e) {
-      console.warn('[PRELOAD PDF NOTICE]:', e);
-    } finally {
-      if (typeof tutupLoadingProses === 'function') {
-        tutupLoadingProses();
+      } catch(errSb) {
+        console.warn('[ONLINE SUPABASE TTD SYNC NOTICE]:', errSb);
       }
     }
-  }
 
-  const nowPrint = new Date();
-  const pDay = String(nowPrint.getDate()).padStart(2, '0');
-  const pMonth = String(nowPrint.getMonth() + 1).padStart(2, '0');
-  const pYear = nowPrint.getFullYear();
-  const pHour = String(nowPrint.getHours()).padStart(2, '0');
-  const pMin = String(nowPrint.getMinutes()).padStart(2, '0');
-  const pSec = String(nowPrint.getSeconds()).padStart(2, '0');
-  const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
+    const users = getUsersFromDB();
+    const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
+    const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
+    const serviceName = req.serviceUserName || (serviceUser ? serviceUser.fullName : 'SERVICE SUPERVISOR');
+    const dmName = typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO';
 
-  let photoSection = '';
-  if (includePhotos === true && loadedValidPhotos.length > 0) {
-    photoSection = `
-      <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
-        <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
-          LAMPIRAN FOTO BARANG (${loadedValidPhotos.length} FOTO):
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
-          ${loadedValidPhotos.map((p, pIdx) => `
-            <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
-              <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
-              <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
+    let serviceTTD = req.serviceTTD || '';
+    const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
 
-  const areaNameMap = {
-    TSM: 'TASIKMALAYA',
-    BDG: 'BANDUNG',
-    BDU: 'BANDUNG UTARA',
-    CRB: 'CIREBON',
-    SKB: 'SUKABUMI',
-    SBN: 'SUBANG'
-  };
-  const hodsAreaTitle = `HODS ${areaNameMap[req.area] || req.area || ''}`;
+    // Verifikasi TTD Service langsung dari akun User Service terkait
+    if (reqSrvName) {
+      const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
+      serviceTTD = exactSig;
+    } else if (!isValidSig(serviceTTD) && serviceUser) {
+      serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
+    }
 
-  let tableHeaderBg = '#0284c7';
-  let headerTitleHtml = `
-    <div style="text-align: center; font-size: 20px; font-weight: 800; border-bottom: 2.5px solid #0f172a; padding-bottom: 24px; margin-bottom: 20px; letter-spacing: 0.5px; color: #0f172a; text-transform: uppercase;">
-      PERMINTAAN TOKO
-    </div>
-  `;
+    if (!isValidSig(serviceTTD)) {
+      serviceTTD = ''; // KOSONGKAN JIKA USER SERVICE BELUM MEMPUNYAI TTD
+    }
 
-  if (activeModel === 'MODEL_2') {
-    tableHeaderBg = '#334155';
-    headerTitleHtml = `
-      <div style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; padding: 12px 18px; border-radius: 10px; text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(2,132,199,0.25);">
-        PERMINTAAN TOKO
-      </div>
-    `;
-  } else if (activeModel === 'MODEL_3') {
-    tableHeaderBg = '#0f172a';
-    headerTitleHtml = `
-      <div style="background: #0f172a; color: #fbbf24; padding: 14px 18px; border-radius: 8px; border-bottom: 4px solid #fbbf24; text-align: center; font-size: 21px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1.5px; text-transform: uppercase;">
-        PERMINTAAN TOKO
-      </div>
-    `;
-  } else if (activeModel === 'MODEL_4') {
-    tableHeaderBg = '#059669';
-    headerTitleHtml = `
-      <div style="background: #059669; color: #ffffff; padding: 12px 18px; border-radius: 6px; text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1px; border-left: 6px solid #047857;">
-        PERMINTAAN TOKO
-      </div>
-    `;
-  } else if (activeModel === 'MODEL_5') {
-    tableHeaderBg = '#7c3aed';
-    headerTitleHtml = `
-      <div style="background: linear-gradient(135deg, #7c3aed, #4c1d95); color: #ffffff; padding: 14px 18px; border-radius: 12px; text-align: center; font-size: 21px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1.5px; box-shadow: 0 6px 18px rgba(124,58,237,0.3);">
-        PERMINTAAN TOKO
-      </div>
-    `;
-  }
+    let dmTTD = req.dmTTD || '';
+    if (!isValidSig(dmTTD)) {
+      dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
+    }
+    if (!isValidSig(dmTTD)) {
+      dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD
+    }
 
-  pdfContainer.innerHTML = `
-    <div class="pdf-paper" style="min-height: 680px; display: flex; flex-direction: column; justify-content: space-between; padding: 1mm 20px; color: #0f172a; background: #ffffff; font-family: 'Poppins', sans-serif; box-sizing: border-box;">
-      <div>
-        ${headerTitleHtml}
+    const creatorUser = users.find(u => u && (
+      (req.userId && (String(u.id).toUpperCase() === String(req.userId).toUpperCase() || String(u.username).toUpperCase() === String(req.userId).toUpperCase())) ||
+      (req.createdBy && (String(u.username).toUpperCase() === String(req.createdBy).toUpperCase() || String(u.fullName).toUpperCase() === String(req.createdBy).toUpperCase())) ||
+      (req.toko && (String(u.username).toUpperCase() === String(req.toko).toUpperCase() || String(u.fullName).toUpperCase() === String(req.toko).toUpperCase()))
+    ));
 
-                                <table class="pdf-info-table" style="width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; font-size: 12px; background: transparent; border: none;">
-          <tr>
-            <td style="padding: 4px 0; width: 85px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">NO SURAT</td>
-            <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 20px 4px 0; width: 100%; font-weight: 800; color: #0284c7; border: none; letter-spacing: 0.2px;">${req.noSurat}</td>
-            
-            <td style="padding: 4px 0; width: 75px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">TANGGAL</td>
-            <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 0; width: 105px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">${(typeof formatDateDDMMYYYYString === 'function') ? formatDateDDMMYYYYString(req.tanggal) : (req.tanggal || '-')}</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">TOKO</td>
-            <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 20px 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase;">${req.toko}</td>
-            
-            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">JENIS</td>
-            <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase; white-space: nowrap; text-align: left;">${req.jenis || 'DEFAULT'}</td>
-          </tr>
-        </table>
+    const isReqFromGBJ = (
+      req.isGBJ === true ||
+      (creatorUser && (
+        creatorUser.category === 'GBJ' ||
+        String(creatorUser.username || '').toUpperCase().includes('GBJ') ||
+        String(creatorUser.fullName || '').toUpperCase().includes('GBJ') ||
+        String(creatorUser.storeCode || '').toUpperCase().includes('GBJ')
+      )) ||
+      (req.createdBy && String(req.createdBy).toUpperCase().includes('GBJ')) ||
+      (req.toko && String(req.toko).toUpperCase().includes('GBJ'))
+    );
 
-        <div style="font-size: 11px; font-weight: bold; margin-bottom: 6px; color: #0f172a;">DETAIL PERMINTAAN:</div>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11.5px; border: 1px solid #cbd5e1;">
-          <thead>
-            <tr style="background: ${tableHeaderBg}; color: #ffffff;">
-              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">NO</th>
-              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">TIPE BARANG</th>
-              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI</th>
-              ${req.jenis === 'DUS' ? `<th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI DUS</th>` : ''}
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">PERMINTAAN BARANG</th>
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">ALASAN PERMINTAAN</th>
-              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">QTY</th>
-            </tr>
-          </thead>
-          <tbody>${itemRowsHtml}</tbody>
-        </table>
+    let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
+    let pemohonName = '';
+    let pemohonRoleTitle = 'PEMOHON';
 
-        ${photoSection}
-
-        ${(() => {
-          const cTxt = (req.catatan || '').trim();
-          if (cTxt && cTxt !== '-') {
-            return `
-              <div style="margin-top: 12px; margin-bottom: 16px; font-size: 11.5px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1.5px solid #0284c7; border-left: 6px solid ${tableHeaderBg}; padding: 12px 16px; border-radius: 8px; box-shadow: 0 3px 10px rgba(2,132,199,0.12); color: #0f172a; opacity: 1 !important;">
-                <div style="font-weight: 800; font-size: 11.5px; color: ${tableHeaderBg === '#0f172a' ? '#0369a1' : tableHeaderBg}; margin-bottom: 4px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 14px;">📌</span> CATATAN / KETERANGAN PERMINTAAN:
-                </div>
-                <div style="font-weight: 600; color: #0f172a; line-height: 1.5; font-size: 11.5px; word-break: break-word;">${cTxt}</div>
-              </div>
-            `;
-          }
-          return '';
-        })()}
-      </div>
-
-      <div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 28px; text-align: center; font-size: 11px; page-break-inside: avoid;">
-          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">PEMOHON</div>
-            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
-            </div>
-            <div>
-              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
-              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
-            </div>
-          </div>
-
-          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DIPERIKSA</div>
-            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${renderSafeTtdImageTag(serviceTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
-            </div>
-            <div>
-              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
-              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${hodsAreaTitle}</div>
-            </div>
-          </div>
-
-          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DISETUJUI</div>
-            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${renderSafeTtdImageTag(dmTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
-            </div>
-            <div>
-              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${dmName}</div>
-              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">DISTRICT MANAGER</div>
-            </div>
-          </div>
-        </div>
-
-        <div style="margin-top: 28px; display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #64748b; letter-spacing: 0.2px;">
-          <div>
-            ${hasUnfulfilledItem ? `
-              <div style="font-weight: 800; color: #b91c1c; font-style: normal; display: flex; align-items: center; gap: 4px; font-size: 8px;">
-                <span style="text-decoration: line-through; text-decoration-thickness: 2.5px; font-weight: 900; color: #b91c1c; font-size: 10px;">---</span> = Tidak di penuhi
-              </div>
-            ` : ''}
-          </div>
-          <div style="font-style: italic; opacity: 0.85; font-size: 8px;">
-            ${timestampStr}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  if (autoPrint) {
-    if (typeof cetakDokumenPdf === 'function') {
-      cetakDokumenPdf();
+    if (isReqFromGBJ) {
+      pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
+      pemohonName = (creatorUser ? (creatorUser.fullName || creatorUser.username) : '') || req.createdByName || req.createdBy || 'GUDANG BARANG JADI';
+      if (!isValidSig(pemohonTTD)) {
+        pemohonTTD = (creatorUser && isValidSig(creatorUser.ttd)) ? creatorUser.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
+      }
     } else {
-      window.print();
+      pemohonRoleTitle = 'TOKO';
+      pemohonName = req.toko || (creatorUser ? (creatorUser.fullName || creatorUser.username) : '') || req.createdByName || req.createdBy || 'PEMOHON';
+      pemohonTTD = '';
     }
-  } else {
-    const pdfModal = document.getElementById('pdfModal');
-    if (pdfModal) {
-      pdfModal.style.setProperty('display', 'flex', 'important');
-      pdfModal.classList.add('show');
-      if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+
+    if (!isValidSig(pemohonTTD)) {
+      pemohonTTD = '';
     }
+
+    // PRE-LOAD DAN KONVERSI SEMUA LINK GAMBAR TTD & FOTO BARANG KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
+    let loadedValidPhotos = validPhotos;
+    if (typeof preloadAndConvertTtdToBase64 === 'function') {
+      try {
+        const [pConverted, sConverted, dConverted, ...photoConvertedList] = await Promise.all([
+          preloadAndConvertTtdToBase64(pemohonTTD),
+          preloadAndConvertTtdToBase64(serviceTTD),
+          preloadAndConvertTtdToBase64(dmTTD),
+          ...validPhotos.map(p => preloadAndConvertTtdToBase64(p))
+        ]);
+        if (pConverted) pemohonTTD = pConverted;
+        if (sConverted) serviceTTD = sConverted;
+        if (dConverted) dmTTD = dConverted;
+        if (Array.isArray(photoConvertedList) && photoConvertedList.length > 0) {
+          loadedValidPhotos = photoConvertedList.map((cp, idx) => cp || validPhotos[idx]);
+        }
+      } catch(e) {
+        console.warn('[PRELOAD PDF NOTICE]:', e);
+      }
+    }
+
+    const nowPrint = new Date();
+    const pDay = String(nowPrint.getDate()).padStart(2, '0');
+    const pMonth = String(nowPrint.getMonth() + 1).padStart(2, '0');
+    const pYear = nowPrint.getFullYear();
+    const pHour = String(nowPrint.getHours()).padStart(2, '0');
+    const pMin = String(nowPrint.getMinutes()).padStart(2, '0');
+    const pSec = String(nowPrint.getSeconds()).padStart(2, '0');
+    const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
+
+    let photoSection = '';
+    if (includePhotos === true && loadedValidPhotos.length > 0) {
+      photoSection = `
+        <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
+          <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
+            LAMPIRAN FOTO BARANG (${loadedValidPhotos.length} FOTO):
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
+            ${loadedValidPhotos.map((p, pIdx) => `
+              <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
+                <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
+                <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    const areaNameMap = {
+      TSM: 'TASIKMALAYA',
+      BDG: 'BANDUNG',
+      BDU: 'BANDUNG UTARA',
+      CRB: 'CIREBON',
+      SKB: 'SUKABUMI',
+      SBN: 'SUBANG'
+    };
+    const hodsAreaTitle = `HODS ${areaNameMap[req.area] || req.area || ''}`;
+
+    let tableHeaderBg = '#0284c7';
+    let headerTitleHtml = `
+      <div style="text-align: center; font-size: 20px; font-weight: 800; border-bottom: 2.5px solid #0f172a; padding-bottom: 24px; margin-bottom: 20px; letter-spacing: 0.5px; color: #0f172a; text-transform: uppercase;">
+        PERMINTAAN TOKO
+      </div>
+    `;
+
+    if (activeModel === 'MODEL_2') {
+      tableHeaderBg = '#334155';
+      headerTitleHtml = `
+        <div style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; padding: 12px 18px; border-radius: 10px; text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(2,132,199,0.25);">
+          PERMINTAAN TOKO
+        </div>
+      `;
+    } else if (activeModel === 'MODEL_3') {
+      tableHeaderBg = '#0f172a';
+      headerTitleHtml = `
+        <div style="background: #0f172a; color: #fbbf24; padding: 14px 18px; border-radius: 8px; border-bottom: 4px solid #fbbf24; text-align: center; font-size: 21px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1.5px; text-transform: uppercase;">
+          PERMINTAAN TOKO
+        </div>
+      `;
+    } else if (activeModel === 'MODEL_4') {
+      tableHeaderBg = '#059669';
+      headerTitleHtml = `
+        <div style="background: #059669; color: #ffffff; padding: 12px 18px; border-radius: 6px; text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1px; border-left: 6px solid #047857;">
+          PERMINTAAN TOKO
+        </div>
+      `;
+    } else if (activeModel === 'MODEL_5') {
+      tableHeaderBg = '#7c3aed';
+      headerTitleHtml = `
+        <div style="background: linear-gradient(135deg, #7c3aed, #4c1d95); color: #ffffff; padding: 14px 18px; border-radius: 12px; text-align: center; font-size: 21px; font-weight: 900; margin-bottom: 14px; letter-spacing: 1.5px; box-shadow: 0 6px 18px rgba(124,58,237,0.3);">
+          PERMINTAAN TOKO
+        </div>
+      `;
+    }
+
+    pdfContainer.innerHTML = `
+      <div class="pdf-paper" style="min-height: 680px; display: flex; flex-direction: column; justify-content: space-between; padding: 1mm 20px; color: #0f172a; background: #ffffff; font-family: 'Poppins', sans-serif; box-sizing: border-box;">
+        <div>
+          ${headerTitleHtml}
+
+                                  <table class="pdf-info-table" style="width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; font-size: 12px; background: transparent; border: none;">
+            <tr>
+              <td style="padding: 4px 0; width: 85px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">NO SURAT</td>
+              <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 20px 4px 0; width: 100%; font-weight: 800; color: #0284c7; border: none; letter-spacing: 0.2px;">${req.noSurat}</td>
+              
+              <td style="padding: 4px 0; width: 75px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">TANGGAL</td>
+              <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 0; width: 105px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">${(typeof formatDateDDMMYYYYString === 'function') ? formatDateDDMMYYYYString(req.tanggal) : (req.tanggal || '-')}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">TOKO</td>
+              <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 20px 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase;">${req.toko}</td>
+              
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">JENIS</td>
+              <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase; white-space: nowrap; text-align: left;">${req.jenis || 'DEFAULT'}</td>
+            </tr>
+          </table>
+
+          <div style="font-size: 11px; font-weight: bold; margin-bottom: 6px; color: #0f172a;">DETAIL PERMINTAAN:</div>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11.5px; border: 1px solid #cbd5e1;">
+            <thead>
+              <tr style="background: ${tableHeaderBg}; color: #ffffff;">
+                <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">NO</th>
+                <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">TIPE BARANG</th>
+                <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI</th>
+                ${req.jenis === 'DUS' ? `<th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI DUS</th>` : ''}
+                <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">PERMINTAAN BARANG</th>
+                <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">ALASAN PERMINTAAN</th>
+                <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">QTY</th>
+              </tr>
+            </thead>
+            <tbody>${itemRowsHtml}</tbody>
+          </table>
+
+          ${photoSection}
+
+          ${(() => {
+            const cTxt = (req.catatan || '').trim();
+            if (cTxt && cTxt !== '-') {
+              return `
+                <div style="margin-top: 12px; margin-bottom: 16px; font-size: 11.5px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1.5px solid #0284c7; border-left: 6px solid ${tableHeaderBg}; padding: 12px 16px; border-radius: 8px; box-shadow: 0 3px 10px rgba(2,132,199,0.12); color: #0f172a; opacity: 1 !important;">
+                  <div style="font-weight: 800; font-size: 11.5px; color: ${tableHeaderBg === '#0f172a' ? '#0369a1' : tableHeaderBg}; margin-bottom: 4px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 14px;">📌</span> CATATAN / KETERANGAN PERMINTAAN:
+                  </div>
+                  <div style="font-weight: 600; color: #0f172a; line-height: 1.5; font-size: 11.5px; word-break: break-word;">${cTxt}</div>
+                </div>
+              `;
+            }
+            return '';
+          })()}
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 28px; text-align: center; font-size: 11px; page-break-inside: avoid;">
+            <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+              <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">PEMOHON</div>
+              <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+                ${renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
+              </div>
+              <div>
+                <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
+                <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
+              </div>
+            </div>
+
+            <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+              <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DIPERIKSA</div>
+              <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+                ${renderSafeTtdImageTag(serviceTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
+              </div>
+              <div>
+                <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
+                <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${hodsAreaTitle}</div>
+              </div>
+            </div>
+
+            <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+              <div style="font-weight: 500; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">DISETUJUI</div>
+              <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+                ${renderSafeTtdImageTag(dmTTD, "max-height: 52px; max-width: 100%; object-fit: contain;")}
+              </div>
+              <div>
+                <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${dmName}</div>
+                <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">DISTRICT MANAGER</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 28px; display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #64748b; letter-spacing: 0.2px;">
+            <div>
+              ${hasUnfulfilledItem ? `
+                <div style="font-weight: 800; color: #b91c1c; font-style: normal; display: flex; align-items: center; gap: 4px; font-size: 8px;">
+                  <span style="text-decoration: line-through; text-decoration-thickness: 2.5px; font-weight: 900; color: #b91c1c; font-size: 10px;">---</span> = Tidak di penuhi
+                </div>
+              ` : ''}
+            </div>
+            <div style="font-style: italic; opacity: 0.85; font-size: 8px;">
+              ${timestampStr}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (autoPrint) {
+      if (typeof cetakDokumenPdf === 'function') {
+        await cetakDokumenPdf();
+      } else {
+        if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+        window.print();
+      }
+    } else {
+      // Decode preview images in pdfContainer before showing preview modal
+      const previewImgs = Array.from(pdfContainer.querySelectorAll('img'));
+      if (previewImgs.length > 0) {
+        await Promise.all(previewImgs.map(img => {
+          if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
+          return new Promise(r => { img.onload = r; img.onerror = r; setTimeout(r, 2000); });
+        }));
+      }
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+
+      const pdfModal = document.getElementById('pdfModal');
+      if (pdfModal) {
+        pdfModal.style.setProperty('display', 'flex', 'important');
+        pdfModal.classList.add('show');
+        if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+      }
+    }
+  } catch(e) {
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    console.error('PDF error:', e);
+    if (typeof showNotif === 'function') showNotif('GAGAL MENYIAPKAN PDF!', 'error');
   }
 }
 window.bukaPdfModal = bukaPdfModal;
@@ -16945,103 +17174,101 @@ async function eksekusiSimpanAkun(autoClose = false) {
     return;
   }
 
-  showLoading('MENYIMPAN PERUBAHAN AKUN...');
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MENYIMPAN PERUBAHAN AKUN... MOHON TUNGGU');
+  } else {
+    showLoading('MENYIMPAN PERUBAHAN AKUN... MOHON TUNGGU');
+  }
+  const _simpanStartTime = Date.now();
 
-  setTimeout(async () => {
-    try {
-      const users = getUsersFromDB();
-      let idx = users.findIndex(u => u && (
-        (currentUser && currentUser.id && u.id && String(u.id) === String(currentUser.id)) ||
-        (currentUser && currentUser.username && u.username && String(u.username).toUpperCase() === String(currentUser.username).toUpperCase())
-      ));
+  try {
+    const users = getUsersFromDB();
+    let idx = users.findIndex(u => u && (
+      (currentUser && currentUser.id && u.id && String(u.id) === String(currentUser.id)) ||
+      (currentUser && currentUser.username && u.username && String(u.username).toUpperCase() === String(currentUser.username).toUpperCase())
+    ));
 
-      if (idx === -1 && currentUser) {
-        idx = users.length;
-        users.push({ ...currentUser });
-      }
-
-      if (idx !== -1) {
-        users[idx].fullName = nama;
-        users[idx].phone = hp;
-        if (pass) users[idx].password = pass;
-        if (!users[idx].id) {
-          users[idx].id = users[idx].username || `USR-${Date.now()}`;
-        }
-
-        currentUser = { ...users[idx] };
-        appStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-        try { localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser)); } catch(e) {}
-
-        saveUsersToDB(users, currentUser);
-
-        if (typeof simpanUserKeSupabase === 'function') {
-          await simpanUserKeSupabase(currentUser);
-        }
-
-        // BROADCAST REALTIME EVENT TO ALL LOGGED-IN ADMINS/DEVICES
-        if (supabaseRealtimeChannel) {
-          try {
-            supabaseRealtimeChannel.send({
-              type: 'broadcast',
-              event: 'user_data_changed',
-              payload: { username: currentUser.username, time: Date.now() }
-            });
-          } catch(e) {}
-        }
-
-        if (supabaseRealtimeChannel) {
-          try {
-            supabaseRealtimeChannel.send({
-              type: 'broadcast',
-              event: 'data_changed',
-              payload: { action: 'BATCH_DELETE', noSuratList: noSuratList, timestamp: Date.now() }
-            });
-          } catch(e) {}
-        }
-        if (typeof pushCentralCloudDB === 'function') {
-          try { pushCentralCloudDB(); } catch(e) {}
-        }
-
-        if (typeof syncSupabaseUsersToLocalCache === 'function') {
-          await syncSupabaseUsersToLocalCache();
-        }
-
-        hideLoading();
-        showNotif('PROFIL AKUN BERHASIL DIPERBARUI!', 'success');
-
-        const akunArea = document.getElementById('akunArea');
-        if (akunArea) akunArea.value = `${currentUser.area} - ${formatUserAreaDisplay(currentUser.area)}`;
-
-        const akunKategori = document.getElementById('akunKategori');
-        if (akunKategori) akunKategori.value = currentUser.category;
-
-        const akunNama = document.getElementById('akunNama');
-        if (akunNama) akunNama.value = currentUser.fullName;
-
-        const akunHP = document.getElementById('akunHP');
-        if (akunHP) akunHP.value = currentUser.phone || '-';
-
-        const akunPassword = document.getElementById('akunPassword');
-        if (akunPassword) akunPassword.value = '';
-
-        if (typeof loadDashboard === 'function') loadDashboard();
-        if (document.getElementById('userTableBody') && typeof loadUsersManagement === 'function') {
-          loadUsersManagement();
-        }
-
-        if (autoClose) {
-          tutupAkun(true);
-        }
-      } else {
-        hideLoading();
-        showNotif('DATA AKUN TIDAK DITEMUKAN!', 'warning');
-      }
-    } catch (err) {
-      hideLoading();
-      console.error(err);
-      showNotif('GAGAL MENYIMPAN PERUBAHAN AKUN', 'danger');
+    if (idx === -1 && currentUser) {
+      idx = users.length;
+      users.push({ ...currentUser });
     }
-  }, 200);
+
+    if (idx !== -1) {
+      users[idx].fullName = nama;
+      users[idx].phone = hp;
+      if (pass) users[idx].password = pass;
+      if (!users[idx].id) {
+        users[idx].id = users[idx].username || `USR-${Date.now()}`;
+      }
+
+      currentUser = { ...users[idx] };
+      appStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+      try { localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser)); } catch(e) {}
+
+      saveUsersToDB(users, currentUser);
+
+      if (typeof simpanUserKeSupabase === 'function') {
+        await simpanUserKeSupabase(currentUser);
+      }
+
+      // BROADCAST REALTIME EVENT TO ALL LOGGED-IN ADMINS/DEVICES
+      if (supabaseRealtimeChannel) {
+        try {
+          supabaseRealtimeChannel.send({
+            type: 'broadcast',
+            event: 'user_data_changed',
+            payload: { username: currentUser.username, time: Date.now() }
+          });
+        } catch(e) {}
+      }
+
+      if (typeof pushCentralCloudDB === 'function') {
+        try { pushCentralCloudDB(); } catch(e) {}
+      }
+
+      if (typeof syncSupabaseUsersToLocalCache === 'function') {
+        await syncSupabaseUsersToLocalCache();
+      }
+
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      hideLoading();
+
+      showNotif('PROFIL AKUN BERHASIL DIPERBARUI!', 'success');
+
+      const akunArea = document.getElementById('akunArea');
+      if (akunArea) akunArea.value = `${currentUser.area} - ${formatUserAreaDisplay(currentUser.area)}`;
+
+      const akunKategori = document.getElementById('akunKategori');
+      if (akunKategori) akunKategori.value = currentUser.category;
+
+      const akunNama = document.getElementById('akunNama');
+      if (akunNama) akunNama.value = currentUser.fullName;
+
+      const akunHP = document.getElementById('akunHP');
+      if (akunHP) akunHP.value = currentUser.phone || '-';
+
+      const akunPassword = document.getElementById('akunPassword');
+      if (akunPassword) akunPassword.value = '';
+
+      if (typeof loadDashboard === 'function') loadDashboard();
+      if (document.getElementById('userTableBody') && typeof loadUsersManagement === 'function') {
+        loadUsersManagement();
+      }
+
+      if (autoClose) {
+        tutupAkun(true);
+      }
+    } else {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      hideLoading();
+      showNotif('DATA AKUN TIDAK DITEMUKAN!', 'warning');
+    }
+  } catch (err) {
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    hideLoading();
+    console.error(err);
+    showNotif('GAGAL MENYIMPAN PERUBAHAN AKUN', 'danger');
+  }
 }
 window.eksekusiSimpanAkun = eksekusiSimpanAkun;
 
@@ -18086,6 +18313,7 @@ function showNotif(msg, type = 'info') {
   if (notifOverlay) {
     notifOverlay.style.setProperty('z-index', '2147483647', 'important');
     notifOverlay.style.setProperty('display', 'flex', 'important');
+    if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
   }
   if (notifCard) {
     notifCard.style.setProperty('z-index', '2147483647', 'important');
@@ -22288,256 +22516,265 @@ function bukaModalArtemisParsial(noSurat, partialId) {
 window.bukaModalArtemisParsial = bukaModalArtemisParsial;
 
 async function cetakPdfSuratParsial(noSurat, partialId) {
-  if (!noSurat || !partialId) return;
-  const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
-  const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
-  if (!req) {
-    if (typeof showNotif === 'function') showNotif('DATA SURAT INDUK TIDAK DITEMUKAN!', 'warning');
-    return;
+  if (typeof tampilkanLoadingProses === 'function') {
+    tampilkanLoadingProses('MENYIAPKAN PDF PARSIAL & GAMBAR...');
   }
-
-  const partials = getPartialBreakdownsFromDB(noSurat);
-  const targetPartial = partials.find(p => p && (p.partial_id === partialId || p.partialId === partialId || p.id.endsWith(`_${partialId}`)));
-
-  if (!targetPartial) {
-    if (typeof showNotif === 'function') showNotif('DATA BREAKDOWN PARSIAL TIDAK DITEMUKAN!', 'warning');
-    return;
-  }
-
-  window._currentActivePdfNoSurat = `${noSurat}_${partialId}`;
-
-  const pdfContainer = document.getElementById('pdfDocumentContent');
-  if (!pdfContainer) {
-    window.print();
-    return;
-  }
-
-  const partialItems = Array.isArray(targetPartial.items) ? targetPartial.items : [];
-  const validPhotos = parsePhotosArray(targetPartial.photos);
-
-  let itemRowsHtml = partialItems.map((i, idx) => `
-    <tr style="border-bottom:1px solid #cbd5e1;">
-      <td style="text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%;">${idx + 1}</td>
-      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left;">${i.type || i.tipe || '-'}</td>
-      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left;">${i.seri || i.sn || '-'}</td>
-      ${req.jenis === 'DUS' ? `<td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left; color:#b45309; font-weight:700;">${i.seriDus || i.snDus || '-'}</td>` : ''}
-      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: normal !important; word-break: break-word; text-align:left;">${i.barang || i.permintaan || '-'}</td>
-      <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: normal !important; word-break: break-word; text-align:left;">${i.alasan || '-'}</td>
-      <td style="text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; font-weight: 800; color: #0284c7; width:1%;">${i.qtyDiserahkan || i.qty || 1}</td>
-    </tr>
-  `).join('');
-
-  const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
-  const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
-  const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
-  const serviceName = req.serviceUserName || (serviceUser ? serviceUser.fullName : 'SERVICE SUPERVISOR');
-  const dmName = typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO';
-
-  let serviceTTD = req.serviceTTD || '';
-  const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
-  if (reqSrvName && typeof getUserRealSignature === 'function') {
-    const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
-    serviceTTD = exactSig || serviceTTD;
-  } else if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
-    serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
-  }
-
-  let dmTTD = req.dmTTD || '';
-  if ((!dmTTD || (typeof isValidSig === 'function' && !isValidSig(dmTTD))) && typeof getUserRealSignature === 'function') {
-    dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
-  }
-  if (typeof isValidSig === 'function' && !isValidSig(dmTTD)) {
-    dmTTD = '';
-  }
-
-  const creatorUser2 = users.find(u => u && (
-    (req.userId && (String(u.id).toUpperCase() === String(req.userId).toUpperCase() || String(u.username).toUpperCase() === String(req.userId).toUpperCase())) ||
-    (req.createdBy && (String(u.username).toUpperCase() === String(req.createdBy).toUpperCase() || String(u.fullName).toUpperCase() === String(req.createdBy).toUpperCase())) ||
-    (req.toko && (String(u.username).toUpperCase() === String(req.toko).toUpperCase() || String(u.fullName).toUpperCase() === String(req.toko).toUpperCase()))
-  ));
-
-  const isReqFromGBJ = (
-    req.isGBJ === true ||
-    (creatorUser2 && (
-      creatorUser2.category === 'GBJ' ||
-      String(creatorUser2.username || '').toUpperCase().includes('GBJ') ||
-      String(creatorUser2.fullName || '').toUpperCase().includes('GBJ') ||
-      String(creatorUser2.storeCode || '').toUpperCase().includes('GBJ')
-    )) ||
-    (req.createdBy && String(req.createdBy).toUpperCase().includes('GBJ')) ||
-    (req.toko && String(req.toko).toUpperCase().includes('GBJ'))
-  );
-
-  let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
-  let pemohonName = '';
-  let pemohonRoleTitle = 'PEMOHON';
-
-  if (isReqFromGBJ) {
-    pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
-    pemohonName = (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : '') || req.createdByName || req.createdBy || 'GUDANG BARANG JADI';
-    if (!isValidSig(pemohonTTD) && typeof getUserRealSignature === 'function') {
-      pemohonTTD = (creatorUser2 && isValidSig(creatorUser2.ttd)) ? creatorUser2.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
+  try {
+    if (!noSurat || !partialId) {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      return;
     }
-  } else {
-    pemohonRoleTitle = 'TOKO';
-    pemohonName = req.toko || (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : '') || req.createdByName || req.createdBy || 'PEMOHON';
-    pemohonTTD = '';
-  }
+    const reqs = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+    const req = reqs.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+    if (!req) {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      if (typeof showNotif === 'function') showNotif('DATA SURAT INDUK TIDAK DITEMUKAN!', 'warning');
+      return;
+    }
 
-  // PRE-LOAD DAN KONVERSI SEMUA LINK GAMBAR TTD & FOTO PARSIAL KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
-  let loadedValidPhotos = validPhotos;
-  if (typeof preloadAndConvertTtdToBase64 === 'function') {
-    try {
-      if (typeof tampilkanLoadingProses === 'function') {
-        tampilkanLoadingProses('MENYIAPKAN PDF PARSIAL...');
+    const partials = getPartialBreakdownsFromDB(noSurat);
+    const targetPartial = partials.find(p => p && (p.partial_id === partialId || p.partialId === partialId || p.id.endsWith(`_${partialId}`)));
+
+    if (!targetPartial) {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      if (typeof showNotif === 'function') showNotif('DATA BREAKDOWN PARSIAL TIDAK DITEMUKAN!', 'warning');
+      return;
+    }
+
+    window._currentActivePdfNoSurat = `${noSurat}_${partialId}`;
+
+    const pdfContainer = document.getElementById('pdfDocumentContent');
+    if (!pdfContainer) {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      window.print();
+      return;
+    }
+
+    const partialItems = Array.isArray(targetPartial.items) ? targetPartial.items : [];
+    const validPhotos = parsePhotosArray(targetPartial.photos);
+
+    let itemRowsHtml = partialItems.map((i, idx) => `
+      <tr style="border-bottom:1px solid #cbd5e1;">
+        <td style="text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%;">${idx + 1}</td>
+        <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left;">${i.type || i.tipe || '-'}</td>
+        <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left;">${i.seri || i.sn || '-'}</td>
+        ${req.jenis === 'DUS' ? `<td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: nowrap !important; width:1%; text-align:left; color:#b45309; font-weight:700;">${i.seriDus || i.snDus || '-'}</td>` : ''}
+        <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: normal !important; word-break: break-word; text-align:left;">${i.barang || i.permintaan || '-'}</td>
+        <td style="padding:6px 6px; border:1px solid #cbd5e1; font-size:11px; white-space: normal !important; word-break: break-word; text-align:left;">${i.alasan || '-'}</td>
+        <td style="text-align:center; padding:6px 4px; border:1px solid #cbd5e1; font-size:11px; font-weight: 800; color: #0284c7; width:1%;">${i.qtyDiserahkan || i.qty || 1}</td>
+      </tr>
+    `).join('');
+
+    const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+    const serviceUser = users.find(u => u.category === 'SERVICE' && u.area === req.area) || users.find(u => u.category === 'SERVICE');
+    const dmUser = users.find(u => u.category === 'DM') || users.find(u => u.username === 'ADMIN');
+    const serviceName = req.serviceUserName || (serviceUser ? serviceUser.fullName : 'SERVICE SUPERVISOR');
+    const dmName = typeof getNamaDM === 'function' ? getNamaDM() : 'FERRY EDIYANTO';
+
+    let serviceTTD = req.serviceTTD || '';
+    const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
+    if (reqSrvName && typeof getUserRealSignature === 'function') {
+      const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
+      serviceTTD = exactSig || serviceTTD;
+    } else if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
+      serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
+    }
+
+    let dmTTD = req.dmTTD || '';
+    if ((!dmTTD || (typeof isValidSig === 'function' && !isValidSig(dmTTD))) && typeof getUserRealSignature === 'function') {
+      dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
+    }
+    if (typeof isValidSig === 'function' && !isValidSig(dmTTD)) {
+      dmTTD = '';
+    }
+
+    const creatorUser2 = users.find(u => u && (
+      (req.userId && (String(u.id).toUpperCase() === String(req.userId).toUpperCase() || String(u.username).toUpperCase() === String(req.userId).toUpperCase())) ||
+      (req.createdBy && (String(u.username).toUpperCase() === String(req.createdBy).toUpperCase() || String(u.fullName).toUpperCase() === String(req.createdBy).toUpperCase())) ||
+      (req.toko && (String(u.username).toUpperCase() === String(req.toko).toUpperCase() || String(u.fullName).toUpperCase() === String(req.toko).toUpperCase()))
+    ));
+
+    const isReqFromGBJ = (
+      req.isGBJ === true ||
+      (creatorUser2 && (
+        creatorUser2.category === 'GBJ' ||
+        String(creatorUser2.username || '').toUpperCase().includes('GBJ') ||
+        String(creatorUser2.fullName || '').toUpperCase().includes('GBJ') ||
+        String(creatorUser2.storeCode || '').toUpperCase().includes('GBJ')
+      )) ||
+      (req.createdBy && String(req.createdBy).toUpperCase().includes('GBJ')) ||
+      (req.toko && String(req.toko).toUpperCase().includes('GBJ'))
+    );
+
+    let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
+    let pemohonName = '';
+    let pemohonRoleTitle = 'PEMOHON';
+
+    if (isReqFromGBJ) {
+      pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
+      pemohonName = (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : '') || req.createdByName || req.createdBy || 'GUDANG BARANG JADI';
+      if (!isValidSig(pemohonTTD) && typeof getUserRealSignature === 'function') {
+        pemohonTTD = (creatorUser2 && isValidSig(creatorUser2.ttd)) ? creatorUser2.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
       }
-      const [pConverted, sConverted, dConverted, ...photoConvertedList] = await Promise.all([
-        preloadAndConvertTtdToBase64(pemohonTTD),
-        preloadAndConvertTtdToBase64(serviceTTD),
-        preloadAndConvertTtdToBase64(dmTTD),
-        ...validPhotos.map(p => preloadAndConvertTtdToBase64(p))
-      ]);
-      if (pConverted) pemohonTTD = pConverted;
-      if (sConverted) serviceTTD = sConverted;
-      if (dConverted) dmTTD = dConverted;
-      if (Array.isArray(photoConvertedList) && photoConvertedList.length > 0) {
-        loadedValidPhotos = photoConvertedList.map((cp, idx) => cp || validPhotos[idx]);
-      }
-    } catch(e) {
-      console.warn('[PARSIAL PDF PRELOAD NOTICE]:', e);
-    } finally {
-      if (typeof tutupLoadingProses === 'function') {
-        tutupLoadingProses();
+    } else {
+      pemohonRoleTitle = 'TOKO';
+      pemohonName = req.toko || (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : '') || req.createdByName || req.createdBy || 'PEMOHON';
+      pemohonTTD = '';
+    }
+
+    // PRE-LOAD DAN KONVERSI SEMUA LINK GAMBAR TTD & FOTO PARSIAL KE BASE64 DATA URI SEBELUM MEMBENTUK HTML PDF
+    let loadedValidPhotos = validPhotos;
+    if (typeof preloadAndConvertTtdToBase64 === 'function') {
+      try {
+        const [pConverted, sConverted, dConverted, ...photoConvertedList] = await Promise.all([
+          preloadAndConvertTtdToBase64(pemohonTTD),
+          preloadAndConvertTtdToBase64(serviceTTD),
+          preloadAndConvertTtdToBase64(dmTTD),
+          ...validPhotos.map(p => preloadAndConvertTtdToBase64(p))
+        ]);
+        if (pConverted) pemohonTTD = pConverted;
+        if (sConverted) serviceTTD = sConverted;
+        if (dConverted) dmTTD = dConverted;
+        if (Array.isArray(photoConvertedList) && photoConvertedList.length > 0) {
+          loadedValidPhotos = photoConvertedList.map((cp, idx) => cp || validPhotos[idx]);
+        }
+      } catch(e) {
+        console.warn('[PARSIAL PDF PRELOAD NOTICE]:', e);
       }
     }
-  }
 
-  const nowPrint = new Date();
-  const pDay = String(nowPrint.getDate()).padStart(2, '0');
-  const pMonth = String(nowPrint.getMonth() + 1).padStart(2, '0');
-  const pYear = nowPrint.getFullYear();
-  const pHour = String(nowPrint.getHours()).padStart(2, '0');
-  const pMin = String(nowPrint.getMinutes()).padStart(2, '0');
-  const pSec = String(nowPrint.getSeconds()).padStart(2, '0');
-  const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
+    const nowPrint = new Date();
+    const pDay = String(nowPrint.getDate()).padStart(2, '0');
+    const pMonth = String(nowPrint.getMonth() + 1).padStart(2, '0');
+    const pYear = nowPrint.getFullYear();
+    const pHour = String(nowPrint.getHours()).padStart(2, '0');
+    const pMin = String(nowPrint.getMinutes()).padStart(2, '0');
+    const pSec = String(nowPrint.getSeconds()).padStart(2, '0');
+    const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
 
-  let photoSection = '';
-  if (loadedValidPhotos.length > 0) {
-    photoSection = `
-      <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
-        <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
-          LAMPIRAN FOTO PENYERAHAN PARSIAL (${loadedValidPhotos.length} FOTO):
+    let photoSection = '';
+    if (loadedValidPhotos.length > 0) {
+      photoSection = `
+        <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
+          <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
+            LAMPIRAN FOTO PENYERAHAN PARSIAL (${loadedValidPhotos.length} FOTO):
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
+            ${loadedValidPhotos.map((p, pIdx) => `
+              <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
+                <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
+                <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
+              </div>
+            `).join('')}
+          </div>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
-          ${loadedValidPhotos.map((p, pIdx) => `
-            <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
-              <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
-              <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
+      `;
+    }
+    const areaNameMap = { TSM: 'TASIKMALAYA', BDG: 'BANDUNG', BDU: 'BANDUNG UTARA', CRB: 'CIREBON', SKB: 'SUKABUMI', SBN: 'SUBANG' };
+    const hodsAreaTitle = `HODS ${areaNameMap[req.area] || req.area || ''}`;
+
+    pdfContainer.innerHTML = `
+      <div class="pdf-paper" style="min-height: 680px; display: flex; flex-direction: column; justify-content: space-between; padding: 1mm 20px; color: #0f172a; background: #ffffff; font-family: 'Poppins', sans-serif; box-sizing: border-box;">
+        <div>
+          <div style="text-align: center; font-size: 20px; font-weight: 800; border-bottom: 2.5px solid #0f172a; padding-bottom: 24px; margin-bottom: 20px; letter-spacing: 0.5px; color: #0f172a; text-transform: uppercase;">
+            PERMINTAAN TOKO
+          </div>
+
+          <table class="pdf-info-table" style="width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; font-size: 12px; background: transparent; border: none;">
+            <tr>
+              <td style="padding: 4px 0; width: 85px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">NO SURAT</td>
+              <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 20px 4px 0; width: 100%; font-weight: 800; color: #0284c7; border: none; letter-spacing: 0.2px;">${req.noSurat}-${partialId}</td>
+              
+              <td style="padding: 4px 0; width: 75px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">TANGGAL</td>
+              <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 0; width: 105px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">${(typeof formatDateDDMMYYYYString === 'function') ? formatDateDDMMYYYYString(req.tanggal) : (req.tanggal || '-')}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">TOKO</td>
+              <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 20px 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase;">${req.toko || req.createdBy || '-'}</td>
+              
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">JENIS</td>
+              <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase; white-space: nowrap; text-align: left;">${req.jenis || 'DEFAULT'}</td>
+            </tr>
+          </table>
+
+          <div style="font-size: 11px; font-weight: bold; margin-bottom: 6px; color: #0f172a;">DETAIL PERMINTAAN:</div>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11.5px; border: 1px solid #cbd5e1;">
+            <thead>
+              <tr style="background: #0284c7; color: #ffffff;">
+                <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">NO</th>
+                <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">TIPE BARANG</th>
+                <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI</th>
+                ${req.jenis === 'DUS' ? `<th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI DUS</th>` : ''}
+                <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">PERMINTAAN BARANG</th>
+                <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">ALASAN PERMINTAAN</th>
+                <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">QTY</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRowsHtml}
+            </tbody>
+          </table>
+
+          ${photoSection}
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 28px; text-align: center; font-size: 11px; page-break-inside: avoid;">
+            <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+              <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">PEMOHON</div>
+              <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+                ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
+              </div>
+              <div>
+                <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
+                <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
+              </div>
             </div>
-          `).join('')}
+
+            <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+              <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DIPERIKSA</div>
+              <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+                ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(serviceTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
+              </div>
+              <div>
+                <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
+                <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${hodsAreaTitle}</div>
+              </div>
+            </div>
+
+            <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
+              <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DISETUJUI</div>
+              <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
+                ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(dmTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
+              </div>
+              <div>
+                <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${dmName}</div>
+                <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">DISTRICT MANAGER</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 20px; display: flex; justify-content: flex-end; align-items: center; font-size: 8px; color: #64748b;">
+            <div style="font-style: italic; opacity: 0.85;">${timestampStr}</div>
+          </div>
         </div>
       </div>
     `;
-  }
-  const areaNameMap = { TSM: 'TASIKMALAYA', BDG: 'BANDUNG', BDU: 'BANDUNG UTARA', CRB: 'CIREBON', SKB: 'SUKABUMI', SBN: 'SUBANG' };
-  const hodsAreaTitle = `HODS ${areaNameMap[req.area] || req.area || ''}`;
 
-  pdfContainer.innerHTML = `
-    <div class="pdf-paper" style="min-height: 680px; display: flex; flex-direction: column; justify-content: space-between; padding: 1mm 20px; color: #0f172a; background: #ffffff; font-family: 'Poppins', sans-serif; box-sizing: border-box;">
-      <div>
-        <div style="text-align: center; font-size: 20px; font-weight: 800; border-bottom: 2.5px solid #0f172a; padding-bottom: 24px; margin-bottom: 20px; letter-spacing: 0.5px; color: #0f172a; text-transform: uppercase;">
-          PERMINTAAN TOKO
-        </div>
-
-        <table class="pdf-info-table" style="width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; font-size: 12px; background: transparent; border: none;">
-          <tr>
-            <td style="padding: 4px 0; width: 85px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">NO SURAT</td>
-            <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 20px 4px 0; width: 100%; font-weight: 800; color: #0284c7; border: none; letter-spacing: 0.2px;">${req.noSurat}-${partialId}</td>
-            
-            <td style="padding: 4px 0; width: 75px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">TANGGAL</td>
-            <td style="padding: 4px 12px 4px 8px; width: 14px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 0; width: 105px; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">${(typeof formatDateDDMMYYYYString === 'function') ? formatDateDDMMYYYYString(req.tanggal) : (req.tanggal || '-')}</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap;">TOKO</td>
-            <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 20px 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase;">${req.toko || req.createdBy || '-'}</td>
-            
-            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; white-space: nowrap; text-align: left;">JENIS</td>
-            <td style="padding: 4px 12px 4px 8px; font-weight: 800; color: #0f172a; border: none; text-align: center;">:</td>
-            <td style="padding: 4px 0; font-weight: 800; color: #0f172a; border: none; text-transform: uppercase; white-space: nowrap; text-align: left;">${req.jenis || 'DEFAULT'}</td>
-          </tr>
-        </table>
-
-        <div style="font-size: 11px; font-weight: bold; margin-bottom: 6px; color: #0f172a;">DETAIL PERMINTAAN:</div>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11.5px; border: 1px solid #cbd5e1;">
-          <thead>
-            <tr style="background: #0284c7; color: #ffffff;">
-              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">NO</th>
-              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">TIPE BARANG</th>
-              <th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI</th>
-              ${req.jenis === 'DUS' ? `<th style="width: 1%; padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: nowrap !important;">NO. SERI DUS</th>` : ''}
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">PERMINTAAN BARANG</th>
-              <th style="padding:7px 8px; border:1px solid #cbd5e1; font-weight:700; text-align:center; white-space: normal !important;">ALASAN PERMINTAAN</th>
-              <th style="width: 1%; text-align:center; padding:7px 6px; border:1px solid #cbd5e1; font-weight:700; white-space: nowrap !important;">QTY</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemRowsHtml}
-          </tbody>
-        </table>
-
-        ${photoSection}
-      </div>
-
-      <div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 28px; text-align: center; font-size: 11px; page-break-inside: avoid;">
-          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">PEMOHON</div>
-            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(pemohonTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
-            </div>
-            <div>
-              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
-              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
-            </div>
-          </div>
-
-          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DIPERIKSA</div>
-            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(serviceTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
-            </div>
-            <div>
-              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${serviceName}</div>
-              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${hodsAreaTitle}</div>
-            </div>
-          </div>
-
-          <div style="width: 30%; display: flex; flex-direction: column; justify-content: space-between; height: 125px;">
-            <div style="font-weight: 500; color: #0f172a; text-transform: uppercase;">DISETUJUI</div>
-            <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-              ${typeof renderSafeTtdImageTag === 'function' ? renderSafeTtdImageTag(dmTTD, "max-height: 52px; max-width: 100%; object-fit: contain;") : ''}
-            </div>
-            <div>
-              <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${dmName}</div>
-              <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">DISTRICT MANAGER</div>
-            </div>
-          </div>
-        </div>
-
-        <div style="margin-top: 20px; display: flex; justify-content: flex-end; align-items: center; font-size: 8px; color: #64748b;">
-          <div style="font-style: italic; opacity: 0.85;">${timestampStr}</div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  if (typeof cetakDokumenPdf === 'function') {
-    cetakDokumenPdf();
-  } else {
-    window.print();
+    if (typeof cetakDokumenPdf === 'function') {
+      await cetakDokumenPdf();
+    } else {
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      window.print();
+    }
+  } catch(e) {
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    console.error('Parsial PDF error:', e);
+    if (typeof showNotif === 'function') showNotif('GAGAL MENYIAPKAN PDF PARSIAL!', 'error');
   }
 }
 window.cetakPdfSuratParsial = cetakPdfSuratParsial;
@@ -23319,7 +23556,7 @@ function kembaliKeOriginEdit() {
 }
 window.kembaliKeOriginEdit = kembaliKeOriginEdit;
 
-// SINKRONISASI OTOMATIS KREDENSIAL MASTER ADMIN (PASSWORD = 00, AREA = ALL)
+// SINKRONISASI OTOMATIS KREDENSIAL MASTER ADMIN (PASSWORD = 000, AREA = ALL)
 (function enforceAdminCredentials() {
   try {
     const rawUsers = appStorage.getItem(USERS_DB_KEY);
@@ -23328,8 +23565,8 @@ window.kembaliKeOriginEdit = kembaliKeOriginEdit;
 
     users = users.map(u => {
       if (u && String(u.username || '').trim().toUpperCase() === 'ADMIN') {
-        if (u.password !== '00' || u.area !== 'ALL' || u.category !== 'ADMIN') {
-          u.password = '00';
+        if (u.password !== '000' || u.area !== 'ALL' || u.category !== 'ADMIN') {
+          u.password = '000';
           u.area = 'ALL';
           u.category = 'ADMIN';
           updated = true;
@@ -23347,13 +23584,13 @@ window.kembaliKeOriginEdit = kembaliKeOriginEdit;
     if (rawSession) {
       const sess = JSON.parse(rawSession);
       if (sess && String(sess.username || '').trim().toUpperCase() === 'ADMIN') {
-        sess.password = '00';
+        sess.password = '000';
         sess.area = 'ALL';
         sess.category = 'ADMIN';
         appStorage.setItem(SESSION_KEY, JSON.stringify(sess));
         try { localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); } catch(e) {}
         if (typeof currentUser !== 'undefined' && currentUser) {
-          currentUser.password = '00';
+          currentUser.password = '000';
           currentUser.area = 'ALL';
           currentUser.category = 'ADMIN';
         }
@@ -23489,6 +23726,16 @@ async function simpanBuktiPermintaanUploaded() {
   
   if (idx === -1) {
     if (typeof showNotif === 'function') showNotif('PERMINTAAN TIDAK DITEMUKAN!', 'danger');
+    return;
+  }
+
+  // VALIDASI FOTO BUKTI: Jika belum ada foto yang dipilih / diunggah
+  const validPhotosToUpload = Array.isArray(tempBuktiPermintaanPhotos) ? tempBuktiPermintaanPhotos.filter(Boolean) : [];
+  if (validPhotosToUpload.length === 0) {
+    if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
+    if (typeof showNotif === 'function') {
+      showNotif('BELUM ADA FOTO BUKTI DIPILIH! HARAP TAP / PILIH FOTO BUKTI PERMINTAAN DULU SEBELUM MENYIMPAN.', 'warning');
+    }
     return;
   }
 

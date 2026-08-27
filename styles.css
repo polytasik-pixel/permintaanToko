@@ -15107,3 +15107,44 @@ html body #popupAkun #containerLogoutButtons .btnForceLogoutAll {
   vertical-align: middle !important;
   display: inline-block !important;
 }
+
+/* ==========================================================================
+   STRICT GLOBAL Z-INDEX HIERARCHY OVERRIDES (NOTIFICATIONS ALWAYS IN FRONT)
+   ========================================================================== */
+#artemisOverlay,
+html body #artemisOverlay,
+#artemisOverlay.show,
+html body #artemisOverlay.show,
+#uploadBuktiPermintaanOverlay,
+html body #uploadBuktiPermintaanOverlay,
+#popupEditKeteranganPartSingle,
+html body #popupEditKeteranganPartSingle,
+#popupEditStatusPart,
+html body #popupEditStatusPart,
+#popupDetailBarangV2,
+html body #popupDetailBarangV2 {
+  z-index: 200000000 !important;
+}
+
+#confirmOverlay,
+html body #confirmOverlay,
+.popupOverlay#confirmOverlay,
+#confirmBoxCard,
+html body #confirmBoxCard,
+.confirmBoxCard,
+#popupNotif,
+html body #popupNotif,
+.popupOverlay#popupNotif,
+#popupNotifCard,
+html body #popupNotifCard,
+.popupNotifCard,
+#loadingOverlay,
+html body #loadingOverlay,
+.loadingOverlay,
+#popupSecurityPinHapusLokal,
+html body #popupSecurityPinHapusLokal,
+#popupOfflineSafetyModal,
+html body #popupOfflineSafetyModal {
+  z-index: 2147483647 !important;
+}
+

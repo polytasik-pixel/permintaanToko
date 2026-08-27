@@ -2546,7 +2546,7 @@ const SEED_USERS = [
   {
     id: 'USR-ADMIN',
     username: 'ADMIN',
-    password: '00',
+    password: '000',
     fullName: 'SUPER ADMIN',
     phone: '',
     category: 'ADMIN',
@@ -4072,17 +4072,6 @@ function handleRealtimeUserChange(payload) {
         (formatted.id && currentUser.id && String(currentUser.id) === String(formatted.id)) ||
         (formatted.username && currentUser.username && String(currentUser.username).toUpperCase() === formatted.username.toUpperCase())
       )) {
-        // DETEKSI LOGOUT PAKSA DARI ADMIN VIA SINKRONISASI SESSION_TOKEN
-        const incomingSessionToken = u.session_token || u.sessionToken;
-        const myActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
-        if (incomingSessionToken && myActiveToken && String(incomingSessionToken).trim() !== String(myActiveToken).trim()) {
-          console.warn('⚠️ [SESSION TOKEN MISMATCH DETECTED]: Logging out this device...');
-          if (typeof forceLogoutThisDevice === 'function') {
-            forceLogoutThisDevice('AKUN DI LOGOUT OLEH ADMIN, SILAHKAN LOGIN KEMBALI');
-          }
-          return;
-        }
-
         currentUser = { ...currentUser, ...formatted };
         appStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
         try { localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser)); } catch(e) {}
@@ -5598,8 +5587,8 @@ function getUsersFromDB() {
   let updated = false;
   const adminIndex = users.findIndex(u => u && u.username && String(u.username).toUpperCase() === 'ADMIN');
   if (adminIndex !== -1) {
-    if (users[adminIndex].password !== '00' || users[adminIndex].area !== 'ALL') {
-      users[adminIndex].password = '00';
+    if (users[adminIndex].password !== '000' || users[adminIndex].area !== 'ALL') {
+      users[adminIndex].password = '000';
       users[adminIndex].area = 'ALL';
       users[adminIndex].category = 'ADMIN';
       updated = true;
@@ -7040,10 +7029,9 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
   const isDMOrService = (catUpper === 'DM' || catUpper === 'SERVICE');
 
   // ATURAN BATASAN LOGIN PERANGKAT (DEVICE LIMITS):
-  // 1. ADMIN: Maksimal 1 Perangkat (1 Login)
-  // 2. DM & SERVICE: Maksimal 2 Perangkat (2 Login)
-  // 3. SELAIN ITU (Toko, User biasa, dll): Maksimal 1 Perangkat (1 Login)
-  const maxAllowedLogins = isDMOrService ? 2 : 1;
+  // 1. ADMIN: Maksimal 1 Perangkat (1 Login) - Hanya 1 HP/Laptop aktif untuk akun ADMIN
+  // 2. SELAIN ADMIN (Toko, Service, DM, Sales, dll): Tidak ada batasan (Bebas login di perangkat mana saja)
+  const maxAllowedLogins = isAdmin ? 1 : 999999;
 
   const usernameKey = String(currentUser.username).replace(/[\/\.#$\[\]]/g, '_');
   const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
@@ -7091,7 +7079,10 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
 
       try {
         if (typeof supabase !== 'undefined' && supabase) {
-          supabase.from('users').update({ session_token: myLocalToken }).eq('username', currentUser.username).then(() => {}, () => {});
+          const cols = typeof getSupabaseUserColumns === 'function' ? await getSupabaseUserColumns(supabase) : [];
+          if (cols && cols.includes('session_token')) {
+            await supabase.from('users').update({ session_token: myLocalToken }).eq('username', currentUser.username);
+          }
         }
       } catch(e) {}
     }
@@ -12590,7 +12581,7 @@ function renderFullPdfPreviewDocument(modelId) {
           </div>
           <div>
             <div style="font-weight: 500; color: #0f172a; font-size: 11px;">TOKO UTAMA</div>
-            <div style="font-size: 9.5px; color: #475569; margin-top: 1px; text-transform: uppercase;">PEMOHON (TOKO)</div>
+            <div style="font-size: 9.5px; color: #475569; margin-top: 1px; text-transform: uppercase;">TOKO</div>
           </div>
         </div>
 
@@ -12792,15 +12783,18 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
   );
 
   let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
-  let pemohonName = req.toko || req.createdBy || (creatorUser ? (creatorUser.fullName || creatorUser.username) : 'PEMOHON');
-  let pemohonRoleTitle = 'PEMOHON (TOKO)';
+  let pemohonName = '';
+  let pemohonRoleTitle = 'PEMOHON';
 
   if (isReqFromGBJ) {
     pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
+    pemohonName = (creatorUser ? (creatorUser.fullName || creatorUser.username) : '') || req.createdByName || req.createdBy || 'GUDANG BARANG JADI';
     if (!isValidSig(pemohonTTD)) {
       pemohonTTD = (creatorUser && isValidSig(creatorUser.ttd)) ? creatorUser.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
     }
   } else {
+    pemohonRoleTitle = 'TOKO';
+    pemohonName = req.toko || (creatorUser ? (creatorUser.fullName || creatorUser.username) : '') || req.createdByName || req.createdBy || 'PEMOHON';
     pemohonTTD = '';
   }
 
@@ -12981,7 +12975,6 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
             <div>
               <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
               <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
-              <div style="font-size: 9px; color: #64748b; margin-top: 1px; font-weight: 600; text-transform: uppercase;">${req.toko || ''}</div>
             </div>
           </div>
 
@@ -13009,14 +13002,13 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
         </div>
 
         <div style="margin-top: 28px; display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #64748b; letter-spacing: 0.2px;">
-          <div style="font-weight: 700; color: #334155; font-size: 9px; text-transform: uppercase;">
-            TOKO: ${req.toko || '-'}
+          <div>
+            ${hasUnfulfilledItem ? `
+              <div style="font-weight: 800; color: #b91c1c; font-style: normal; display: flex; align-items: center; gap: 4px; font-size: 8px;">
+                <span style="text-decoration: line-through; text-decoration-thickness: 2.5px; font-weight: 900; color: #b91c1c; font-size: 10px;">---</span> = Tidak di penuhi
+              </div>
+            ` : ''}
           </div>
-          ${hasUnfulfilledItem ? `
-            <div style="font-weight: 800; color: #b91c1c; font-style: normal; display: flex; align-items: center; gap: 4px; font-size: 8px;">
-              <span style="text-decoration: line-through; text-decoration-thickness: 2.5px; font-weight: 900; color: #b91c1c; font-size: 10px;">---</span> = Tidak di penuhi
-            </div>
-          ` : ''}
           <div style="font-style: italic; opacity: 0.85; font-size: 8px;">
             ${timestampStr}
           </div>
@@ -15250,7 +15242,10 @@ async function paksaLogoutUserByAdmin(targetUsername) {
         // 3. Supabase Table Update (Trigger Postgres Changes Realtime)
         try {
           if (typeof supabase !== 'undefined' && supabase) {
-            await supabase.from('users').update({ session_token: newSessionToken }).eq('username', targetUsername);
+            const cols = typeof getSupabaseUserColumns === 'function' ? await getSupabaseUserColumns(supabase) : [];
+            if (cols && cols.includes('session_token')) {
+              await supabase.from('users').update({ session_token: newSessionToken }).eq('username', targetUsername);
+            }
           }
         } catch(e3) {}
 
@@ -15316,7 +15311,11 @@ async function logoutSemuaPerangkatUserByAdmin() {
           }
 
           if (typeof supabase !== 'undefined' && supabase) {
-            supabase.from('users').update({ session_token: token }).eq('username', u.username).then(() => {}, () => {});
+            getSupabaseUserColumns(supabase).then(cols => {
+              if (cols && cols.includes('session_token')) {
+                supabase.from('users').update({ session_token: token }).eq('username', u.username).then(() => {}, () => {});
+              }
+            }).catch(() => {});
           }
         }
 
@@ -22369,16 +22368,19 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
     (req.toko && String(req.toko).toUpperCase().includes('GBJ'))
   );
 
-  let pemohonName = req.toko || req.createdBy || (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : 'PEMOHON');
-  let pemohonRoleTitle = 'PEMOHON (TOKO)';
   let pemohonTTD = req.pemohonTTD || req.tokoTTD || '';
+  let pemohonName = '';
+  let pemohonRoleTitle = 'PEMOHON';
 
   if (isReqFromGBJ) {
     pemohonRoleTitle = 'GUDANG BARANG JADI (GBJ)';
+    pemohonName = (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : '') || req.createdByName || req.createdBy || 'GUDANG BARANG JADI';
     if (!isValidSig(pemohonTTD) && typeof getUserRealSignature === 'function') {
       pemohonTTD = (creatorUser2 && isValidSig(creatorUser2.ttd)) ? creatorUser2.ttd : getUserRealSignature('GBJ', req.area, req.createdBy, req.createdBy);
     }
   } else {
+    pemohonRoleTitle = 'TOKO';
+    pemohonName = req.toko || (creatorUser2 ? (creatorUser2.fullName || creatorUser2.username) : '') || req.createdByName || req.createdBy || 'PEMOHON';
     pemohonTTD = '';
   }
 
@@ -22499,7 +22501,6 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
             <div>
               <div style="font-weight: 500; color: #0f172a; font-size: 11.5px;">${pemohonName}</div>
               <div style="font-size: 10px; color: #475569; margin-top: 2px; text-transform: uppercase;">${pemohonRoleTitle}</div>
-              <div style="font-size: 9px; color: #64748b; margin-top: 1px; font-weight: 600; text-transform: uppercase;">${req.toko || ''}</div>
             </div>
           </div>
 
@@ -22526,10 +22527,7 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
           </div>
         </div>
 
-        <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; font-size: 8px; color: #64748b;">
-          <div style="font-weight: 700; color: #334155; font-size: 9px; text-transform: uppercase;">
-            TOKO: ${req.toko || '-'}
-          </div>
+        <div style="margin-top: 20px; display: flex; justify-content: flex-end; align-items: center; font-size: 8px; color: #64748b;">
           <div style="font-style: italic; opacity: 0.85;">${timestampStr}</div>
         </div>
       </div>

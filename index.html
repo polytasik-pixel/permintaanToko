@@ -34,7 +34,7 @@
 
   <!-- Master Stylesheet -->
   <link rel="stylesheet" href="styles.css?v=20260828_v106000000">
-  <script src="app.js?v=20260828_v114500000"></script>
+  <script src="app.js?v=20260828_v121000000"></script>
 
   <!-- Global Failsafe Gemini AI Key Handler -->
   <script>
@@ -1259,6 +1259,136 @@
 
     </div>
   </div>
+
+    
+
+    
+
+    <!-- POPUP DETAIL TABLE RESPONSIVE DUAL MODE (LAPTOP vs MOBILE HP) -->
+  <style>
+    /* --------------------------------------------------------- */
+    /* LAPTOP / DESKTOP VIEW (DEFAULT > 768px)                   */
+    /* --------------------------------------------------------- */
+    .detailTableV2 {
+      width: 100% !important;
+      min-width: 100% !important;
+      table-layout: auto !important;
+    }
+    .detailTableV2 th,
+    .detailTableV2 th * {
+      text-align: center !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+    .detailTableV2 td {
+      text-align: left !important;
+      justify-content: flex-start !important;
+      align-items: center !important;
+    }
+    .detailTableV2 td.col-no,
+    .detailTableV2 td.col-qty,
+    .detailTableV2 td:first-child {
+      text-align: center !important;
+      justify-content: center !important;
+    }
+    /* Laptop: Type & Seri have 10mm padding */
+    .detailTableV2 th.col-type-seri,
+    .detailTableV2 td.col-type-seri {
+      width: 1% !important;
+      white-space: nowrap !important;
+      padding-left: 10mm !important;
+      padding-right: 10mm !important;
+    }
+    /* Laptop: Permintaan & Alasan have equal 50/50 size */
+    .detailTableV2 th.col-permintaan-alasan,
+    .detailTableV2 td.col-permintaan-alasan {
+      width: 50% !important;
+      min-width: 180px !important;
+    }
+
+    /* --------------------------------------------------------- */
+    /* MOBILE HP VIEW (<= 768px)                                 */
+    /* --------------------------------------------------------- */
+    @media screen and (max-width: 768px) {
+      #popupDetailBarangV2 {
+        padding: 0 !important;
+        align-items: flex-end !important;
+      }
+      .popupBoxDetailV2 {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 94vh !important;
+        max-height: 94vh !important;
+        margin: 0 !important;
+        border-radius: 12px 12px 0 0 !important;
+        padding: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .popupCardBodyContainerV2 {
+        padding: 2px 4px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+      }
+      /* Mobile: Table Pure Auto-Fit */
+      .detailTableV2 {
+        width: max-content !important;
+        min-width: 100% !important;
+        table-layout: auto !important;
+      }
+      /* Mobile: All Headers Center Aligned */
+      .detailTableV2 th,
+      .detailTableV2 th * {
+        text-align: center !important;
+        justify-content: center !important;
+        align-items: center !important;
+        padding: 6px 6px !important;
+        font-size: 11px !important;
+        white-space: nowrap !important;
+        width: auto !important;
+        min-width: unset !important;
+        max-width: unset !important;
+      }
+      /* Mobile: Data Cells Left Aligned */
+      .detailTableV2 td {
+        text-align: left !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        padding: 6px 4px !important;
+        font-size: 11.5px !important;
+        width: auto !important;
+        min-width: unset !important;
+        max-width: unset !important;
+      }
+      /* Mobile: Exception NO & QTY Center Aligned */
+      .detailTableV2 td.col-no,
+      .detailTableV2 td.col-qty,
+      .detailTableV2 td:first-child {
+        text-align: center !important;
+        justify-content: center !important;
+      }
+      /* Mobile: Padding Type & No Seri DIHILANGKAN (Minimal 3px padding) */
+      .detailTableV2 th.col-type-seri,
+      .detailTableV2 td.col-type-seri {
+        padding-left: 3px !important;
+        padding-right: 3px !important;
+        white-space: nowrap !important;
+        width: auto !important;
+        min-width: unset !important;
+      }
+      /* Mobile: Permintaan & Alasan Auto Fit (Remove 50% width lock) */
+      .detailTableV2 th.col-permintaan-alasan,
+      .detailTableV2 td.col-permintaan-alasan {
+        width: auto !important;
+        min-width: unset !important;
+        max-width: 240px !important;
+      }
+      .detailTableV2 td.td-wrap-mobile {
+        white-space: normal !important;
+        word-break: break-word !important;
+        max-width: 220px !important;
+      }
+    }
+  </style>
 
   <!-- POPUP DETAIL PERMINTAAN (BASE LAYER MODAL) -->
   <div id="popupDetailBarangV2" class="popupOverlay" onclick="if(event.target === this) { event.stopPropagation(); event.preventDefault(); tutupDetailBarangV2(); }" style="display:none; width: 100vw !important; max-width: 100vw !important; box-sizing: border-box !important;">

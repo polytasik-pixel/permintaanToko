@@ -3831,6 +3831,9 @@ function isRequestVisibleToCurrentUser(r) {
   }
 
   if (cat === 'SERVICE' || cat === 'DM') {
+    if (fwSource && userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, fwSource) : a === fwSource))) {
+      return true;
+    }
     return userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, reqArea) : a === reqArea));
   }
 
@@ -4500,7 +4503,8 @@ async function syncSupabaseRequestsToLocalCache() {
         if (!areaList.includes('ALL') && areaList.length > 0) {
           const areaConds = areaList.map(a => `area.eq.${a}`).join(',');
           const fwTargetConds = areaList.map(a => `forward_target_area.eq.${a}`).join(',');
-          query = query.or(`${areaConds},${fwTargetConds}`);
+          const fwSourceConds = areaList.map(a => `forward_source_area.eq.${a}`).join(',');
+          query = query.or(`${areaConds},${fwTargetConds},${fwSourceConds}`);
         }
       }
     }
@@ -11679,6 +11683,29 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   const canServiceRowActions = isServiceUser && (req.status === 'APPROVE');
   const showKetPartCol = (req.status === 'APPROVE' || req.status === 'DONE');
 
+  const thStyleAutofitLeft = `${thBase} text-align: center !important; white-space: nowrap !important;`;
+  const thStyleFlex50 = `${thBase} text-align: center !important; white-space: nowrap !important;`;
+
+  const getTdTypeSeriStyle = () => {
+    return "text-align: left !important; justify-content: flex-start !important; white-space: nowrap !important;";
+  };
+
+  const getTdBarangStyle = (strVal) => {
+    const s = String(strVal || '').trim();
+    if (s.length > 40) {
+      return "text-align: left !important; justify-content: flex-start !important; white-space: normal !important; word-break: break-word !important; overflow-wrap: break-word !important; max-width: 360px !important;";
+    }
+    return "text-align: left !important; justify-content: flex-start !important; white-space: nowrap !important;";
+  };
+
+  const getTdAlasanStyle = (strVal) => {
+    const s = String(strVal || '').trim();
+    if (s.length > 40) {
+      return "text-align: left !important; justify-content: flex-start !important; white-space: normal !important; word-break: break-word !important; overflow-wrap: break-word !important; max-width: 360px !important;";
+    }
+    return "text-align: left !important; justify-content: flex-start !important; white-space: nowrap !important;";
+  };
+
   let itemsHtml = itemsList.map((i, idx) => {
     const tdStyleAutofit = getTdStyleAutofit(idx, itemsList.length);
     const tdStyleLeft = getTdStyleLeft(idx, itemsList.length);
@@ -11723,8 +11750,8 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     const hasPhoto = isPhotoUrlValid(fotoProofUrl);
 
     let ketPartTdHtml = showKetPartCol ? `
-      <td style="${tdStyleLeft} ${strikeStyle}">
-        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+      <td style="${tdStyleLeft} ${getTdAlasanStyle(statusPartVal)} text-align: left !important; ${strikeStyle}">
+        <div style="display: flex !important; align-items: center !important; justify-content: flex-start !important; text-align: left !important; gap: 6px !important; flex-wrap: wrap !important;">
           ${statusPartBadgeHtml}
         </div>
       </td>
@@ -11804,13 +11831,13 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     if (isDus) {
       return `
         <tr style="${isUnfulfilled ? 'background: rgba(239, 68, 68, 0.08) !important;' : ''}">
-          <td style="${tdStyleAutofit} ${strikeStyle}">${idx + 1}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${typeVal}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${seriVal}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${barangVal}</td>
-          <td style="${tdStyleLeft} color: #d97706 !important; font-weight: 600 !important; ${strikeStyle}">${dusVal}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${alasanVal}</td>
-          <td style="${tdStyleAutofit} font-weight: 700 !important; ${strikeStyle}">${qtyVal}</td>
+          <td class="col-no" style="${tdStyleAutofit} text-align: center !important; ${strikeStyle}">${idx + 1}</td>
+          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${typeVal}</td>
+          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${seriVal}</td>
+          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdBarangStyle(barangVal)} ${strikeStyle}">${barangVal}</td>
+          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} color: #d97706 !important; font-weight: 600 !important; ${strikeStyle}">${dusVal}</td>
+          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdAlasanStyle(alasanVal)} ${strikeStyle}">${alasanVal}</td>
+          <td class="col-qty" style="${tdStyleAutofit} text-align: center !important; font-weight: 700 !important; ${strikeStyle}">${qtyVal}</td>
           ${ketPartTdHtml}
           ${actionTdHtml}
         </tr>
@@ -11818,12 +11845,12 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     } else {
       return `
         <tr style="${isUnfulfilled ? 'background: rgba(239, 68, 68, 0.08) !important;' : ''}">
-          <td style="${tdStyleAutofit} ${strikeStyle}">${idx + 1}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${typeVal}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${seriVal}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${barangVal}</td>
-          <td style="${tdStyleLeft} ${strikeStyle}">${alasanVal}</td>
-          <td style="${tdStyleAutofit} font-weight: 700 !important; ${strikeStyle}">${qtyVal}</td>
+          <td class="col-no" style="${tdStyleAutofit} text-align: center !important; ${strikeStyle}">${idx + 1}</td>
+          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${typeVal}</td>
+          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${seriVal}</td>
+          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdBarangStyle(barangVal)} ${strikeStyle}">${barangVal}</td>
+          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdAlasanStyle(alasanVal)} ${strikeStyle}">${alasanVal}</td>
+          <td class="col-qty" style="${tdStyleAutofit} text-align: center !important; font-weight: 700 !important; ${strikeStyle}">${qtyVal}</td>
           ${ketPartTdHtml}
           ${actionTdHtml}
         </tr>
@@ -12061,13 +12088,13 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   const tableHeaderHtml = isDus ? `
     <thead>
       <tr style="background: var(--primary) !important; color: #ffffff !important;">
-        <th style="${thStyleAutofit}">NO</th>
-        <th style="${thStyleLeft}">TYPE</th>
-        <th style="${thStyleLeft}">SERI BARANG</th>
-        <th style="${thStyleLeft}">PERMINTAAN</th>
-        <th style="${thStyleLeft}">SERI DUS</th>
-        <th style="${thStyleLeft}">ALASAN</th>
-        <th style="${(showKetPartCol || canServiceRowActions) ? thStyleAutofit : thStyleAutofitLast}">QTY</th>
+        <th class="col-no" style="${thStyleAutofit}">NO</th>
+        <th class="col-type-seri" style="${thStyleAutofitLeft}">TYPE</th>
+        <th class="col-type-seri" style="${thStyleAutofitLeft}">SERI BARANG</th>
+        <th class="col-permintaan-alasan" style="${thStyleFlex50}">PERMINTAAN</th>
+        <th class="col-type-seri" style="${thStyleAutofitLeft}">SERI DUS</th>
+        <th class="col-permintaan-alasan" style="${thStyleFlex50}">ALASAN</th>
+        <th class="col-qty" style="${(showKetPartCol || canServiceRowActions) ? thStyleAutofit : thStyleAutofitLast}">QTY</th>
         ${thKetPartHtml}
         ${thActionHtml}
       </tr>
@@ -12075,12 +12102,12 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   ` : `
     <thead>
       <tr style="background: var(--primary) !important; color: #ffffff !important;">
-        <th style="${thStyleAutofit}">NO</th>
-        <th style="${thStyleLeft}">TYPE</th>
-        <th style="${thStyleLeft}">SERI BARANG</th>
-        <th style="${thStyleLeft}">PERMINTAAN</th>
-        <th style="${thStyleLeft}">ALASAN</th>
-        <th style="${(showKetPartCol || canServiceRowActions) ? thStyleAutofit : thStyleAutofitLast}">QTY</th>
+        <th class="col-no" style="${thStyleAutofit}">NO</th>
+        <th class="col-type-seri" style="${thStyleAutofitLeft}">TYPE</th>
+        <th class="col-type-seri" style="${thStyleAutofitLeft}">SERI BARANG</th>
+        <th class="col-permintaan-alasan" style="${thStyleFlex50}">PERMINTAAN</th>
+        <th class="col-permintaan-alasan" style="${thStyleFlex50}">ALASAN</th>
+        <th class="col-qty" style="${(showKetPartCol || canServiceRowActions) ? thStyleAutofit : thStyleAutofitLast}">QTY</th>
         ${thKetPartHtml}
         ${thActionHtml}
       </tr>

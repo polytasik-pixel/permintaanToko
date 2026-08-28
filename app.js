@@ -11825,9 +11825,65 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     </thead>
   `;
 
+  
+  let fwBannerHtml = '';
+  if (req.forwardStatus === 'PENDING_APPROVAL') {
+    const userAreaList = currentUser && currentUser.area ? (typeof getUserAreaList === 'function' ? getUserAreaList(currentUser.area) : [String(currentUser.area).trim().toUpperCase()]) : [];
+    const targetAreaCode = String(req.forwardTargetArea || '').trim().toUpperCase();
+    const isTargetAreaUser = userAreaList.includes('ALL') || userAreaList.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, targetAreaCode) : a === targetAreaCode));
+    const isServiceOrAdmin = isServiceUser || isAdminUser;
+
+    if (isTargetAreaUser && isServiceOrAdmin) {
+      fwBannerHtml = `
+        <div class="fwAlertBanner" style="background: linear-gradient(135deg, #fffbeb, #fef3c7) !important; border: 1.5px solid #f59e0b !important; border-radius: 8px !important; padding: 10px 14px !important; margin: 6px 14px 10px 14px !important; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15) !important; display: flex !important; flex-direction: column !important; gap: 8px !important; flex-shrink: 0 !important;">
+          <div style="display: flex !important; align-items: center !important; justify-content: space-between !important; flex-wrap: wrap !important; gap: 8px !important;">
+            <div style="display: flex !important; align-items: center !important; gap: 8px !important; color: #92400e !important; font-size: 13px !important; font-weight: 800 !important;">
+              <span class="material-symbols-rounded" style="color: #d97706 !important; font-size: 20px !important;">forward_to_inbox</span>
+              <span>📩 PENGAJUAN FORWARD SERVICE AREA DITERIMA!</span>
+            </div>
+            <div style="display: flex !important; align-items: center !important; gap: 8px !important;">
+              <button type="button" onclick="setujuiForwardService('${req.noSurat}')" style="background: linear-gradient(135deg, #16a34a, #15803d) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 6px 14px !important; font-size: 12px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 6px !important; box-shadow: 0 3px 8px rgba(22, 163, 74, 0.3) !important;">
+                <span class="material-symbols-rounded" style="font-size: 16px !important;">check_circle</span> APPROVE FORWARD
+              </button>
+              <button type="button" onclick="tolakForwardService('${req.noSurat}')" style="background: linear-gradient(135deg, #dc2626, #b91c1c) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 6px 14px !important; font-size: 12px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 6px !important; box-shadow: 0 3px 8px rgba(220, 38, 38, 0.3) !important;">
+                <span class="material-symbols-rounded" style="font-size: 16px !important;">cancel</span> TOLAK FORWARD
+              </button>
+            </div>
+          </div>
+          <div style="font-size: 12px !important; color: #78350f !important; line-height: 1.4 !important;">
+            Dokumen ini diajukan <b>FORWARD</b> dari <b>Area ${req.forwardSourceArea || req.area}</b> ke <b>Service Area ${req.forwardTargetArea}</b> oleh <b>${req.forwardedBy || 'SERVICE'}</b>.<br>
+            <i>Catatan: "${req.forwardNotes || '-'}"</i><br>
+            <span style="font-size: 11px !important; opacity: 0.9 !important; color: #b45309 !important;">* Apabila disetujui (Approve), area resmi dokumen akan berpindah ke ${req.forwardTargetArea}. Total item barang TIDAK akan berubah.</span>
+          </div>
+        </div>
+      `;
+    } else {
+      fwBannerHtml = `
+        <div class="fwAlertBanner" style="background: linear-gradient(135deg, #eff6ff, #dbeafe) !important; border: 1.5px solid #3b82f6 !important; border-radius: 8px !important; padding: 10px 14px !important; margin: 6px 14px 10px 14px !important; display: flex !important; flex-direction: column !important; gap: 6px !important; flex-shrink: 0 !important;">
+          <div style="display: flex !important; align-items: center !important; gap: 8px !important; color: #1e40af !important; font-size: 13px !important; font-weight: 800 !important;">
+            <span class="material-symbols-rounded" style="color: #2563eb !important; font-size: 20px !important;">hourglass_top</span>
+            <span>⏳ PROSES FORWARD MENUNGGU APPROVAL</span>
+          </div>
+          <div style="font-size: 12px !important; color: #1e3a8a !important; line-height: 1.4 !important;">
+            Dokumen sedang diajukan Forward ke <b>Service Area ${req.forwardTargetArea}</b> oleh <b>${req.forwardedBy || 'SERVICE'}</b>.<br>
+            Menunggu konfirmasi Approval dari Tim Service Area ${req.forwardTargetArea}.
+          </div>
+        </div>
+      `;
+    }
+  } else if (req.forwardStatus === 'REJECTED') {
+    fwBannerHtml = `
+      <div class="fwAlertBanner" style="background: linear-gradient(135deg, #fef2f2, #fee2e2) !important; border: 1.5px solid #ef4444 !important; border-radius: 8px !important; padding: 8px 14px !important; margin: 6px 14px 10px 14px !important; font-size: 12px !important; color: #991b1b !important; flex-shrink: 0 !important;">
+        ⚠️ <b>FORWARD DITOLAK</b> oleh Tim Service Area ${req.forwardTargetArea || 'Tujuan'} (${req.forwardRejectedBy || '-'}). Alasan: <i>"${req.forwardRejectReason || '-'}"</i>
+      </div>
+    `;
+  }
+
+
   bodyBox.innerHTML = `
     <div class="popupCardBodyContainerV2" style="width: 100% !important; min-width: 0 !important; max-width: 100% !important; flex: 1 1 100% !important; height: 100% !important; min-height: 0 !important; padding: 4px 0px 0px 0px !important; padding-bottom: 0px !important; margin: 0 !important; display: flex !important; flex-direction: column !important; box-sizing: border-box !important; background: var(--bg-box) !important; border-radius: 0 0 5px 5px !important; overflow: hidden !important;">
       ${headerInfoHtml}
+      ${fwBannerHtml}
       
       <div class="tableCardV2 tableWrap" style="display: flex !important; flex-direction: column !important; flex: 1 1 0px !important; height: 100% !important; max-height: 100% !important; min-height: 0 !important; border: 1px solid var(--border-color) !important; border-radius: 0 !important; -webkit-clip-path: none !important; clip-path: none !important; overflow-x: auto !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-x pan-y !important; overscroll-behavior: contain !important; background: var(--bg-box) !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; margin: 4px 0 2mm 0 !important; margin-bottom: 2mm !important; position: relative !important;">
         <table class="detailTableV2" style="width: 100% !important; min-width: 100% !important; table-layout: auto !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 0 !important; padding: 0 !important;">
@@ -11969,6 +12025,8 @@ function tutupModalEditStatusPart() {
 window.tutupModalEditStatusPart = tutupModalEditStatusPart;
 
 // ----------------------------------------------------
+// -----------------------------------------------------
+// ----------------------------------------------------
 // FITUR FORWARD SERVICE AREA (TERUSKAN NOMOR SURAT KE SERVICE/CABANG LAIN)
 // ----------------------------------------------------
 function bukaModalForwardService(noSurat) {
@@ -11979,26 +12037,33 @@ function bukaModalForwardService(noSurat) {
   const titleText = document.getElementById('forwardPopupTitleText');
   if (inputNo) inputNo.value = targetNo;
   if (displayNo) displayNo.value = targetNo;
-  if (titleText) titleText.textContent = 'TERUSKAN PERMINTAAN';
+  if (titleText) titleText.textContent = 'TERUSKAN PERMINTAAN (FORWARD)';
 
   const areaSelect = document.getElementById('forwardServiceAreaSelect');
   const catatanInput = document.getElementById('forwardServiceCatatan');
   if (catatanInput) catatanInput.value = '';
 
   if (areaSelect) {
-    areaSelect.innerHTML = '<option value="">-- Pilih Service Area --</option>';
+    areaSelect.innerHTML = '<option value="">-- Pilih Service Area Tujuan --</option>';
     
+    // Ambil daftar area user yang sedang login saat ini (kecualikan area login dari pilihan)
+    const userAreaList = currentUser && currentUser.area ? (typeof getUserAreaList === 'function' ? getUserAreaList(currentUser.area) : [String(currentUser.area).trim().toUpperCase()]) : [];
+
     const defaultAreas = [
-      'TSM - TASIKMALAYA',
-      'BDG - BANDUNG',
-      'BDU - BANDUNG UTARA',
-      'SKB - SUKABUMI',
-      'SBN - SUBANG',
-      'CRB - CIREBON'
+      { code: 'TSM', label: 'TSM - TASIKMALAYA' },
+      { code: 'BDG', label: 'BDG - BANDUNG' },
+      { code: 'BDU', label: 'BDU - BANDUNG UTARA' },
+      { code: 'SKB', label: 'SKB - SUKABUMI' },
+      { code: 'SBN', label: 'SBN - SUBANG' },
+      { code: 'CRB', label: 'CRB - CIREBON' }
     ];
 
-    defaultAreas.forEach(da => {
-      areaSelect.innerHTML += `<option value="${da}">${da}</option>`;
+    defaultAreas.forEach(item => {
+      // KECUALIKAN AREA USER YANG SEDANG LOGIN (Sesuai instruksi user)
+      if (!userAreaList.includes('ALL') && userAreaList.includes(item.code)) {
+        return;
+      }
+      areaSelect.innerHTML += `<option value="${item.code}">${item.label}</option>`;
     });
   }
 
@@ -12028,7 +12093,7 @@ function prosesForwardService() {
   const inputNo = document.getElementById('forwardServiceNoSurat');
   const noSurat = inputNo ? inputNo.value.trim() : '';
   const areaSelect = document.getElementById('forwardServiceAreaSelect');
-  const newServiceArea = areaSelect ? areaSelect.value.trim() : '';
+  const selectedAreaVal = areaSelect ? areaSelect.value.trim() : '';
   const catatanInput = document.getElementById('forwardServiceCatatan');
   const catatan = catatanInput ? catatanInput.value.trim() : '';
 
@@ -12036,14 +12101,16 @@ function prosesForwardService() {
     showNotif('NOMOR SURAT TIDAK VALID!', 'warning');
     return;
   }
-  if (!newServiceArea) {
-    showNotif('HARAP PILIH SERVICE AREA!', 'warning');
+  if (!selectedAreaVal) {
+    showNotif('HARAP PILIH SERVICE AREA TUJUAN!', 'warning');
     return;
   }
 
-  showConfirm(`KONFIRMASI FORWARD SERVICE AREA\n\nYakin ingin meneruskan Surat #${noSurat} ke Service Area '${newServiceArea.toUpperCase()}'?`, async () => {
+  const targetAreaCode = selectedAreaVal.split('-')[0].trim().toUpperCase();
+
+  showConfirm(`KONFIRMASI PENGAJUAN FORWARD\n\nYakin ingin mengajukan Forward Surat #${noSurat} ke Service Area '${targetAreaCode}'?`, async () => {
     try {
-      showLoading('Meneruskan ke Service Area...');
+      showLoading('Mengirim Pengajuan Forward...');
       const requests = getRequestsFromDB();
       const targetNo = String(noSurat).trim().toUpperCase();
       const idx = requests.findIndex(r => r && (
@@ -12058,17 +12125,20 @@ function prosesForwardService() {
       }
 
       const req = requests[idx];
-      const prevArea = req.serviceArea || req.serviceUserName || 'SERVICE';
+      const sourceArea = req.area || (currentUser ? currentUser.area : 'BDG');
       
-      req.serviceArea = newServiceArea;
+      req.forwardStatus = 'PENDING_APPROVAL';
+      req.forwardTargetArea = targetAreaCode;
+      req.forwardSourceArea = sourceArea;
       req.forwardedBy = currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE';
       req.forwardedAt = new Date().toISOString();
+      req.forwardNotes = catatan;
 
       if (!req.log) req.log = [];
       req.log.push({
-        action: 'FORWARD_SERVICE_AREA',
+        action: 'PENGAJUAN_FORWARD_SERVICE',
         user: currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE',
-        notes: `Diteruskan dari '${prevArea}' ke Service Area '${newServiceArea}'${catatan ? '. Catatan: ' + catatan : ''}`,
+        notes: `Pengajuan Forward dari Area '${sourceArea}' ke Target Area '${targetAreaCode}'${catatan ? '. Catatan: ' + catatan : ''}`,
         time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
       });
 
@@ -12077,48 +12147,56 @@ function prosesForwardService() {
       if (typeof syncRealtimeToCentral === 'function') {
         syncRealtimeToCentral(req);
       }
+
       if (typeof supabase !== 'undefined' && supabase) {
-        supabase.from('permintaan_toko').update({
-          service_area: newServiceArea,
-          forwarded_by: req.forwardedBy,
-          forwarded_at: req.forwardedAt,
-          log: req.log,
-          updated_at: new Date().toISOString()
-        }).eq('no_surat', noSurat).then(() => {}, (e) => console.warn('[SUPABASE FORWARD UPDATE NOTICE]:', e));
+        try {
+          await supabase.from('permintaan_toko').update({
+            forward_status: 'PENDING_APPROVAL',
+            forward_target_area: targetAreaCode,
+            forward_source_area: sourceArea,
+            forwarded_by: req.forwardedBy,
+            forwarded_at: req.forwardedAt,
+            forward_notes: catatan,
+            log: req.log,
+            updated_at: new Date().toISOString()
+          }).eq('no_surat', noSurat);
+        } catch(eSb) { console.warn('[SUPABASE FORWARD SUBMIT ERR]:', eSb); }
       }
 
-      // 1. Tambah Notifikasi Sistem untuk Service Area Tujuan
+      // 1. TAMBAH NOTIFIKASI SISTEM KE TIM SERVICE AREA TUJUAN
       if (typeof tambahNotifikasiSistem === 'function') {
-        tambahNotifikasiSistem(['SERVICE'], newServiceArea, `SURAT #${noSurat} DARI ${req.toko} DITERUSKAN KE SERVICE AREA ${newServiceArea.toUpperCase()}${catatan ? '. CATATAN: ' + catatan : ''}`, noSurat);
+        tambahNotifikasiSistem(['SERVICE', 'ADMIN'], targetAreaCode, `PENGAJUAN FORWARD SURAT #${noSurat} DARI AREA ${sourceArea}: Diteruskan ke Area ${targetAreaCode}. Mohon Approval Service.`, noSurat);
       }
 
-      // 2. Kirim Notifikasi WA ke Tim Service di Service Area Tujuan
+      // 2. KIRIM NOTIFIKASI WA KE TIM SERVICE AREA TUJUAN
       try {
         const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
-        const targetServiceUsers = users.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS' || u.role === 'SERVICE') && (String(u.area || u.serviceArea || '').toUpperCase() === String(newServiceArea).toUpperCase() || u.area === 'ALL') && u.phone && u.phone !== '-');
+        const targetServiceUsers = users.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS' || u.role === 'SERVICE') && (isAreaMatch(u.area, targetAreaCode) || u.area === 'ALL') && u.phone && u.phone !== '-');
+        
         targetServiceUsers.forEach(srv => {
           const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
           if (typeof kirimNotifikasiWA === 'function') {
             kirimNotifikasiWA(srv.phone,
               `Yth. Bapak/Ibu *${srvName}*\n\n` +
-              `📩 *PEMBERITAHUAN FORWARD SURAT PERMINTAAN*\n` +
-              `Dokumen permintaan barang berikut telah *DITERUSKAN (FORWARD)* ke Service Area Anda (*${newServiceArea.toUpperCase()}*):\n` +
+              `📩 *PENGAJUAN FORWARD SURAT PERMINTAAN*\n` +
+              `Dokumen permintaan berikut diajukan *FORWARD* ke Service Area Anda (*${targetAreaCode}*):\n` +
               `• Nomor Dokumen : *#${noSurat}*\n` +
-              `• Toko / Pemohon : *${req.toko}* (${req.area || '-'})\n` +
-              `• Diteruskan Oleh : *${req.forwardedBy}*\n` +
+              `• Toko / Pemohon : *${req.toko}* (Area Asal: ${sourceArea})\n` +
+              `• Area Asal : *${sourceArea}*\n` +
+              `• Pengaju Forward : *${req.forwardedBy}*\n` +
               `• Catatan Forward : *${catatan || '-'}*\n` +
               `• Link Detail : ${typeof getAppDirectLink === 'function' ? getAppDirectLink(noSurat) : ''}\n\n` +
-              `Silakan buka sistem aplikasi untuk memproses dokumen permintaan tersebut. Terima kasih.`
+              `Silakan buka aplikasi untuk menyetujui (Approve) atau menolak pengajuan Forward ini. Terima kasih.`
             );
           }
         });
-      } catch(e) {
-        console.warn('[FORWARD WA NOTIF WARNING]:', e);
+      } catch(eWa) {
+        console.warn('[FORWARD WA NOTIF WARNING]:', eWa);
       }
 
       hideLoading();
       tutupModalForwardService();
-      showNotif(`SURAT #${noSurat} BERHASIL DITERUSKAN KE SERVICE AREA '${newServiceArea.toUpperCase()}'!`, 'success');
+      showNotif(`PENGAJUAN FORWARD SURAT #${noSurat} KE AREA '${targetAreaCode}' BERHASIL DIKIRIM!`, 'success');
 
       if (typeof loadRiwayat === 'function') loadRiwayat();
       if (typeof loadDashboard === 'function') loadDashboard();
@@ -12126,11 +12204,226 @@ function prosesForwardService() {
     } catch (err) {
       hideLoading();
       console.error('[FORWARD SERVICE ERROR]:', err);
-      showNotif('GAGAL MENERUSKAN SURAT: ' + (err.message || err), 'error');
+      showNotif('GAGAL MENGAJUKAN FORWARD: ' + (err.message || err), 'error');
     }
   });
 }
 window.prosesForwardService = prosesForwardService;
+
+async function setujuiForwardService(noSurat) {
+  if (!noSurat) return;
+  const targetNo = String(noSurat).trim().toUpperCase();
+
+  showConfirm(`KONFIRMASI APPROVAL FORWARD\n\nYakin ingin SETUJU (APPROVE) Forward Surat #${targetNo}? Area resmi dokumen akan berpindah ke Service Area Anda. Total item barang TIDAK akan berubah.`, async () => {
+    try {
+      showLoading('Memproses Approval Forward...');
+      const requests = getRequestsFromDB();
+      const idx = requests.findIndex(r => r && (
+        String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+        String(r.id || '').trim().toUpperCase() === targetNo
+      ));
+
+      if (idx === -1) {
+        hideLoading();
+        showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+        return;
+      }
+
+      const req = requests[idx];
+      const newArea = req.forwardTargetArea || (currentUser ? currentUser.area : 'SERVICE');
+      const sourceArea = req.forwardSourceArea || req.area || 'BDG';
+      const approverName = currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE';
+
+      // 1. DOKUMEN RESMI BERPINDAH AREA SEKARANG KETIKA DI-APPROVE!
+      req.area = newArea;
+      req.serviceArea = newArea;
+      req.forwardStatus = 'APPROVED';
+      req.forwardApprovedBy = approverName;
+      req.forwardApprovedAt = new Date().toISOString();
+
+      // Log aktivitas
+      if (!req.log) req.log = [];
+      req.log.push({
+        action: 'APPROVE_FORWARD_SERVICE',
+        user: approverName,
+        notes: `Forward DISETUJUI oleh '${approverName}'. Area dokumen resmi berpindah dari '${sourceArea}' ke Service Area '${newArea}'`,
+        time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+      });
+
+      saveRequestsToDB(requests);
+
+      if (typeof syncRealtimeToCentral === 'function') {
+        syncRealtimeToCentral(req);
+      }
+
+      if (typeof supabase !== 'undefined' && supabase) {
+        try {
+          await supabase.from('permintaan_toko').update({
+            area: newArea,
+            service_area: newArea,
+            forward_status: 'APPROVED',
+            forward_approved_by: approverName,
+            forward_approved_at: req.forwardApprovedAt,
+            log: req.log,
+            updated_at: new Date().toISOString()
+          }).eq('no_surat', targetNo);
+        } catch(eSb) { console.warn('[SUPABASE APPROVE FORWARD ERR]:', eSb); }
+      }
+
+      // Notifikasi Sistem ke Area Asal
+      if (typeof tambahNotifikasiSistem === 'function') {
+        tambahNotifikasiSistem(['SERVICE', 'ADMIN'], sourceArea, `FORWARD SURAT #${targetNo} DISETUJUI oleh Tim Service ${newArea}. Area dokumen resmi kini di ${newArea}.`, targetNo);
+      }
+
+      // Notifikasi WA ke Tim Service Area Asal
+      try {
+        const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+        const sourceServiceUsers = users.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS' || u.role === 'SERVICE') && (isAreaMatch(u.area, sourceArea) || u.area === 'ALL') && u.phone && u.phone !== '-');
+        
+        sourceServiceUsers.forEach(srv => {
+          const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
+          if (typeof kirimNotifikasiWA === 'function') {
+            kirimNotifikasiWA(srv.phone,
+              `Yth. Bapak/Ibu *${srvName}*\n\n` +
+              `✅ *FORWARD SURAT PERMINTAAN DISETUJUI*\n` +
+              `Pengajuan Forward Surat Permintaan ke Service Area *${newArea}* telah *DISETUJUI (APPROVED)*:\n` +
+              `• Nomor Dokumen : *#${targetNo}*\n` +
+              `• Toko / Pemohon : *${req.toko}*\n` +
+              `• Area Baru : *${newArea}*\n` +
+              `• Disetujui Oleh : *${approverName}*\n` +
+              `• Link Detail : ${typeof getAppDirectLink === 'function' ? getAppDirectLink(targetNo) : ''}\n\n` +
+              `Dokumen resmi kini telah berpindah dan dikelola oleh Service Area ${newArea}. Terima kasih.`
+            );
+          }
+        });
+      } catch(eWa) { console.warn('[APPROVE FORWARD WA ERR]:', eWa); }
+
+      hideLoading();
+      showNotif(`FORWARD SURAT #${targetNo} BERHASIL DISETUJUI! AREA DOKUMEN BERPINDAH KE ${newArea}`, 'success');
+
+      if (typeof loadRiwayat === 'function') loadRiwayat();
+      if (typeof loadDashboard === 'function') loadDashboard();
+      if (typeof lihatDetail === 'function') lihatDetail(targetNo, true);
+    } catch(err) {
+      hideLoading();
+      console.error('[APPROVE FORWARD ERR]:', err);
+      showNotif('GAGAL APPROVE FORWARD: ' + (err.message || err), 'error');
+    }
+  });
+}
+window.setujuiForwardService = setujuiForwardService;
+
+async function tolakForwardService(noSurat) {
+  if (!noSurat) return;
+  const targetNo = String(noSurat).trim().toUpperCase();
+
+  const reason = prompt('Masukkan alasan penolakan Forward:');
+  if (reason === null) return;
+
+  const rejectReason = String(reason || 'Ditolak oleh Tim Service Tujuan').trim();
+
+  showConfirm(`KONFIRMASI TOLAK FORWARD\n\nYakin ingin MENOLAK Forward Surat #${targetNo}? Dokumen akan tetap berada di Area Asal.`, async () => {
+    try {
+      showLoading('Memproses Penolakan Forward...');
+      const requests = getRequestsFromDB();
+      const idx = requests.findIndex(r => r && (
+        String(r.noSurat || '').trim().toUpperCase() === targetNo ||
+        String(r.id || '').trim().toUpperCase() === targetNo
+      ));
+
+      if (idx === -1) {
+        hideLoading();
+        showNotif('DATA PERMINTAAN TIDAK DITEMUKAN!', 'warning');
+        return;
+      }
+
+      const req = requests[idx];
+      const sourceArea = req.forwardSourceArea || req.area || 'BDG';
+      const targetArea = req.forwardTargetArea || 'SERVICE';
+      const rejecterName = currentUser ? (currentUser.fullName || currentUser.username) : 'SERVICE';
+
+      req.forwardStatus = 'REJECTED';
+      req.forwardRejectedBy = rejecterName;
+      req.forwardRejectedAt = new Date().toISOString();
+      req.forwardRejectReason = rejectReason;
+
+      // Log aktivitas
+      if (!req.log) req.log = [];
+      req.log.push({
+        action: 'REJECT_FORWARD_SERVICE',
+        user: rejecterName,
+        notes: `Forward DITOLAK oleh '${rejecterName}' (Target Area '${targetArea}'). Alasan: ${rejectReason}`,
+        time: `${getFormattedDateDDMMYYYY()} ${new Date().toLocaleTimeString('id-ID')}`
+      });
+
+      saveRequestsToDB(requests);
+
+      if (typeof syncRealtimeToCentral === 'function') {
+        syncRealtimeToCentral(req);
+      }
+
+      if (typeof supabase !== 'undefined' && supabase) {
+        try {
+          await supabase.from('permintaan_toko').update({
+            forward_status: 'REJECTED',
+            forward_rejected_by: rejecterName,
+            forward_rejected_at: req.forwardRejectedAt,
+            forward_reject_reason: rejectReason,
+            log: req.log,
+            updated_at: new Date().toISOString()
+          }).eq('no_surat', targetNo);
+        } catch(eSb) { console.warn('[SUPABASE REJECT FORWARD ERR]:', eSb); }
+      }
+
+      // Notifikasi Sistem ke Area Asal
+      if (typeof tambahNotifikasiSistem === 'function') {
+        tambahNotifikasiSistem(['SERVICE', 'ADMIN'], sourceArea, `FORWARD SURAT #${targetNo} DITOLAK oleh Tim Service ${targetArea}. Alasan: ${rejectReason}`, targetNo);
+      }
+
+      // Notifikasi WA ke Tim Service Area Asal
+      try {
+        const users = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+        const sourceServiceUsers = users.filter(u => u && (u.category === 'SERVICE' || u.category === 'HODS' || u.role === 'SERVICE') && (isAreaMatch(u.area, sourceArea) || u.area === 'ALL') && u.phone && u.phone !== '-');
+        
+        sourceServiceUsers.forEach(srv => {
+          const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
+          if (typeof kirimNotifikasiWA === 'function') {
+            kirimNotifikasiWA(srv.phone,
+              `Yth. Bapak/Ibu *${srvName}*\n\n` +
+              `❌ *FORWARD SURAT PERMINTAAN DITOLAK*
+` +
+              `Pengajuan Forward Surat Permintaan ke Service Area *${targetArea}* telah *DITOLAK*:
+` +
+              `• Nomor Dokumen : *#${targetNo}*
+` +
+              `• Toko / Pemohon : *${req.toko}*
+` +
+              `• Ditolak Oleh : *${rejecterName}*
+` +
+              `• Alasan Penolakan : *${rejectReason}*
+` +
+              `• Link Detail : ${typeof getAppDirectLink === 'function' ? getAppDirectLink(noSurat) : ''}
+\n` +
+              `Dokumen tetap berada di Service Area ${sourceArea}. Terima kasih.`
+            );
+          }
+        });
+      } catch(eWa) { console.warn('[REJECT FORWARD WA ERR]:', eWa); }
+
+      hideLoading();
+      showNotif(`FORWARD SURAT #${targetNo} DITOLAK. ALASAN: ${rejectReason}`, 'warning');
+
+      if (typeof loadRiwayat === 'function') loadRiwayat();
+      if (typeof loadDashboard === 'function') loadDashboard();
+      if (typeof lihatDetail === 'function') lihatDetail(targetNo, true);
+    } catch(err) {
+      hideLoading();
+      console.error('[REJECT FORWARD ERR]:', err);
+      showNotif('GAGAL TOLAK FORWARD: ' + (err.message || err), 'error');
+    }
+  });
+}
+window.tolakForwardService = tolakForwardService;
 
 
 function simpanStatusPart() {

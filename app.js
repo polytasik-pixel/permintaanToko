@@ -1947,30 +1947,28 @@ function getAccessibleNotifications() {
     return true;
   });
 
-  // SISIPKAN NOTIFIKASI FORWARD PENDING DYNAMIC JIKA BELUM TERESAP DI LIST
-  const userCatForFw = String(currentUser.category || '').toUpperCase();
-  const isServiceOrAdminForFw = userCatForFw === 'SERVICE' || isSysAdmin;
-  const userAreaListForFw = currentUser && currentUser.area ? (typeof getUserAreaList === 'function' ? getUserAreaList(currentUser.area) : [String(currentUser.area).trim().toUpperCase()]) : [];
-
-  if (isServiceOrAdminForFw && Array.isArray(requests)) {
+  // SISIPKAN NOTIFIKASI FORWARD PENDING DYNAMIC UNTUK PENERIMA AREA TUJUAN (SELALU MUNCUL BADGE MERAH UNREAD SELAMA PENDING)
+  if (Array.isArray(requests)) {
     requests.forEach(r => {
       if (r && r.forwardStatus === 'PENDING_APPROVAL' && r.noSurat) {
-        const targetAreaCode = String(r.forwardTargetArea || '').trim().toUpperCase();
-        const isTargetAreaUser = userAreaListForFw.includes('ALL') || userAreaListForFw.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, targetAreaCode) : a === targetAreaCode));
-        if (isTargetAreaUser) {
-          const alreadyInFiltered = filtered.some(n => n && String(n.noSurat || '').trim().toUpperCase() === String(r.noSurat).trim().toUpperCase() && String(n.message || '').toUpperCase().includes('FORWARD'));
-          if (!alreadyInFiltered) {
-            filtered.unshift({
-              id: `NTF-FW-${r.noSurat}`,
-              targetRoles: ['SERVICE', 'ADMIN'],
-              targetArea: targetAreaCode,
-              message: `PENGAJUAN FORWARD SURAT #${r.noSurat} DARI AREA ${r.forwardSourceArea || r.area || '-'}: Diteruskan ke Area ${targetAreaCode}. Mohon Approval Service.`,
-              noSurat: r.noSurat,
-              time: r.forwardedAt ? `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY(new Date(r.forwardedAt)) : ''} ${new Date(r.forwardedAt).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}` : 'PENDING APPROVAL',
-              readBy: [],
-              timestamp: r.forwardedAt ? new Date(r.forwardedAt).getTime() : Date.now()
-            });
-          }
+        const isReceiver = typeof isTargetAreaReceiver === 'function' ? isTargetAreaReceiver(currentUser, r) : false;
+        if (isReceiver) {
+          const targetAreaCode = String(r.forwardTargetArea || '').trim().toUpperCase();
+          const noSuratClean = String(r.noSurat).trim().toUpperCase();
+
+          // Hapus notifikasi statis lama terkait surat ini agar tidak tertimpa status sudah dibaca
+          filtered = filtered.filter(n => !(n && String(n.noSurat || '').trim().toUpperCase() === noSuratClean && String(n.message || '').toUpperCase().includes('FORWARD')));
+
+          filtered.unshift({
+            id: `NTF-FW-${r.noSurat}`,
+            targetRoles: ['SERVICE', 'ADMIN', 'TOKO'],
+            targetArea: targetAreaCode,
+            message: `📩 PENGAJUAN FORWARD SURAT #${r.noSurat} DARI AREA ${r.forwardSourceArea || r.area || '-'}: Diteruskan ke Area ${targetAreaCode}. Mohon Approval Service.`,
+            noSurat: r.noSurat,
+            time: r.forwardedAt ? `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY(new Date(r.forwardedAt)) : ''} ${new Date(r.forwardedAt).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}` : 'PENDING APPROVAL',
+            readBy: [], // Kosong agar badge lonceng notifikasi MERAH selalu aktif selama status PENDING_APPROVAL
+            timestamp: r.forwardedAt ? new Date(r.forwardedAt).getTime() : Date.now()
+          });
         }
       }
     });
@@ -2097,10 +2095,7 @@ function loadNotificationList() {
         String(r.id || '').trim().toUpperCase() === nsClean
       ));
       if (reqObj && reqObj.forwardStatus === 'PENDING_APPROVAL') {
-        const targetAreaCode = String(reqObj.forwardTargetArea || n.targetArea || '').trim().toUpperCase();
-        const isTargetAreaUser = userAreaList.includes('ALL') || userAreaList.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, targetAreaCode) : a === targetAreaCode));
-        const isServiceOrAdmin = (userCatStr === 'SERVICE' || isSysAdmin);
-        if (isTargetAreaUser && isServiceOrAdmin) {
+        if (typeof isTargetAreaReceiver === 'function' && isTargetAreaReceiver(currentUser, reqObj)) {
           isFwPendingNotif = true;
         }
       }
@@ -2608,6 +2603,34 @@ const AREA_MAP = {
   TSM: 'TASIKMALAYA (TSM)'
 };
 
+
+function cleanAreaString(areaInput) {
+  if (!areaInput) return 'BDG';
+  if (Array.isArray(areaInput)) {
+    const valid = ['BDG', 'BDU', 'CRB', 'SKB', 'SBN', 'TSM', 'BGR'];
+    const filtered = Array.from(new Set(areaInput.map(a => String(a).trim().toUpperCase()).filter(Boolean)));
+    if (filtered.includes('ALL')) return 'ALL';
+    const indiv = filtered.filter(a => valid.includes(a));
+    if (indiv.length === 0) return 'BDG';
+    if (valid.every(v => indiv.includes(v))) return 'ALL';
+    return indiv.join(', ');
+  }
+
+  const str = String(areaInput).trim().toUpperCase();
+  if (str === 'ALL' || str === 'SEMUA') return 'ALL';
+
+  const parts = str.split(/[,&/+\s]+/).map(p => p.trim()).filter(Boolean);
+  if (parts.includes('ALL')) return 'ALL';
+
+  const valid = ['BDG', 'BDU', 'CRB', 'SKB', 'SBN', 'TSM', 'BGR'];
+  const uniqueParts = Array.from(new Set(parts)).filter(p => valid.includes(p));
+
+  if (uniqueParts.length === 0) return 'BDG';
+  if (valid.every(v => uniqueParts.includes(v))) return 'ALL';
+  return uniqueParts.join(', ');
+}
+window.cleanAreaString = cleanAreaString;
+
 function getUserAreaList(areaInput) {
   if (!areaInput) return [];
   if (Array.isArray(areaInput)) return areaInput.map(a => String(a).trim().toUpperCase()).filter(Boolean);
@@ -2619,6 +2642,28 @@ function getUserAreaList(areaInput) {
   return parts;
 }
 window.getUserAreaList = getUserAreaList;
+
+
+function isTargetAreaReceiver(currentUserObj, reqObj) {
+  if (!currentUserObj || !reqObj) return false;
+  const isSysAdmin = (currentUserObj.category === 'ADMIN' || (currentUserObj.username && String(currentUserObj.username).trim().toUpperCase() === 'ADMIN'));
+  if (isSysAdmin) return true;
+
+  const targetAreaCode = String(reqObj.forwardTargetArea || reqObj.targetArea || '').trim().toUpperCase();
+  const sourceAreaCode = String(reqObj.forwardSourceArea || reqObj.area || '').trim().toUpperCase();
+
+  if (!targetAreaCode) return false;
+
+  const userAreas = currentUserObj.area ? (typeof getUserAreaList === 'function' ? getUserAreaList(currentUserObj.area) : [String(currentUserObj.area).trim().toUpperCase()]) : [];
+
+  if (userAreas.includes('ALL')) return true;
+
+  const matchesTarget = userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, targetAreaCode) : a === targetAreaCode));
+  const matchesSourceOnly = !matchesTarget && userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, sourceAreaCode) : a === sourceAreaCode));
+
+  return matchesTarget && !matchesSourceOnly;
+}
+window.isTargetAreaReceiver = isTargetAreaReceiver;
 
 function isAreaMatch(userArea, targetArea) {
   if (!userArea || !targetArea) return false;
@@ -3733,7 +3778,8 @@ function formatSupabaseRequestRow(row) {
     items: Array.isArray(row.items) ? row.items : (typeof row.items === 'string' ? JSON.parse(row.items || '[]') : []),
     photos: parsePhotosArray(row.photos || row.foto),
     artemisPhotos: parsePhotosArray(row.artemis_photos || row.artemisPhotos),
-    buktiPermintaan: parsePhotosArray(row.bukti_permintaan || row.buktiPermintaan),
+    buktiPermintaan: parsePhotosArray(row.bukti_permintaan || row.buktiPermintaan || row.bukti_penerimaan || row.buktiPenerimaan),
+    buktiPenerimaan: parsePhotosArray(row.bukti_penerimaan || row.buktiPenerimaan || row.bukti_permintaan || row.buktiPermintaan),
     status: row.status || 'PENDING',
     serviceApprove: row.service_approve !== undefined ? !!row.service_approve : !!row.serviceApprove,
     serviceUserName: row.service_user_name || row.serviceUserName || '',
@@ -3744,7 +3790,20 @@ function formatSupabaseRequestRow(row) {
     createdBy: row.created_by || row.createdBy || '',
     createdAt: row.created_at || row.createdAt || '',
     userId: row.user_id || row.userId || '',
-    log: Array.isArray(row.log) ? row.log : (typeof row.log === 'string' ? JSON.parse(row.log || '[]') : [])
+    log: Array.isArray(row.log) ? row.log : (typeof row.log === 'string' ? JSON.parse(row.log || '[]') : []),
+
+    // FORWARD FIELDS
+    forwardStatus: row.forward_status || row.forwardStatus || '',
+    forwardTargetArea: row.forward_target_area || row.forwardTargetArea || '',
+    forwardSourceArea: row.forward_source_area || row.forwardSourceArea || '',
+    forwardNotes: row.forward_notes || row.forwardNotes || '',
+    forwardedBy: row.forwarded_by || row.forwardedBy || '',
+    forwardedAt: row.forwarded_at || row.forwardedAt || '',
+    forwardApprovedBy: row.forward_approved_by || row.forwardApprovedBy || '',
+    forwardApprovedAt: row.forward_approved_at || row.forwardApprovedAt || '',
+    forwardRejectedBy: row.forward_rejected_by || row.forwardRejectedBy || '',
+    forwardRejectedAt: row.forward_rejected_at || row.forwardRejectedAt || '',
+    forwardRejectReason: row.forward_reject_reason || row.forwardRejectReason || ''
   };
 }
 
@@ -3753,20 +3812,32 @@ function isRequestVisibleToCurrentUser(r) {
   if (!currentUser || !r) return true;
   const cat = String(currentUser.category || '').toUpperCase();
   const userArea = String(currentUser.area || '').toUpperCase();
+  const userAreas = typeof getUserAreaList === 'function' ? getUserAreaList(userArea) : [userArea];
 
-  if (cat === 'ADMIN') return true;
-  if (cat === 'SERVICE') {
-    if (userArea === 'ALL' || userArea === 'TSM') return true;
-    return String(r.area || '').toUpperCase() === userArea;
+  if (cat === 'ADMIN' || userAreas.includes('ALL')) return true;
+
+  const reqArea = String(r.area || '').toUpperCase();
+  const fwTarget = String(r.forwardTargetArea || r.forward_target_area || '').toUpperCase();
+  const fwSource = String(r.forwardSourceArea || r.forward_source_area || '').toUpperCase();
+
+  // JIKA STATUS PENDING APPROVAL FORWARD: TAMPILKAN KEPADA AKUN AREA TUJUAN MAUPUN AREA PENGIRIM
+  if (r.forwardStatus === 'PENDING_APPROVAL' || r.forward_status === 'PENDING_APPROVAL') {
+    if (fwTarget && userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, fwTarget) : a === fwTarget))) {
+      return true;
+    }
+    if (fwSource && userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, fwSource) : a === fwSource))) {
+      return true;
+    }
   }
-  if (cat === 'DM') {
-    if (userArea === 'ALL') return true;
-    return String(r.area || '').toUpperCase() === userArea;
+
+  if (cat === 'SERVICE' || cat === 'DM') {
+    return userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, reqArea) : a === reqArea));
   }
+
   if (cat === 'TOKO') {
     if (r.userId && currentUser.id && String(r.userId) === String(currentUser.id)) return true;
     if (r.toko && currentUser.fullName && String(r.toko).trim().toUpperCase() === String(currentUser.fullName).trim().toUpperCase()) return true;
-    return false;
+    return userAreas.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, reqArea) : a === reqArea));
   }
   return true;
 }
@@ -4424,23 +4495,12 @@ async function syncSupabaseRequestsToLocalCache() {
 
       if (cat === 'TOKO') {
         query = query.or(`user_id.eq.${currentUser.id},toko.ilike.%${currentUser.fullName}%`);
-      } else if (cat === 'SERVICE') {
-        const areaList = typeof getUserAreaList === 'function' ? getUserAreaList(userArea) : [];
-        if (!areaList.includes('ALL') && areaList.length > 0 && !areaList.includes('TSM')) {
-          if (areaList.length === 1) {
-            query = query.eq('area', areaList[0]);
-          } else {
-            query = query.in('area', areaList);
-          }
-        }
-      } else if (cat === 'DM') {
+      } else if (cat === 'SERVICE' || cat === 'DM') {
         const areaList = typeof getUserAreaList === 'function' ? getUserAreaList(userArea) : [];
         if (!areaList.includes('ALL') && areaList.length > 0) {
-          if (areaList.length === 1) {
-            query = query.eq('area', areaList[0]);
-          } else {
-            query = query.in('area', areaList);
-          }
+          const areaConds = areaList.map(a => `area.eq.${a}`).join(',');
+          const fwTargetConds = areaList.map(a => `forward_target_area.eq.${a}`).join(',');
+          query = query.or(`${areaConds},${fwTargetConds}`);
         }
       }
     }
@@ -4542,8 +4602,26 @@ window.rebuildTtdMapFromUsers = rebuildTtdMapFromUsers;
 async function syncSupabaseUsersToLocalCache() {
   if (typeof supabase === 'undefined' || !supabase) return;
   try {
-    const { data: supaUsers, error } = await supabase.from('users').select('*');
-    if (!error && Array.isArray(supaUsers)) {
+    const { data: supaUsersRaw, error } = await supabase.from('users').select('*');
+    if (!error && Array.isArray(supaUsersRaw)) {
+      // DEDUPLIKASI BARIS SUPABASE BERDASARKAN USERNAME (AMBIL BARIS TERBARU AGAR SINKRON TOTAL)
+      const uniqueSupaMap = new Map();
+      supaUsersRaw.forEach(u => {
+        if (!u || !u.username) return;
+        const unameKey = String(u.username).trim().toUpperCase();
+        if (!uniqueSupaMap.has(unameKey)) {
+          uniqueSupaMap.set(unameKey, u);
+        } else {
+          const existingRow = uniqueSupaMap.get(unameKey);
+          const existingTime = new Date(existingRow.updated_at || existingRow.created_at || 0).getTime();
+          const newTime = new Date(u.updated_at || u.created_at || 0).getTime();
+          if (newTime >= existingTime) {
+            uniqueSupaMap.set(unameKey, u);
+          }
+        }
+      });
+      const supaUsers = Array.from(uniqueSupaMap.values());
+
       const existingLocal = getUsersFromDB();
       const existingMap = new Map();
       if (Array.isArray(existingLocal)) {
@@ -4582,7 +4660,7 @@ async function syncSupabaseUsersToLocalCache() {
           storeCode: String(u.store_code || u.storeCode || '').trim(),
           phone: String(u.phone || '').trim(),
           category: isMasterAdmin ? 'ADMIN' : String(u.category || 'TOKO').trim().toUpperCase(),
-          area: isMasterAdmin ? 'ALL' : String(u.area || 'BDG').trim().toUpperCase(),
+          area: isMasterAdmin ? 'ALL' : cleanAreaString(u.area),
           canPrintPdf: canPrint,
           canForward: canForward,
           can_forward: canForward,
@@ -4656,21 +4734,25 @@ async function simpanUserKeSupabase(userObj) {
   const client = (typeof supabase !== 'undefined' && supabase) ? supabase : null;
   if (!client || !userObj) return;
   try {
-    const username = String(userObj.username || userObj.id || '').trim();
-    if (!username) return;
+    const rawUsername = String(userObj.username || userObj.id || '').trim();
+    if (!rawUsername) return;
+    const username = rawUsername.toUpperCase();
+    const userId = userObj.id ? String(userObj.id).trim() : username;
 
     const userCanPrint = userObj.canPrintPdf === true || userObj.can_print_pdf === true || userObj.canPrintPdf === 'true' || userObj.can_print_pdf === 'true' || userObj.canPrintPdf === 1 || userObj.can_print_pdf === 1;
     const userCanForward = userObj.canForward !== false && userObj.can_forward !== false && userObj.canForward !== 'false' && userObj.can_forward !== 'false' && userObj.canForward !== 0 && userObj.can_forward !== 0;
 
+    const cleanAreaVal = typeof cleanAreaString === 'function' ? cleanAreaString(userObj.area) : String(userObj.area || 'BDG').trim().toUpperCase();
+
     const fullPayload = {
-      id: userObj.id || ('USR-' + username),
+      id: userId,
       username: username,
       password: String(userObj.password || '1').trim(),
       full_name: String(userObj.fullName || userObj.full_name || username).trim(),
       store_code: String(userObj.storeCode || userObj.store_code || '').trim().toUpperCase(),
       phone: String(userObj.phone || '-').trim(),
       category: String(userObj.category || 'TOKO').trim().toUpperCase(),
-      area: String(userObj.area || 'BDG').trim().toUpperCase(),
+      area: cleanAreaVal,
       can_print_pdf: userCanPrint,
       can_forward: userCanForward,
       ttd: userObj.ttd || '',
@@ -4688,33 +4770,23 @@ async function simpanUserKeSupabase(userObj) {
       }
     });
 
-    let { error: err1 } = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
-    if (err1 && sanitizedPayload.can_forward !== undefined) {
-      delete sanitizedPayload.can_forward;
-      if (_supabaseUserColumnsCache) {
-        _supabaseUserColumnsCache = _supabaseUserColumnsCache.filter(c => c !== 'can_forward');
+    // 1. UPDATE DAHULU SEMUA BARIS SUPABASE SECARA CASE-INSENSITIVE (ILIKE USERNAME & EQ ID)
+    const { data: u1 } = await client.from('users').update(sanitizedPayload).ilike('username', username).select();
+    const { data: u2 } = await client.from('users').update(sanitizedPayload).eq('id', userId).select();
+
+    const totalUpdated = (Array.isArray(u1) ? u1.length : 0) + (Array.isArray(u2) ? u2.length : 0);
+
+    // 2. JIKA BELUM ADA BARIS DI SUPABASE, LAKUKAN UPSERT
+    if (totalUpdated === 0) {
+      let { error: err1 } = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
+      if (err1 && sanitizedPayload.can_forward !== undefined) {
+        delete sanitizedPayload.can_forward;
+      }
+      if (err1 && sanitizedPayload.can_print_pdf !== undefined) {
+        delete sanitizedPayload.can_print_pdf;
+        await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
       }
     }
-    if (err1 && sanitizedPayload.can_print_pdf !== undefined) {
-      // Retrying without can_print_pdf if column does not exist in Supabase table
-      delete sanitizedPayload.can_print_pdf;
-      if (_supabaseUserColumnsCache) {
-        _supabaseUserColumnsCache = _supabaseUserColumnsCache.filter(c => c !== 'can_print_pdf');
-      }
-      const retryRes = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
-      err1 = retryRes.error;
-    }
-    if (!err1) return;
-
-    let { error: err2 } = await client.from('users').upsert(sanitizedPayload);
-    if (err2 && sanitizedPayload.can_print_pdf !== undefined) {
-      delete sanitizedPayload.can_print_pdf;
-      const retryRes2 = await client.from('users').upsert(sanitizedPayload);
-      err2 = retryRes2.error;
-    }
-    if (!err2) return;
-
-    await client.from('users').update(sanitizedPayload).eq('username', username).catch(() => {});
   } catch (e) {
     console.warn('[SUPABASE USER UPSERT EXCEPTION]:', e);
   }
@@ -4879,6 +4951,17 @@ function sanitizePermintaanTokoRow(r) {
     return sig;
   };
 
+  const formatTimestampOrNull = (val) => {
+    if (!val || typeof val !== 'string' || !val.trim()) return null;
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return null;
+      return d.toISOString();
+    } catch(e) {
+      return null;
+    }
+  };
+
   return {
     id: cleanId,
     no_surat: ns,
@@ -4890,7 +4973,8 @@ function sanitizePermintaanTokoRow(r) {
     items: Array.isArray(r.items) ? r.items : (typeof r.items === 'string' ? (JSON.parse(r.items || '[]')) : []),
     photos: Array.isArray(r.photos) ? r.photos : (typeof r.photos === 'string' ? (JSON.parse(r.photos || '[]')) : []),
     artemis_photos: Array.isArray(r.artemisPhotos || r.artemis_photos) ? (r.artemisPhotos || r.artemis_photos) : [],
-    bukti_permintaan: Array.isArray(r.buktiPermintaan || r.bukti_permintaan) ? (r.buktiPermintaan || r.bukti_permintaan) : [],
+    bukti_permintaan: Array.isArray(r.buktiPermintaan || r.bukti_permintaan || r.buktiPenerimaan || r.bukti_penerimaan) ? (r.buktiPermintaan || r.bukti_permintaan || r.buktiPenerimaan || r.bukti_penerimaan) : [],
+    bukti_penerimaan: Array.isArray(r.buktiPenerimaan || r.bukti_penerimaan || r.buktiPermintaan || r.bukti_permintaan) ? (r.buktiPenerimaan || r.bukti_penerimaan || r.buktiPermintaan || r.bukti_permintaan) : [],
     status: r.status || 'PENDING',
     service_approve: !!(r.serviceApprove || r.service_approve),
     service_user_name: r.serviceUserName || r.service_user_name || '',
@@ -4899,9 +4983,23 @@ function sanitizePermintaanTokoRow(r) {
     dm_ttd: sanitizeSig(r.dmTTD || r.dm_ttd || ''),
     pemohon_ttd: sanitizeSig(r.pemohonTTD || r.pemohon_ttd || r.tokoTTD || r.toko_ttd || ''),
     created_by: r.createdBy || r.created_by || '',
-    created_at: r.createdAt || r.created_at || new Date().toISOString(),
+    created_at: formatTimestampOrNull(r.createdAt || r.created_at) || new Date().toISOString(),
     user_id: r.userId || r.user_id || '',
     log: Array.isArray(r.log) ? r.log : (typeof r.log === 'string' ? (JSON.parse(r.log || '[]')) : []),
+
+    // FORWARD FIELDS UNTUK SINKRONISASI 100% KE SUPABASE CLOUD (TIMESTAMP HARUS NULL JIKA KOSONG)
+    forward_status: r.forwardStatus || r.forward_status || '',
+    forward_target_area: r.forwardTargetArea || r.forward_target_area || '',
+    forward_source_area: r.forwardSourceArea || r.forward_source_area || '',
+    forward_notes: r.forwardNotes || r.forward_notes || '',
+    forwarded_by: r.forwardedBy || r.forwarded_by || '',
+    forwarded_at: formatTimestampOrNull(r.forwardedAt || r.forwarded_at),
+    forward_approved_by: r.forwardApprovedBy || r.forward_approved_by || '',
+    forward_approved_at: formatTimestampOrNull(r.forwardApprovedAt || r.forward_approved_at),
+    forward_rejected_by: r.forwardRejectedBy || r.forward_rejected_by || '',
+    forward_rejected_at: formatTimestampOrNull(r.forwardRejectedAt || r.forward_rejected_at),
+    forward_reject_reason: r.forwardRejectReason || r.forward_reject_reason || '',
+
     updated_at: new Date().toISOString()
   };
 }
@@ -5348,13 +5446,13 @@ function normalizeUserList(users) {
       storeCode: String(user.storeCode || '').trim().toUpperCase(),
       phone: String(user.phone || '').trim(),
       category: String(user.category || 'TOKO').trim().toUpperCase(),
-      area: String(user.area || 'BDG').trim().toUpperCase(),
+      area: cleanAreaString(user.area),
       canPrintPdf: user.canPrintPdf !== undefined ? (user.canPrintPdf === true || user.canPrintPdf === 'true' || user.canPrintPdf === 1) : (user.can_print_pdf !== undefined ? (user.can_print_pdf === true || user.can_print_pdf === 'true' || user.can_print_pdf === 1) : false),
       ttd: user.ttd || ''
     };
 
     if (map.has(key)) {
-      map.set(key, { ...map.get(key), ...formatted });
+      map.set(key, { ...map.get(key), ...formatted, area: formatted.area });
     } else {
       map.set(key, formatted);
     }
@@ -7050,6 +7148,10 @@ async function prosesLogin() {
     if (user) {
       currentUser = user;
       const newMyToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      window._mySessionToken = newMyToken;
+      if (typeof sessionStorage !== 'undefined') {
+        try { sessionStorage.setItem('MY_SESSION_TOKEN', newMyToken); } catch(e) {}
+      }
       appStorage.setItem('MY_SESSION_TOKEN', newMyToken);
 
       if (user.theme) {
@@ -7165,7 +7267,7 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
   // 2. SALES, TOKO, ADMIN, & LAINNYA: Maksimal 1 Perangkat (1 Login)
   const maxAllowedLogins = isDMOrService ? 4 : 1;
 
-  const usernameKey = String(currentUser.username).replace(/[\/\.#$\[\]]/g, '_');
+  const usernameKey = String(currentUser.id || currentUser.username || '').replace(/[\/\.#$\[\]]/g, '_').toUpperCase();
   const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
   if (!rtdb) return;
 
@@ -7174,10 +7276,19 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
     _sessionTokenRealtimeRef = null;
   }
 
-  let myLocalToken = appStorage.getItem('MY_SESSION_TOKEN');
+  let myLocalToken = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('MY_SESSION_TOKEN')) || window._mySessionToken || appStorage.getItem('MY_SESSION_TOKEN');
   if (!myLocalToken) {
     myLocalToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    window._mySessionToken = myLocalToken;
+    if (typeof sessionStorage !== 'undefined') {
+      try { sessionStorage.setItem('MY_SESSION_TOKEN', myLocalToken); } catch(e) {}
+    }
     appStorage.setItem('MY_SESSION_TOKEN', myLocalToken);
+  } else {
+    window._mySessionToken = myLocalToken;
+    if (typeof sessionStorage !== 'undefined') {
+      try { sessionStorage.setItem('MY_SESSION_TOKEN', myLocalToken); } catch(e) {}
+    }
   }
 
   try {
@@ -7228,7 +7339,7 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
     const dbVal = snap.val();
     if (!dbVal) return;
 
-    const curActiveToken = appStorage.getItem('MY_SESSION_TOKEN');
+    const curActiveToken = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('MY_SESSION_TOKEN')) || window._mySessionToken || appStorage.getItem('MY_SESSION_TOKEN');
     if (!curActiveToken) return;
 
     let activeTokens = [];
@@ -7272,6 +7383,10 @@ function forceLogoutThisDevice(customMsg = 'AKUN ANDA TELAH DI-LOGOUT. SILAHKAN 
   }
 
   if (typeof stopPendingSoundAlert === 'function') stopPendingSoundAlert();
+  window._mySessionToken = null;
+  if (typeof sessionStorage !== 'undefined') {
+    try { sessionStorage.removeItem('MY_SESSION_TOKEN'); } catch(e) {}
+  }
   currentUser = null;
   appStorage.removeItem(SESSION_KEY);
   appStorage.removeItem('MY_SESSION_TOKEN');
@@ -9601,6 +9716,21 @@ function filterRiwayat() {
 
   data.forEach(r => {
     let aksi = '';
+
+    const role = currentUser ? (currentUser.category || '').toUpperCase() : '';
+    const isAdminUser = currentUser && (role === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
+
+    // BILA SURAT DALAM STATUS FORWARD PENDING APPROVAL: TAMPILKAN TOMBOL APPROVE/TOLAK PADA USER AREA TUJUAN / ADMIN
+    if (r && r.forwardStatus === 'PENDING_APPROVAL') {
+      const isReceiverRow = typeof isTargetAreaReceiver === 'function' ? isTargetAreaReceiver(currentUser, r) : false;
+      if (isReceiverRow) {
+        const targetAreaCodeRow = String(r.forwardTargetArea || '').trim().toUpperCase();
+        aksi += `
+          <button class="btnIcon btnApprove" onclick="setujuiForwardService('${r.noSurat}')" title="APPROVE FORWARD (TERIMA DOKUMEN KE AREA ${targetAreaCodeRow})"><span class="material-symbols-rounded">check_circle</span></button>
+          <button class="btnIcon btnReject" onclick="tolakForwardService('${r.noSurat}')" title="TOLAK FORWARD"><span class="material-symbols-rounded">cancel</span></button>
+        `;
+      }
+    }
 
     const isDeletedRow = (r.status === 'BATAL' || r.unfulfilled === true);
 
@@ -11960,12 +12090,8 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   
   let fwBannerHtml = '';
   if (req.forwardStatus === 'PENDING_APPROVAL') {
-    const userAreaList = currentUser && currentUser.area ? (typeof getUserAreaList === 'function' ? getUserAreaList(currentUser.area) : [String(currentUser.area).trim().toUpperCase()]) : [];
-    const targetAreaCode = String(req.forwardTargetArea || '').trim().toUpperCase();
-    const isTargetAreaUser = userAreaList.includes('ALL') || userAreaList.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, targetAreaCode) : a === targetAreaCode));
-    const isServiceOrAdmin = isServiceUser || isAdminUser;
-
-    if (isTargetAreaUser && isServiceOrAdmin) {
+    const isReceiverDetail = typeof isTargetAreaReceiver === 'function' ? isTargetAreaReceiver(currentUser, req) : false;
+    if (isReceiverDetail) {
       fwBannerHtml = `
         <div class="fwAlertBanner" style="background: linear-gradient(135deg, #fffbeb, #fef3c7) !important; border: 1.5px solid #f59e0b !important; border-radius: 8px !important; padding: 10px 14px !important; margin: 6px 14px 10px 14px !important; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15) !important; display: flex !important; flex-direction: column !important; gap: 8px !important; flex-shrink: 0 !important;">
           <div style="display: flex !important; align-items: center !important; justify-content: space-between !important; flex-wrap: wrap !important; gap: 8px !important;">
@@ -11973,14 +12099,14 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
               <span class="material-symbols-rounded" style="color: #d97706 !important; font-size: 20px !important;">forward_to_inbox</span>
               <span>📩 PENGAJUAN FORWARD SERVICE AREA DITERIMA!</span>
             </div>
-            <div style="display: flex !important; align-items: center !important; gap: 8px !important;">
-              <button type="button" onclick="setujuiForwardService('${req.noSurat}')" style="background: linear-gradient(135deg, #16a34a, #15803d) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 6px 14px !important; font-size: 12px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 6px !important; box-shadow: 0 3px 8px rgba(22, 163, 74, 0.3) !important;">
-                <span class="material-symbols-rounded" style="font-size: 16px !important;">check_circle</span> APPROVE FORWARD
-              </button>
-              <button type="button" onclick="tolakForwardService('${req.noSurat}')" style="background: linear-gradient(135deg, #dc2626, #b91c1c) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 6px 14px !important; font-size: 12px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 6px !important; box-shadow: 0 3px 8px rgba(220, 38, 38, 0.3) !important;">
-                <span class="material-symbols-rounded" style="font-size: 16px !important;">cancel</span> TOLAK FORWARD
-              </button>
-            </div>
+          <div style="display: flex !important; align-items: center !important; justify-content: center !important; gap: 12px !important; margin-top: 6px !important; width: 100% !important;">
+            <button type="button" onclick="setujuiForwardService('${req.noSurat}')" style="background: linear-gradient(135deg, #16a34a, #15803d) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 7px 18px !important; font-size: 12px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 6px !important; box-shadow: 0 3px 10px rgba(22, 163, 74, 0.3) !important;">
+              <span class="material-symbols-rounded" style="font-size: 17px !important;">check_circle</span> APPROVE FORWARD
+            </button>
+            <button type="button" onclick="tolakForwardService('${req.noSurat}')" style="background: linear-gradient(135deg, #dc2626, #b91c1c) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 7px 18px !important; font-size: 12px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 6px !important; box-shadow: 0 3px 10px rgba(220, 38, 38, 0.3) !important;">
+              <span class="material-symbols-rounded" style="font-size: 17px !important;">cancel</span> TOLAK FORWARD
+            </button>
+          </div>
           </div>
           <div style="font-size: 12px !important; color: #78350f !important; line-height: 1.4 !important;">
             Dokumen ini diajukan <b>FORWARD</b> dari <b>Area ${req.forwardSourceArea || req.area}</b> ke <b>Service Area ${req.forwardTargetArea}</b> oleh <b>${req.forwardedBy || 'SERVICE'}</b>.<br>
@@ -16527,6 +16653,26 @@ function hidePopupInnerLoading(targetContainerId) {
 }
 window.hidePopupInnerLoading = hidePopupInnerLoading;
 
+
+function handleUserFormAreaChange(changedCb) {
+  const allCheckbox = document.querySelector('input[name="uFormAreaCheck"][value="ALL"]');
+  const individualCheckboxes = Array.from(document.querySelectorAll('input[name="uFormAreaCheck"]')).filter(cb => cb.value !== 'ALL');
+
+  if (changedCb && changedCb.value === 'ALL') {
+    const isChecked = changedCb.checked;
+    individualCheckboxes.forEach(cb => {
+      cb.checked = isChecked;
+    });
+  } else {
+    // LOGIKA CENTANG SERAGAM: DI-CENTANG = TAMBAH AREA, DI-UNCENTANG = HAPUS AREA
+    if (allCheckbox) {
+      const allIndividualChecked = individualCheckboxes.every(cb => cb.checked);
+      allCheckbox.checked = allIndividualChecked;
+    }
+  }
+}
+window.handleUserFormAreaChange = handleUserFormAreaChange;
+
 function bukaUserModal(userId = null, btnElement = null) {
   if (typeof userId !== 'string' || userId.startsWith('[object') || userId === 'undefined') {
     userId = null;
@@ -16562,7 +16708,18 @@ function bukaUserModal(userId = null, btnElement = null) {
           if (document.getElementById('uFormCategory')) document.getElementById('uFormCategory').value = u.category || 'TOKO';
           if (document.getElementById('uFormCanPrintPdf')) document.getElementById('uFormCanPrintPdf').checked = !!u.canPrintPdf;
           if (document.getElementById('uFormCanForwardService')) document.getElementById('uFormCanForwardService').checked = u.canForward !== false && u.can_forward !== false;
-          targetAreas = typeof getUserAreaList === 'function' ? getUserAreaList(u.area) : [u.area || 'BDG'];
+          const rawArea = String(u.area || '').trim().toUpperCase();
+          const parsedList = typeof getUserAreaList === 'function' ? getUserAreaList(rawArea) : [rawArea];
+
+          if (parsedList.includes('ALL') || rawArea === 'ALL' || rawArea === 'SEMUA') {
+            targetAreas = ['BDG', 'BDU', 'CRB', 'SKB', 'SBN', 'TSM', 'BGR', 'ALL'];
+          } else {
+            targetAreas = [...parsedList];
+            const allIndiv = ['BDG', 'BDU', 'CRB', 'SKB', 'SBN', 'TSM', 'BGR'];
+            if (allIndiv.every(v => targetAreas.includes(v))) {
+              targetAreas.push('ALL');
+            }
+          }
           if (title) title.textContent = `EDIT USER: ${u.username}`;
         }
       } else {
@@ -16630,8 +16787,27 @@ async function simpanUserData(btnElement = null) {
   const canForward = !!(document.getElementById('uFormCanForwardService') && document.getElementById('uFormCanForwardService').checked);
   const docId = String(username).toUpperCase();
 
-  const checkedAreas = Array.from(document.querySelectorAll('input[name="uFormAreaCheck"]:checked')).map(cb => cb.value);
-  const area = checkedAreas.length > 0 ? checkedAreas.join(', ') : 'BDG';
+  // DAPATKAN DAFTAR AREA YANG CENTANG AKTIF SAAT INI (MEMPERBARUI / MENGGANTI TOTAL AREA LAMA)
+  const allCheckbox = document.querySelector('input[name="uFormAreaCheck"][value="ALL"]');
+  const checkedBoxes = Array.from(document.querySelectorAll('input[name="uFormAreaCheck"]:checked')).map(cb => cb.value);
+
+  // SINKRONKAN PERSIS DENGAN KONDISI CENTANG SAAT INI (CENTANG DITAMBAH = DISIMPAN, CENTANG DILEPAS = DIHAPUS)
+  let area = 'BDG';
+  if (allCheckbox && allCheckbox.checked) {
+    area = 'ALL';
+  } else {
+    const activeAreas = checkedBoxes.filter(v => v !== 'ALL');
+    const validAreas = ['BDG', 'BDU', 'CRB', 'SKB', 'SBN', 'TSM', 'BGR'];
+    const filteredActive = Array.from(new Set(activeAreas)).filter(v => validAreas.includes(v));
+
+    if (filteredActive.length === 0) {
+      area = 'BDG';
+    } else if (validAreas.every(v => filteredActive.includes(v))) {
+      area = 'ALL';
+    } else {
+      area = filteredActive.join(', ');
+    }
+  }
   const hiddenAreaInput = document.getElementById('uFormArea');
   if (hiddenAreaInput) hiddenAreaInput.value = area;
 
@@ -16680,18 +16856,46 @@ async function simpanUserData(btnElement = null) {
           const oldCategory = String(oldUser.category || '').trim().toUpperCase();
           const oldArea = String(oldUser.area || '').trim().toUpperCase();
 
+          // TIMPA DENGAN AREA BARU PADA SEMUA ENTRI USER DENGAN USERNAME/ID YANG SAMA (JANGAN SISA AREA LAMA)
+          const unameUpper = username.toUpperCase();
+          users.forEach((u, i) => {
+            if (u && ((u.id && String(u.id) === String(editId)) || (u.username && String(u.username).toUpperCase() === unameUpper))) {
+              users[i].username = username;
+              users[i].password = password;
+              users[i].fullName = fullName;
+              users[i].storeCode = storeCode;
+              users[i].phone = phone;
+              users[i].category = category;
+              users[i].area = area; // MURNI OVERWRITE DENGAN AREA BARU (CRB SAJA DLSB)
+              users[i].canPrintPdf = canPrintPdf;
+              users[i].canForward = canForward;
+              users[i].can_forward = canForward;
+            }
+          });
+
           if (!users[idx].id) users[idx].id = users[idx].username || docId;
-          users[idx].username = username;
-          users[idx].password = password;
-          users[idx].fullName = fullName;
-          users[idx].storeCode = storeCode;
-          users[idx].phone = phone;
-          users[idx].category = category;
           users[idx].area = area;
-          users[idx].canPrintPdf = canPrintPdf;
-          users[idx].canForward = canForward;
-          users[idx].can_forward = canForward;
-          saveUsersToDB(users, users[idx]);
+
+          // Hapus duplikat user jika ada dalam array lokal
+          const cleanedUsers = [];
+          const seenUnames = new Set();
+          users.forEach(u => {
+            if (!u || !u.username) return;
+            const key = String(u.username).toUpperCase();
+            if (key === unameUpper) {
+              if (!seenUnames.has(key)) {
+                seenUnames.add(key);
+                cleanedUsers.push(users[idx]);
+              }
+            } else {
+              if (!seenUnames.has(key)) {
+                seenUnames.add(key);
+                cleanedUsers.push(u);
+              }
+            }
+          });
+
+          saveUsersToDB(cleanedUsers, users[idx]);
           if (supabaseRealtimeChannel) {
             try {
               supabaseRealtimeChannel.send({

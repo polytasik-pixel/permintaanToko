@@ -2049,37 +2049,105 @@ function loadNotificationList() {
     return;
   }
 
+  const requestsList = (typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : []) || [];
+  const userCatStr = currentUser ? String(currentUser.category || '').toUpperCase() : '';
+  const userAreaList = currentUser && currentUser.area ? (typeof getUserAreaList === 'function' ? getUserAreaList(currentUser.area) : [String(currentUser.area).trim().toUpperCase()]) : [];
+
   userNotifs.forEach(n => {
     const isRead = n.readBy && (n.readBy.includes(currentUser.id) || n.readBy.includes(currentUser.username));
-    const item = document.createElement('div');
-    item.style.cssText = `
-      padding: 12px;
-      margin-bottom: 8px;
-      border-radius: 8px;
-      border: 1px solid var(--border-color);
-      background: ${isRead ? 'var(--bg-box)' : 'var(--bg-header)'};
-      cursor: pointer;
-      display: flex;
-      gap: 12px;
-      align-items: flex-start;
-      transition: background 0.2s;
-    `;
-    item.onclick = () => clickNotificationItem(n.id, n.noSurat);
 
-    item.innerHTML = `
-      <div style="width: 32px; height: 32px; border-radius: 50%; background: ${isRead ? '#64748b' : '#0284c7'}; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;">
-        <span class="material-symbols-rounded" style="font-size: 18px;">notifications</span>
-      </div>
-      <div style="flex: 1;">
-        <div style="font-size: 12.5px; font-weight: ${isRead ? '500' : '700'}; color: var(--text-main); line-height: 1.4;">
-          ${n.message}
+    let isFwPendingNotif = false;
+    let reqObj = null;
+
+    if (n && n.noSurat) {
+      const nsClean = String(n.noSurat).trim().toUpperCase();
+      reqObj = requestsList.find(r => r && (
+        String(r.noSurat || '').trim().toUpperCase() === nsClean ||
+        String(r.id || '').trim().toUpperCase() === nsClean
+      ));
+      if (reqObj && reqObj.forwardStatus === 'PENDING_APPROVAL') {
+        const targetAreaCode = String(reqObj.forwardTargetArea || n.targetArea || '').trim().toUpperCase();
+        const isTargetAreaUser = userAreaList.includes('ALL') || userAreaList.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, targetAreaCode) : a === targetAreaCode));
+        const isServiceOrAdmin = (userCatStr === 'SERVICE' || isSysAdmin);
+        if (isTargetAreaUser && isServiceOrAdmin) {
+          isFwPendingNotif = true;
+        }
+      }
+    }
+
+    const item = document.createElement('div');
+
+    if (isFwPendingNotif) {
+      item.style.cssText = `
+        padding: 12px;
+        margin-bottom: 8px;
+        border-radius: 8px;
+        border: 1.5px solid #f59e0b;
+        background: linear-gradient(135deg, #fffbeb, #fef3c7);
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        transition: background 0.2s;
+        box-shadow: 0 3px 10px rgba(245, 158, 11, 0.12);
+      `;
+      item.onclick = () => clickNotificationItem(n.id, n.noSurat);
+
+      item.innerHTML = `
+        <div style="display: flex; gap: 10px; align-items: flex-start; width: 100%;">
+          <div style="width: 32px; height: 32px; border-radius: 50%; background: #d97706; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;">
+            <span class="material-symbols-rounded" style="font-size: 18px;">forward_to_inbox</span>
+          </div>
+          <div style="flex: 1;">
+            <div style="font-size: 12.5px; font-weight: 800; color: #92400e; line-height: 1.4;">
+              ${n.message}
+            </div>
+            <div style="font-size: 11px; color: #b45309; margin-top: 4px; font-weight: 600;">
+              ${n.time || ''}
+            </div>
+          </div>
+          ${!isRead ? `<div style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; margin-top: 6px; flex-shrink: 0;"></div>` : ''}
         </div>
-        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-          ${n.time || ''}
+        <div style="display: flex; align-items: center; gap: 8px; justify-content: flex-end; width: 100%; padding-top: 6px; border-top: 1px dashed rgba(245, 158, 11, 0.4);" onclick="event.stopPropagation();">
+          <button type="button" onclick="event.stopPropagation(); setujuiForwardService('${n.noSurat}');" style="background: linear-gradient(135deg, #16a34a, #15803d) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 6px 14px !important; font-size: 11.5px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 4px !important; box-shadow: 0 2px 6px rgba(22, 163, 74, 0.3) !important;">
+            <span class="material-symbols-rounded" style="font-size: 15px !important;">check_circle</span> APPROVE FORWARD
+          </button>
+          <button type="button" onclick="event.stopPropagation(); tolakForwardService('${n.noSurat}');" style="background: linear-gradient(135deg, #dc2626, #b91c1c) !important; color: #ffffff !important; border: none !important; border-radius: 6px !important; padding: 6px 14px !important; font-size: 11.5px !important; font-weight: 800 !important; cursor: pointer !important; display: inline-flex !important; align-items: center !important; gap: 4px !important; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3) !important;">
+            <span class="material-symbols-rounded" style="font-size: 15px !important;">cancel</span> TOLAK FORWARD
+          </button>
         </div>
-      </div>
-      ${!isRead ? `<div style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; margin-top: 6px; flex-shrink: 0;"></div>` : ''}
-    `;
+      `;
+    } else {
+      item.style.cssText = `
+        padding: 12px;
+        margin-bottom: 8px;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: ${isRead ? 'var(--bg-box)' : 'var(--bg-header)'};
+        cursor: pointer;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        transition: background 0.2s;
+      `;
+      item.onclick = () => clickNotificationItem(n.id, n.noSurat);
+
+      item.innerHTML = `
+        <div style="width: 32px; height: 32px; border-radius: 50%; background: ${isRead ? '#64748b' : '#0284c7'}; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;">
+          <span class="material-symbols-rounded" style="font-size: 18px;">notifications</span>
+        </div>
+        <div style="flex: 1;">
+          <div style="font-size: 12.5px; font-weight: ${isRead ? '500' : '700'}; color: var(--text-main); line-height: 1.4;">
+            ${n.message}
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            ${n.time || ''}
+          </div>
+        </div>
+        ${!isRead ? `<div style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; margin-top: 6px; flex-shrink: 0;"></div>` : ''}
+      `;
+    }
+
     container.appendChild(item);
   });
 }
@@ -4465,6 +4533,15 @@ async function syncSupabaseUsersToLocalCache() {
           canPrint = (oldUser.canPrintPdf === true || oldUser.canPrintPdf === 'true' || oldUser.canPrintPdf === 1);
         }
 
+        let canForward = true;
+        if (u.can_forward !== undefined && u.can_forward !== null) {
+          canForward = (u.can_forward === true || u.can_forward === 'true' || u.can_forward === 1);
+        } else if (u.canForward !== undefined && u.canForward !== null) {
+          canForward = (u.canForward === true || u.canForward === 'true' || u.canForward === 1);
+        } else if (oldUser && oldUser.canForward !== undefined && oldUser.canForward !== null) {
+          canForward = (oldUser.canForward === true || oldUser.canForward === 'true' || oldUser.canForward === 1);
+        }
+
         const isMasterAdmin = (uname === 'ADMIN');
         return {
           id: u.id || uname,
@@ -4476,6 +4553,8 @@ async function syncSupabaseUsersToLocalCache() {
           category: isMasterAdmin ? 'ADMIN' : String(u.category || 'TOKO').trim().toUpperCase(),
           area: isMasterAdmin ? 'ALL' : String(u.area || 'BDG').trim().toUpperCase(),
           canPrintPdf: canPrint,
+          canForward: canForward,
+          can_forward: canForward,
           ttd: u.ttd || '',
           createdAt: u.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
         };
@@ -4539,7 +4618,7 @@ async function getSupabaseUserColumns(client) {
       return _supabaseUserColumnsCache;
     }
   } catch (e) {}
-  return ['id', 'username', 'password', 'full_name', 'store_code', 'phone', 'category', 'area', 'can_print_pdf', 'ttd', 'theme', 'bg_image', 'created_at', 'updated_at'];
+  return ['id', 'username', 'password', 'full_name', 'store_code', 'phone', 'category', 'area', 'can_print_pdf', 'can_forward', 'ttd', 'theme', 'bg_image', 'created_at', 'updated_at'];
 }
 
 async function simpanUserKeSupabase(userObj) {
@@ -4550,6 +4629,7 @@ async function simpanUserKeSupabase(userObj) {
     if (!username) return;
 
     const userCanPrint = userObj.canPrintPdf === true || userObj.can_print_pdf === true || userObj.canPrintPdf === 'true' || userObj.can_print_pdf === 'true' || userObj.canPrintPdf === 1 || userObj.can_print_pdf === 1;
+    const userCanForward = userObj.canForward !== false && userObj.can_forward !== false && userObj.canForward !== 'false' && userObj.can_forward !== 'false' && userObj.canForward !== 0 && userObj.can_forward !== 0;
 
     const fullPayload = {
       id: userObj.id || ('USR-' + username),
@@ -4561,6 +4641,7 @@ async function simpanUserKeSupabase(userObj) {
       category: String(userObj.category || 'TOKO').trim().toUpperCase(),
       area: String(userObj.area || 'BDG').trim().toUpperCase(),
       can_print_pdf: userCanPrint,
+      can_forward: userCanForward,
       ttd: userObj.ttd || '',
       theme: userObj.theme || 'dark-mode',
       bg_image: userObj.bg_image || '',
@@ -4577,6 +4658,12 @@ async function simpanUserKeSupabase(userObj) {
     });
 
     let { error: err1 } = await client.from('users').upsert(sanitizedPayload, { onConflict: 'id' });
+    if (err1 && sanitizedPayload.can_forward !== undefined) {
+      delete sanitizedPayload.can_forward;
+      if (_supabaseUserColumnsCache) {
+        _supabaseUserColumnsCache = _supabaseUserColumnsCache.filter(c => c !== 'can_forward');
+      }
+    }
     if (err1 && sanitizedPayload.can_print_pdf !== undefined) {
       // Retrying without can_print_pdf if column does not exist in Supabase table
       delete sanitizedPayload.can_print_pdf;
@@ -16424,6 +16511,7 @@ function bukaUserModal(userId = null, btnElement = null) {
           if (document.getElementById('uFormPhone')) document.getElementById('uFormPhone').value = u.phone || '';
           if (document.getElementById('uFormCategory')) document.getElementById('uFormCategory').value = u.category || 'TOKO';
           if (document.getElementById('uFormCanPrintPdf')) document.getElementById('uFormCanPrintPdf').checked = !!u.canPrintPdf;
+          if (document.getElementById('uFormCanForwardService')) document.getElementById('uFormCanForwardService').checked = u.canForward !== false && u.can_forward !== false;
           targetAreas = typeof getUserAreaList === 'function' ? getUserAreaList(u.area) : [u.area || 'BDG'];
           if (title) title.textContent = `EDIT USER: ${u.username}`;
         }
@@ -16435,6 +16523,7 @@ function bukaUserModal(userId = null, btnElement = null) {
         if (document.getElementById('uFormPhone')) document.getElementById('uFormPhone').value = '';
         if (document.getElementById('uFormCategory')) document.getElementById('uFormCategory').value = 'TOKO';
         if (document.getElementById('uFormCanPrintPdf')) document.getElementById('uFormCanPrintPdf').checked = false;
+        if (document.getElementById('uFormCanForwardService')) document.getElementById('uFormCanForwardService').checked = true;
         targetAreas = ['BDG'];
         if (title) title.textContent = 'TAMBAH USER BARU';
       }
@@ -16488,6 +16577,7 @@ async function simpanUserData(btnElement = null) {
   const phone = document.getElementById('uFormPhone').value.trim();
   const category = document.getElementById('uFormCategory').value;
   const canPrintPdf = !!(document.getElementById('uFormCanPrintPdf') && document.getElementById('uFormCanPrintPdf').checked);
+  const canForward = !!(document.getElementById('uFormCanForwardService') && document.getElementById('uFormCanForwardService').checked);
   const docId = String(username).toUpperCase();
 
   const checkedAreas = Array.from(document.querySelectorAll('input[name="uFormAreaCheck"]:checked')).map(cb => cb.value);
@@ -16549,6 +16639,8 @@ async function simpanUserData(btnElement = null) {
           users[idx].category = category;
           users[idx].area = area;
           users[idx].canPrintPdf = canPrintPdf;
+          users[idx].canForward = canForward;
+          users[idx].can_forward = canForward;
           saveUsersToDB(users, users[idx]);
           if (supabaseRealtimeChannel) {
             try {
@@ -16774,6 +16866,8 @@ async function simpanUserData(btnElement = null) {
         category,
         area,
         canPrintPdf,
+          canForward: canForward,
+          can_forward: canForward,
         createdAt: getFormattedDateDDMMYYYY()
       };
 

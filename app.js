@@ -1767,7 +1767,9 @@ function shouldEmitImportantNotification(targetRoles, targetArea, message, noSur
     'SELESAI (DONE)',
     'REMINDER PENDING',
     'BREAKDOWN',
-    'PARSIAL'
+    'PARSIAL',
+    'FORWARD',
+    'PENGAJUAN FORWARD'
   ];
 
   const containsImportant = importantPatterns.some(pattern => normalized.toUpperCase().includes(pattern));
@@ -1944,6 +1946,35 @@ function getAccessibleNotifications() {
 
     return true;
   });
+
+  // SISIPKAN NOTIFIKASI FORWARD PENDING DYNAMIC JIKA BELUM TERESAP DI LIST
+  const userCatForFw = String(currentUser.category || '').toUpperCase();
+  const isServiceOrAdminForFw = userCatForFw === 'SERVICE' || isSysAdmin;
+  const userAreaListForFw = currentUser && currentUser.area ? (typeof getUserAreaList === 'function' ? getUserAreaList(currentUser.area) : [String(currentUser.area).trim().toUpperCase()]) : [];
+
+  if (isServiceOrAdminForFw && Array.isArray(requests)) {
+    requests.forEach(r => {
+      if (r && r.forwardStatus === 'PENDING_APPROVAL' && r.noSurat) {
+        const targetAreaCode = String(r.forwardTargetArea || '').trim().toUpperCase();
+        const isTargetAreaUser = userAreaListForFw.includes('ALL') || userAreaListForFw.some(a => (typeof isAreaMatch === 'function' ? isAreaMatch(a, targetAreaCode) : a === targetAreaCode));
+        if (isTargetAreaUser) {
+          const alreadyInFiltered = filtered.some(n => n && String(n.noSurat || '').trim().toUpperCase() === String(r.noSurat).trim().toUpperCase() && String(n.message || '').toUpperCase().includes('FORWARD'));
+          if (!alreadyInFiltered) {
+            filtered.unshift({
+              id: `NTF-FW-${r.noSurat}`,
+              targetRoles: ['SERVICE', 'ADMIN'],
+              targetArea: targetAreaCode,
+              message: `PENGAJUAN FORWARD SURAT #${r.noSurat} DARI AREA ${r.forwardSourceArea || r.area || '-'}: Diteruskan ke Area ${targetAreaCode}. Mohon Approval Service.`,
+              noSurat: r.noSurat,
+              time: r.forwardedAt ? `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY(new Date(r.forwardedAt)) : ''} ${new Date(r.forwardedAt).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}` : 'PENDING APPROVAL',
+              readBy: [],
+              timestamp: r.forwardedAt ? new Date(r.forwardedAt).getTime() : Date.now()
+            });
+          }
+        }
+      }
+    });
+  }
 
   // JIKA USER DM / ADMIN: SISIPKAN 1 NOTIFIKASI KONSOLIDASI BREAKDOWN DENGAN JUMLAH DYNAMIS XXX (JIKA ADA BREAKDOWN PENDING > 0)
   if (isDMUser) {
@@ -6978,6 +7009,15 @@ async function prosesLogin() {
               canPrint = (existingUserLocal.canPrintPdf === true || existingUserLocal.canPrintPdf === 'true' || existingUserLocal.canPrintPdf === 1);
             }
 
+            let canForward = true;
+            if (su.can_forward !== undefined && su.can_forward !== null) {
+              canForward = (su.can_forward === true || su.can_forward === 'true' || su.can_forward === 1);
+            } else if (su.canForward !== undefined && su.canForward !== null) {
+              canForward = (su.canForward === true || su.canForward === 'true' || su.canForward === 1);
+            } else if (existingUserLocal && existingUserLocal.canForward !== undefined && existingUserLocal.canForward !== null) {
+              canForward = (existingUserLocal.canForward === true || existingUserLocal.canForward === 'true' || existingUserLocal.canForward === 1);
+            }
+
             user = {
               id: su.id,
               username: String(su.username || '').trim(),
@@ -6988,6 +7028,8 @@ async function prosesLogin() {
               category: String(su.category || 'TOKO').trim().toUpperCase(),
               area: String(su.area || 'BDG').trim().toUpperCase(),
               canPrintPdf: canPrint,
+              canForward: canForward,
+              can_forward: canForward,
               theme: su.theme || '',
               createdAt: su.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
             };
@@ -9582,9 +9624,10 @@ function filterRiwayat() {
             <button class="btnIcon btnReject" onclick="tolakServiceModal('${r.noSurat}', 'DM')" title="REJECT DM"><span class="material-symbols-rounded">cancel</span></button>
           `;
         } else if (r.status === 'APPROVE') {
+          const userCanFwRow = currentUser && (currentUser.canForward !== false && currentUser.can_forward !== false);
           aksi += `
             <button class="btnIcon btnDone" onclick="doneService('${r.noSurat}')" title="DONE"><span class="material-symbols-rounded">task_alt</span></button>
-            <button class="btnIcon" onclick="bukaModalForwardService('${r.noSurat}')" title="FORWARD SERVICE AREA" style="background: linear-gradient(135deg, #7c3aed, #6d28d9) !important; color: #ffffff !important;"><span class="material-symbols-rounded">forward</span></button>
+            ${userCanFwRow ? `<button class="btnIcon" onclick="bukaModalForwardService('${r.noSurat}')" title="FORWARD SERVICE AREA" style="background: linear-gradient(135deg, #7c3aed, #6d28d9) !important; color: #ffffff !important;"><span class="material-symbols-rounded">forward</span></button>` : ''}
           `;
         }
       } else if (role === 'SERVICE') {
@@ -9594,9 +9637,10 @@ function filterRiwayat() {
             <button class="btnIcon btnReject" onclick="tolakServiceModal('${r.noSurat}', 'SERVICE')" title="REJECT SERVICE"><span class="material-symbols-rounded">cancel</span></button>
           `;
         } else if (r.status === 'APPROVE') {
+          const userCanFwRow = currentUser && (currentUser.canForward !== false && currentUser.can_forward !== false);
           aksi += `
             <button class="btnIcon btnDone" onclick="doneService('${r.noSurat}')" title="DONE"><span class="material-symbols-rounded">task_alt</span></button>
-            <button class="btnIcon" onclick="bukaModalForwardService('${r.noSurat}')" title="FORWARD SERVICE AREA" style="background: linear-gradient(135deg, #7c3aed, #6d28d9) !important; color: #ffffff !important;"><span class="material-symbols-rounded">forward</span></button>
+            ${userCanFwRow ? `<button class="btnIcon" onclick="bukaModalForwardService('${r.noSurat}')" title="FORWARD SERVICE AREA" style="background: linear-gradient(135deg, #7c3aed, #6d28d9) !important; color: #ffffff !important;"><span class="material-symbols-rounded">forward</span></button>` : ''}
           `;
         }
       } else if (role === 'DM') {
@@ -11839,7 +11883,8 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       req.unfulfilled === true
     );
 
-    if ((role === 'SERVICE' || isAdminUser) && !isDoneOrBatalState) {
+    const userCanForwardInDetail = currentUser && (currentUser.canForward !== false && currentUser.can_forward !== false);
+    if ((role === 'SERVICE' || isAdminUser) && !isDoneOrBatalState && userCanForwardInDetail) {
       rightButtons.push(`
         <button type="button" class="btnIcon btnIconOnly" title="FORWARD SERVICE AREA" onclick="bukaModalForwardService('${req.noSurat}');" style="background: var(--primary) !important; color: #ffffff !important; box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;">
           <span class="material-symbols-rounded">forward</span>
@@ -12118,6 +12163,11 @@ window.tutupModalEditStatusPart = tutupModalEditStatusPart;
 // ----------------------------------------------------
 function bukaModalForwardService(noSurat) {
   if (!noSurat) return;
+  const userCanForward = currentUser && (currentUser.canForward !== false && currentUser.can_forward !== false);
+  if (!userCanForward) {
+    showNotif('ANDA TIDAK MEMILIKI HAK AKSES UNTUK FORWARD SERVICE AREA!', 'warning');
+    return;
+  }
   const targetNo = String(noSurat).trim().toUpperCase();
   const inputNo = document.getElementById('forwardServiceNoSurat');
   const displayNo = document.getElementById('forwardDisplayNoSurat');

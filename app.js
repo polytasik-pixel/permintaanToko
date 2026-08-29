@@ -10287,31 +10287,70 @@ function approveDM(noSurat) {
       // Fungsi Pengiriman WhatsApp (HANYA DIEKSEKUSI SETELAH DATA DIPASTIKAN TERKIRIM KE SUPABASE & SEMUA PERANGKAT)
       const dispatchDMApprovalWADestination = () => {
         const users = getUsersFromDB();
-        const serviceUsers = users.filter(u => u.category === 'SERVICE' && (u.area === requests[idx].area || u.area === 'ALL'));
+        const reqItem = requests[idx];
+        const directLink = typeof getAppDirectLink === 'function' ? getAppDirectLink(noSurat) : window.location.origin;
+
+        // A. Kirim WA ke Tim Service Area
+        const serviceUsers = users.filter(u => u.category === 'SERVICE' && (u.area === reqItem.area || u.area === 'ALL'));
         serviceUsers.forEach(srv => {
           if (srv.phone && srv.phone !== '-') {
             const srvName = srv.fullName || srv.username || 'Bapak/Ibu Tim Service';
             kirimNotifikasiWA(srv.phone,
-              `Yth. Bapak/Ibu ${srvName},
+              `Yth. Bapak/Ibu *${srvName}*,
 
 ` +
-              `Pemberitahuan Sistem Permintaan Barang:
+              `✅ *PEMBERITAHUAN APPROVAL DM*
 ` +
-              `Pengajuan permintaan barang berikut telah DISETUJUI OLEH DM:
+              `Pengajuan permintaan barang berikut telah *DISETUJUI OLEH DM*:
 ` +
               `• Nomor Dokumen : #${noSurat}
 ` +
-              `• Toko / Pemohon : ${requests[idx].toko} (${requests[idx].area})
+              `• Toko / Pemohon : ${reqItem.toko} (${reqItem.area})
 ` +
               `• Status : DISETUJUI (APPROVE)
 ` +
-              `• Link Detail : ${getAppDirectLink(noSurat)}
+              `• Link Detail : ${directLink}
 
 ` +
               `Dokumen saat ini siap diproses oleh Tim Service. Terima kasih atas kerja samanya.`
             );
           }
         });
+
+        // B. Kirim WA ke User Pembuat / Toko / Sales
+        const creator = users.find(u => 
+          u.username === reqItem.createdBy || 
+          u.username === reqItem.userId || 
+          u.storeCode === reqItem.toko || 
+          (u.category === 'TOKO' && u.tokoName === reqItem.toko)
+        );
+
+        if (creator && creator.phone && creator.phone !== '-') {
+          const creatorName = creator.fullName || creator.username || reqItem.toko;
+          kirimNotifikasiWA(creator.phone,
+            `Yth. Bapak/Ibu *${creatorName}*,
+
+` +
+            `✅ *PEMBERITAHUAN SURAT TELAH DI-APPROVE DM*
+` +
+            `Permintaan barang Surat *#${noSurat}* (${reqItem.toko}) telah *DISETUJUI (APPROVE)* oleh DM.
+
+` +
+            `📋 *MOHON SEGERA*:
+` +
+            `1. Cetak dokumen PDF permintaan.
+` +
+            `2. Berikan Cap Toko & Tanda Tangan Resmi.
+` +
+            `3. Upload kembali bukti foto surat ke aplikasi.
+
+` +
+            `• Link Detail Surat : ${directLink}
+
+` +
+            `Terima kasih.`
+          );
+        }
       };
 
       // PASTIKAN DATA TERSIMPAN DAN TER-BROADCAST DI SUPABASE BARU KIRIM WA
@@ -10687,6 +10726,50 @@ function prosesSimpanDoneDenganBuktiArtemis() {
         showNotif(`PERMINTAAN #${noSurat} TELAH SELESAI (DONE) & BUKTI FOTO ARTEMIS DISIMPAN!`, 'success');
         
         tambahNotifikasiSistem(['TOKO', 'SALES', 'DM'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} TELAH SELESAI (DONE) DENGAN BUKTI PROSES ARTEMIS.`, noSurat);
+
+        // DISPATCH WA NOTIFICATION FOR STATUS DONE TO UNIVERSAL APPLICANT (PEMOHON SIAPAPUN ROLENYA)
+        try {
+          const users = getUsersFromDB();
+          const reqDone = requests[idx];
+          const directLink = typeof getAppDirectLink === 'function' ? getAppDirectLink(noSurat) : window.location.origin;
+
+          // Cari Akun User Pemohon / Pembuat Surat (Tanpa Memandang Role: Toko, Sales, Service, Admin, dll.)
+          const creator = users.find(u => {
+            if (!u) return false;
+            const uNameUpper = String(u.username || '').trim().toUpperCase();
+            const reqCreatedByUpper = String(reqDone.createdBy || '').trim().toUpperCase();
+            const reqUserIdUpper = String(reqDone.userId || '').trim().toUpperCase();
+
+            if (uNameUpper && (uNameUpper === reqCreatedByUpper || uNameUpper === reqUserIdUpper)) {
+              return true;
+            }
+            if (u.storeCode && String(u.storeCode).trim().toUpperCase() === String(reqDone.toko || '').trim().toUpperCase()) {
+              return true;
+            }
+            return false;
+          });
+
+          if (creator && creator.phone && creator.phone !== '-' && String(creator.phone).trim() !== '') {
+            const creatorName = creator.fullName || creator.username || reqDone.toko;
+            kirimNotifikasiWA(creator.phone,
+              `Yth. Bapak/Ibu *${creatorName}*,
+
+` +
+              `🎉 *PEMBERITAHUAN PERMINTAAN SELESAI (DONE)*
+` +
+              `Pengajuan permintaan barang yang Anda buat (Surat *#${noSurat}* - *${reqDone.toko}*) telah *SELESAI DIPENUHI (DONE)* oleh Tim Service dengan bukti proses Artemis.
+
+` +
+              `• Link Detail Surat : ${directLink}
+
+` +
+              `Terima kasih.`
+            );
+          }
+        } catch(waErr) {
+          console.warn('[WA DONE DISPATCH ERROR]:', waErr);
+        }
+
         loadRiwayat();
         loadDashboard();
         if (currentUser && currentUser.category === 'SERVICE' && currentUser.area === 'TSM') {
@@ -11646,7 +11729,9 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   const partialsList = typeof getPartialBreakdownsFromDB === 'function' ? getPartialBreakdownsFromDB(req.noSurat) : [];
   
   let topBreakdownButtonsHtml = '';
-  if (req.status !== 'BATAL') {
+  const reqStatusUpper = String(req.status || '').toUpperCase();
+  // HANYA MUNCULKAN TOMBOL AJUKAN BREAKDOWN JIKA STATUS SURAT ADALAH 'APPROVE'
+  if (reqStatusUpper === 'APPROVE') {
     let btnAjukanHtml = '';
     if (!isStrictDMUser && (isStrictServiceUser || isStrictAdminUser) && hasEligibleBreakdownItem) {
       btnAjukanHtml = `
@@ -22419,6 +22504,15 @@ window.bukaModalDoneParsial = bukaModalDoneParsial;
 
 function bukaModalBuatParsial(noSurat) {
   if (!noSurat) return;
+  const reqsCheck = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const targetReq = reqsCheck.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  if (targetReq) {
+    const stUpper = String(targetReq.status || '').toUpperCase();
+    if (stUpper !== 'APPROVE') {
+      showNotif('BREAKDOWN HANYA DAPAT DIAJUKAN PADA SURAT BER-STATUS APPROVE!', 'warning');
+      return;
+    }
+  }
   if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
   const userCatUpper = currentUser ? String(currentUser.category || '').toUpperCase() : '';
   const userRoleUpper = currentUser ? String(currentUser.role || '').toUpperCase() : '';
@@ -24818,17 +24912,21 @@ window.simpanBuktiPermintaanUploaded = simpanBuktiPermintaanUploaded;
 const EXCEL_DOWNLOAD_ROLES_KEY = 'excel_download_allowed_roles_v1';
 
 function getAllowedExcelRoles() {
+  if (Array.isArray(window._allowedExcelRolesCache) && window._allowedExcelRolesCache.length > 0) {
+    return window._allowedExcelRolesCache;
+  }
   try {
     const val = appStorage.getItem(EXCEL_DOWNLOAD_ROLES_KEY);
     if (val) {
       const parsed = JSON.parse(val);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map(r => String(r).toUpperCase());
+        window._allowedExcelRolesCache = parsed.map(r => String(r).toUpperCase());
+        return window._allowedExcelRolesCache;
       }
     }
   } catch(e) {}
-  // Default fallback jika belum diatur Admin: SERVICE, DM, GBJ, ADMIN
-  return ['SERVICE', 'DM', 'GBJ', 'ADMIN'];
+  window._allowedExcelRolesCache = ['SERVICE', 'DM', 'GBJ', 'ADMIN'];
+  return window._allowedExcelRolesCache;
 }
 window.getAllowedExcelRoles = getAllowedExcelRoles;
 
@@ -24838,6 +24936,7 @@ function setAllowedExcelRoles(rolesArray) {
   if (!clean.includes('ADMIN')) clean.push('ADMIN'); // Admin selalu diizinkan
   const jsonStr = JSON.stringify(clean);
 
+  window._allowedExcelRolesCache = clean;
   appStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, jsonStr);
   try { localStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, jsonStr); } catch(e) {}
 

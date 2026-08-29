@@ -3192,6 +3192,16 @@ function startFirebaseRealtimeAppSettingsListener() {
         if (!doc || !doc.exists) return;
         const data = doc.data();
         if (!data) return;
+        if (data.excel_download_allowed_roles) {
+          try {
+            const roles = JSON.parse(data.excel_download_allowed_roles);
+            if (Array.isArray(roles)) {
+              appStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, JSON.stringify(roles));
+              try { localStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, JSON.stringify(roles)); } catch(e) {}
+              if (typeof loadPengaturanHakAksesExcelUI === 'function') loadPengaturanHakAksesExcelUI();
+            }
+          } catch(e) {}
+        }
 
         // 1. KODE UNIT MAP (EXCEL LOOKUP) -> SIMPAN KE LOKAL PENYIMPANAN
         if (data.kodeUnitMapJson && typeof data.kodeUnitMapJson === 'string') {
@@ -3675,6 +3685,34 @@ async function initSupabaseRealtimeEngine() {
         { event: '*', schema: 'public', table: 'toko_list' },
         (payload) => {
           handleRealtimeStoreChange(payload);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'app_settings' },
+        (payload) => {
+          if (payload && payload.new && payload.new.key === EXCEL_DOWNLOAD_ROLES_KEY) {
+            try {
+              const roles = JSON.parse(payload.new.value);
+              if (Array.isArray(roles)) {
+                appStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, JSON.stringify(roles));
+                try { localStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, JSON.stringify(roles)); } catch(e) {}
+                if (typeof loadPengaturanHakAksesExcelUI === 'function') loadPengaturanHakAksesExcelUI();
+              }
+            } catch(e) {}
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'excel_roles_changed' },
+        (payload) => {
+          if (payload && payload.payload && Array.isArray(payload.payload.roles)) {
+            const roles = payload.payload.roles;
+            appStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, JSON.stringify(roles));
+            try { localStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, JSON.stringify(roles)); } catch(e) {}
+            if (typeof loadPengaturanHakAksesExcelUI === 'function') loadPengaturanHakAksesExcelUI();
+          }
         }
       )
       .on(
@@ -10243,8 +10281,8 @@ function approveDM(noSurat) {
 
       // Notifikasi untuk Tim Service (tetap)
       tambahNotifikasiSistem(['SERVICE'], requests[idx].area, `PERMINTAAN #${noSurat} DARI ${requests[idx].toko} TELAH DISETUJUI DM. SILAKAN DIPROSES.`, noSurat);
-      // Notifikasi untuk Pembuat Surat / Toko / Sales (tanpa kata 'SILAKAN DIPROSES')
-      tambahNotifikasiSistem(['TOKO', 'SALES'], requests[idx].area, `PERMINTAAN SURAT #${noSurat} TELAH DISETUJUI DM, MOHON MENUNGGU PROSES SELANJUTNYA.`, noSurat);
+      // Notifikasi khusus Role/Login TOKO saat DM Approve (Cetak PDF, beri Cap & TTD, lalu Upload)
+      tambahNotifikasiSistem(['TOKO'], requests[idx].area, `PERMINTAAN SURAT #${noSurat} TELAH DISETUJUI (APPROVE). SILAKAN CETAK PDF DOKUMEN, BERI CAP & TTD, LALU UPLOAD BUKTI PERMINTAAN KE APLIKASI.`, noSurat);
 
       // Fungsi Pengiriman WhatsApp (HANYA DIEKSEKUSI SETELAH DATA DIPASTIKAN TERKIRIM KE SUPABASE & SEMUA PERANGKAT)
       const dispatchDMApprovalWADestination = () => {
@@ -11686,25 +11724,22 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
   const thStyleAutofitLeft = `${thBase} text-align: center !important; white-space: nowrap !important;`;
   const thStyleFlex50 = `${thBase} text-align: center !important; white-space: nowrap !important;`;
 
-  const getTdTypeSeriStyle = () => {
-    return "text-align: left !important; justify-content: flex-start !important; white-space: nowrap !important;";
+  const getTdCellStyleByLength = (strVal) => {
+    const s = String(strVal || '').trim();
+    if (s.length > 50) {
+      return "text-align: left !important; justify-content: flex-start !important; white-space: normal !important; word-break: break-word !important; overflow-wrap: break-word !important; max-width: 260px !important; min-width: 140px !important;";
+    }
+    return "text-align: left !important; justify-content: flex-start !important; white-space: nowrap !important; word-break: keep-all !important; overflow-wrap: normal !important; width: auto !important;";
   };
 
-  const getTdBarangStyle = (strVal) => {
+  const getTdCellClassByLength = (strVal) => {
     const s = String(strVal || '').trim();
-    if (s.length > 40) {
-      return "text-align: left !important; justify-content: flex-start !important; white-space: normal !important; word-break: break-word !important; overflow-wrap: break-word !important; max-width: 360px !important;";
-    }
-    return "text-align: left !important; justify-content: flex-start !important; white-space: nowrap !important;";
+    return s.length > 50 ? 'col-wrap' : 'col-nowrap';
   };
 
-  const getTdAlasanStyle = (strVal) => {
-    const s = String(strVal || '').trim();
-    if (s.length > 40) {
-      return "text-align: left !important; justify-content: flex-start !important; white-space: normal !important; word-break: break-word !important; overflow-wrap: break-word !important; max-width: 360px !important;";
-    }
-    return "text-align: left !important; justify-content: flex-start !important; white-space: nowrap !important;";
-  };
+  const getTdTypeSeriStyle = (strVal) => getTdCellStyleByLength(strVal);
+  const getTdBarangStyle = (strVal) => getTdCellStyleByLength(strVal);
+  const getTdAlasanStyle = (strVal) => getTdCellStyleByLength(strVal);
 
   let itemsHtml = itemsList.map((i, idx) => {
     const tdStyleAutofit = getTdStyleAutofit(idx, itemsList.length);
@@ -11750,7 +11785,7 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     const hasPhoto = isPhotoUrlValid(fotoProofUrl);
 
     let ketPartTdHtml = showKetPartCol ? `
-      <td style="${tdStyleLeft} ${getTdAlasanStyle(statusPartVal)} text-align: left !important; ${strikeStyle}">
+      <td class="${getTdCellClassByLength(statusPartVal)}" style="${tdStyleLeft} ${getTdAlasanStyle(statusPartVal)} text-align: left !important; ${strikeStyle}">
         <div style="display: flex !important; align-items: center !important; justify-content: flex-start !important; text-align: left !important; gap: 6px !important; flex-wrap: wrap !important;">
           ${statusPartBadgeHtml}
         </div>
@@ -11832,11 +11867,11 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       return `
         <tr style="${isUnfulfilled ? 'background: rgba(239, 68, 68, 0.08) !important;' : ''}">
           <td class="col-no" style="${tdStyleAutofit} text-align: center !important; ${strikeStyle}">${idx + 1}</td>
-          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${typeVal}</td>
-          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${seriVal}</td>
-          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdBarangStyle(barangVal)} ${strikeStyle}">${barangVal}</td>
-          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} color: #d97706 !important; font-weight: 600 !important; ${strikeStyle}">${dusVal}</td>
-          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdAlasanStyle(alasanVal)} ${strikeStyle}">${alasanVal}</td>
+          <td class="col-type-seri ${getTdCellClassByLength(typeVal)}" style="${tdStyleLeft} ${getTdTypeSeriStyle(typeVal)} ${strikeStyle}">${typeVal}</td>
+          <td class="col-type-seri ${getTdCellClassByLength(seriVal)}" style="${tdStyleLeft} ${getTdTypeSeriStyle(seriVal)} ${strikeStyle}">${seriVal}</td>
+          <td class="col-permintaan-alasan ${getTdCellClassByLength(barangVal)}" style="${tdStyleLeft} ${getTdBarangStyle(barangVal)} ${strikeStyle}">${barangVal}</td>
+          <td class="col-type-seri ${getTdCellClassByLength(dusVal)}" style="${tdStyleLeft} ${getTdTypeSeriStyle(dusVal)} color: #d97706 !important; font-weight: 600 !important; ${strikeStyle}">${dusVal}</td>
+          <td class="col-permintaan-alasan ${getTdCellClassByLength(alasanVal)}" style="${tdStyleLeft} ${getTdAlasanStyle(alasanVal)} ${strikeStyle}">${alasanVal}</td>
           <td class="col-qty" style="${tdStyleAutofit} text-align: center !important; font-weight: 700 !important; ${strikeStyle}">${qtyVal}</td>
           ${ketPartTdHtml}
           ${actionTdHtml}
@@ -11846,10 +11881,10 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
       return `
         <tr style="${isUnfulfilled ? 'background: rgba(239, 68, 68, 0.08) !important;' : ''}">
           <td class="col-no" style="${tdStyleAutofit} text-align: center !important; ${strikeStyle}">${idx + 1}</td>
-          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${typeVal}</td>
-          <td class="col-type-seri" style="${tdStyleLeft} ${getTdTypeSeriStyle()} ${strikeStyle}">${seriVal}</td>
-          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdBarangStyle(barangVal)} ${strikeStyle}">${barangVal}</td>
-          <td class="col-permintaan-alasan td-wrap-mobile" style="${tdStyleLeft} ${getTdAlasanStyle(alasanVal)} ${strikeStyle}">${alasanVal}</td>
+          <td class="col-type-seri ${getTdCellClassByLength(typeVal)}" style="${tdStyleLeft} ${getTdTypeSeriStyle(typeVal)} ${strikeStyle}">${typeVal}</td>
+          <td class="col-type-seri ${getTdCellClassByLength(seriVal)}" style="${tdStyleLeft} ${getTdTypeSeriStyle(seriVal)} ${strikeStyle}">${seriVal}</td>
+          <td class="col-permintaan-alasan ${getTdCellClassByLength(barangVal)}" style="${tdStyleLeft} ${getTdBarangStyle(barangVal)} ${strikeStyle}">${barangVal}</td>
+          <td class="col-permintaan-alasan ${getTdCellClassByLength(alasanVal)}" style="${tdStyleLeft} ${getTdAlasanStyle(alasanVal)} ${strikeStyle}">${alasanVal}</td>
           <td class="col-qty" style="${tdStyleAutofit} text-align: center !important; font-weight: 700 !important; ${strikeStyle}">${qtyVal}</td>
           ${ketPartTdHtml}
           ${actionTdHtml}
@@ -14319,8 +14354,9 @@ async function cetakDokumenPdf() {
 }
 
 function bukaTTD() {
-  if (!currentUser || (currentUser.category !== 'SERVICE' && currentUser.category !== 'DM' && currentUser.category !== 'GBJ')) {
-    showNotif('TANDA TANGAN DIGITAL KHUSUS UNTUK SERVICE, DM & GBJ!', 'warning');
+  const cat = currentUser ? (currentUser.category || '').toUpperCase() : '';
+  if (!currentUser || cat === 'TOKO' || (cat !== 'SERVICE' && cat !== 'DM' && cat !== 'GBJ' && cat !== 'ADMIN')) {
+    showNotif('TIDAK ADA HAK AKSES!', 'warning');
     return;
   }
   const modal = document.getElementById('popupTTD');
@@ -17762,6 +17798,10 @@ function getBreakdownSuratExportValue(r, item) {
 window.getBreakdownSuratExportValue = getBreakdownSuratExportValue;
 
 function downloadMasterExcel() {
+  if (typeof checkUserCanDownloadExcel === 'function' && !checkUserCanDownloadExcel(currentUser)) {
+    showNotif('TIDAK ADA HAK AKSES!', 'warning');
+    return;
+  }
   const data = getRequestsFromDB();
   if (data.length === 0) {
     showNotif('TIDAK ADA DATA MASTER UNTUK DIEKSPOR!', 'warning');
@@ -18226,6 +18266,11 @@ window.eksekusiSimpanAkun = eksekusiSimpanAkun;
 
 function bukaModalTambahToko(btnElement = null) {
   if (!currentUser) return;
+  const userCat = (currentUser.category || '').toUpperCase();
+  if (userCat === 'TOKO') {
+    showNotif('TIDAK ADA HAK AKSES!', 'warning');
+    return;
+  }
   
   const btn = (btnElement && btnElement instanceof HTMLElement) ? btnElement : (typeof event !== 'undefined' && event ? event.currentTarget : null);
   setBtnLoading(btn, true, 'MEMUAT...');
@@ -18980,6 +19025,10 @@ async function prosesUploadExcelToko(event) {
 window.prosesUploadExcelToko = prosesUploadExcelToko;
 
 function downloadExcel() {
+  if (typeof checkUserCanDownloadExcel === 'function' && !checkUserCanDownloadExcel(currentUser)) {
+    showNotif('TIDAK ADA HAK AKSES!', 'warning');
+    return;
+  }
   const data = getAccessibleRequests();
   if (data.length === 0) {
     showNotif('TIDAK ADA DATA UNTUK DIEKSPOR!', 'warning');
@@ -21865,6 +21914,10 @@ window.updateGlobalDeviceAppBadge = updateGlobalDeviceAppBadge;
 // DOWNLOAD EXCEL SINGLE DETAIL PERMINTAAN DENGAN STATUS PART
 // =======================================================================
 function downloadSingleDetailExcel(noSurat) {
+  if (typeof checkUserCanDownloadExcel === 'function' && !checkUserCanDownloadExcel(currentUser)) {
+    showNotif('TIDAK ADA HAK AKSES!', 'warning');
+    return;
+  }
   if (!noSurat) return;
   const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
   const req = requests.find(r => r && (r.noSurat === noSurat || String(r.noSurat) === String(noSurat) || r.id === noSurat));
@@ -24757,3 +24810,113 @@ async function simpanBuktiPermintaanUploaded() {
 }
 window.simpanBuktiPermintaanUploaded = simpanBuktiPermintaanUploaded;
 
+
+
+// ----------------------------------------------------
+// PENGATURAN & ENFORCEMENT HAK AKSES DOWNLOAD EXCEL BY ROLE
+// ----------------------------------------------------
+const EXCEL_DOWNLOAD_ROLES_KEY = 'excel_download_allowed_roles_v1';
+
+function getAllowedExcelRoles() {
+  try {
+    const val = appStorage.getItem(EXCEL_DOWNLOAD_ROLES_KEY);
+    if (val) {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map(r => String(r).toUpperCase());
+      }
+    }
+  } catch(e) {}
+  // Default fallback jika belum diatur Admin: SERVICE, DM, GBJ, ADMIN
+  return ['SERVICE', 'DM', 'GBJ', 'ADMIN'];
+}
+window.getAllowedExcelRoles = getAllowedExcelRoles;
+
+function setAllowedExcelRoles(rolesArray) {
+  if (!Array.isArray(rolesArray)) return;
+  const clean = Array.from(new Set(rolesArray.map(r => String(r).toUpperCase())));
+  if (!clean.includes('ADMIN')) clean.push('ADMIN'); // Admin selalu diizinkan
+  const jsonStr = JSON.stringify(clean);
+
+  appStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, jsonStr);
+  try { localStorage.setItem(EXCEL_DOWNLOAD_ROLES_KEY, jsonStr); } catch(e) {}
+
+  // 1. SUPABASE DATABASE UPSERT & REALTIME BROADCAST
+  if (typeof supabase !== 'undefined' && supabase) {
+    try {
+      supabase.from('app_settings').upsert([
+        { key: EXCEL_DOWNLOAD_ROLES_KEY, value: jsonStr, updated_at: new Date().toISOString() }
+      ], { onConflict: 'key' }).then(() => {}).catch(e => console.warn('[SUPABASE APP_SETTINGS UPSERT NOTICE]:', e));
+
+      if (typeof supabaseRealtimeChannel !== 'undefined' && supabaseRealtimeChannel) {
+        supabaseRealtimeChannel.send({
+          type: 'broadcast',
+          event: 'excel_roles_changed',
+          payload: { roles: clean, timestamp: Date.now() }
+        }).catch(() => {});
+      }
+    } catch(e) {}
+  }
+
+  // 2. FIRESTORE APP_SETTINGS CONFIG SNAPSHOT BROADCAST
+  try {
+    const dbFs = typeof getDbFirestore === 'function' ? getDbFirestore() : (typeof dbFirestore !== 'undefined' ? dbFirestore : null);
+    if (dbFs) {
+      dbFs.collection('app_settings').doc('config').set({
+        excel_download_allowed_roles: jsonStr,
+        updatedAt: new Date().toISOString()
+      }, { merge: true }).catch(() => {});
+    }
+  } catch(e) {}
+
+  // 3. FIREBASE REALTIME DB
+  try {
+    const rtdb = typeof dbRealtime !== 'undefined' ? dbRealtime : null;
+    if (rtdb) {
+      rtdb.ref('app_settings/excel_download_allowed_roles').set(jsonStr).catch(() => {});
+    }
+  } catch(e) {}
+}
+window.setAllowedExcelRoles = setAllowedExcelRoles;
+
+function checkUserCanDownloadExcel(user = currentUser) {
+  if (!user) return false;
+  const role = (user.category || '').toUpperCase();
+  const username = (user.username || '').toUpperCase();
+  if (role === 'ADMIN' || username === 'ADMIN') return true;
+  const allowed = getAllowedExcelRoles();
+  return allowed.includes(role);
+}
+window.checkUserCanDownloadExcel = checkUserCanDownloadExcel;
+
+function loadPengaturanHakAksesExcelUI() {
+  const allowed = getAllowedExcelRoles();
+  const checkboxes = document.querySelectorAll('.chk-excel-role');
+  checkboxes.forEach(chk => {
+    const val = chk.value.toUpperCase();
+    if (val === 'ADMIN') {
+      chk.checked = true;
+      chk.disabled = true;
+    } else {
+      chk.checked = allowed.includes(val);
+    }
+  });
+}
+window.loadPengaturanHakAksesExcelUI = loadPengaturanHakAksesExcelUI;
+
+function simpanPengaturanHakAksesExcelAdmin() {
+  if (currentUser && (currentUser.category || '').toUpperCase() !== 'ADMIN' && (currentUser.username || '').toUpperCase() !== 'ADMIN') {
+    showNotif('HANYA ADMIN YANG DAPAT MENGUBAH ATURAN HAK AKSES EXCEL!', 'warning');
+    return;
+  }
+  const selectedRoles = ['ADMIN'];
+  const checkboxes = document.querySelectorAll('.chk-excel-role');
+  checkboxes.forEach(chk => {
+    if (chk.checked && chk.value) {
+      selectedRoles.push(chk.value.toUpperCase());
+    }
+  });
+  setAllowedExcelRoles(selectedRoles);
+  showNotif('ATURAN HAK AKSES DOWNLOAD EXCEL BERHASIL DISIMPAN!', 'success');
+}
+window.simpanPengaturanHakAksesExcelAdmin = simpanPengaturanHakAksesExcelAdmin;

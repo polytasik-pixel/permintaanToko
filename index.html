@@ -34,7 +34,7 @@
 
   <!-- Master Stylesheet -->
   <link rel="stylesheet" href="styles.css?v=20260828_v106000000">
-  <script src="app.js?v=20260828_v121000000"></script>
+  <script src="app.js?v=20260829_v160000000"></script>
 
   <!-- Global Failsafe Gemini AI Key Handler -->
   <script>
@@ -1329,13 +1329,13 @@
         width: 100% !important;
         box-sizing: border-box !important;
       }
-      /* Mobile: Table Pure Auto-Fit */
+      /* Mobile HP: Table Pure Auto-Fit */
       .detailTableV2 {
         width: max-content !important;
         min-width: 100% !important;
         table-layout: auto !important;
       }
-      /* Mobile: All Headers Center Aligned */
+      /* Mobile HP: All Headers Center Aligned */
       .detailTableV2 th,
       .detailTableV2 th * {
         text-align: center !important;
@@ -1348,44 +1348,41 @@
         min-width: unset !important;
         max-width: unset !important;
       }
-      /* Mobile: Data Cells Left Aligned */
+      /* Mobile HP: Data Cells Left Aligned */
       .detailTableV2 td {
         text-align: left !important;
         justify-content: flex-start !important;
         align-items: center !important;
-        padding: 6px 4px !important;
+        padding: 6px 6px !important;
         font-size: 11.5px !important;
         width: auto !important;
         min-width: unset !important;
         max-width: unset !important;
       }
-      /* Mobile: Exception NO & QTY Center Aligned */
+      /* Mobile HP: Exception NO & QTY Center Aligned & 1 Line */
       .detailTableV2 td.col-no,
       .detailTableV2 td.col-qty,
       .detailTableV2 td:first-child {
         text-align: center !important;
         justify-content: center !important;
-      }
-      /* Mobile: Padding Type & No Seri DIHILANGKAN (Minimal 3px padding) */
-      .detailTableV2 th.col-type-seri,
-      .detailTableV2 td.col-type-seri {
-        padding-left: 3px !important;
-        padding-right: 3px !important;
         white-space: nowrap !important;
-        width: auto !important;
-        min-width: unset !important;
+        width: 1% !important;
       }
-      /* Mobile: Permintaan & Alasan Auto Fit (Remove 50% width lock) */
-      .detailTableV2 th.col-permintaan-alasan,
-      .detailTableV2 td.col-permintaan-alasan {
+      /* Mobile HP: Columns <= 50 Chars Stay in 1 Line (nowrap) */
+      .detailTableV2 td.col-nowrap {
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
         width: auto !important;
-        min-width: unset !important;
-        max-width: 240px !important;
       }
-      .detailTableV2 td.td-wrap-mobile {
+      /* Mobile HP: Columns > 50 Chars Wrap Text */
+      .detailTableV2 td.col-wrap {
         white-space: normal !important;
         word-break: break-word !important;
-        max-width: 220px !important;
+        overflow-wrap: break-word !important;
+        max-width: 260px !important;
+        min-width: 140px !important;
+        width: auto !important;
       }
     }
   </style>
@@ -1636,6 +1633,39 @@
         <button type="button" class="btnTutupUserModal" onclick="tutupPopupUserManagement()" title="Tutup Popup (Esc / Back)">
           <span class="material-symbols-rounded" style="font-size: 24px; font-weight: 900; color: var(--primary) !important;">close</span>
         </button>
+      </div>
+
+      <!-- EXCEL DOWNLOAD ACCESS RIGHTS MANAGEMENT CARD (ADMIN ONLY) -->
+      <div id="excelRoleConfigCard" style="width: 100%; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 12px; color: var(--primary);">
+            <span class="material-symbols-rounded" style="font-size: 18px;">file_download_off</span>
+            <span>PENGATURAN HAK AKSES DOWNLOAD EXCEL (BY ROLE / KATEGORI LOGIN):</span>
+          </div>
+          <button type="button" onclick="simpanPengaturanHakAksesExcelAdmin()" style="background: linear-gradient(135deg, #16a34a, #15803d); color: #ffffff; border: none; border-radius: 5px; padding: 6px 14px; font-size: 11px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 6px rgba(22,163,74,0.3);">
+            <span class="material-symbols-rounded" style="font-size: 16px;">save</span> SIMPAN HAK AKSES EXCEL
+          </button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; font-weight: 700; color: var(--text-main);">
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" class="chk-excel-role" value="TOKO" style="accent-color: var(--primary); cursor: pointer; width: 15px; height: 15px;"> TOKO
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" class="chk-excel-role" value="SALES" style="accent-color: var(--primary); cursor: pointer; width: 15px; height: 15px;"> SALES
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" class="chk-excel-role" value="SERVICE" style="accent-color: var(--primary); cursor: pointer; width: 15px; height: 15px;"> SERVICE
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" class="chk-excel-role" value="DM" style="accent-color: var(--primary); cursor: pointer; width: 15px; height: 15px;"> DM
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" class="chk-excel-role" value="GBJ" style="accent-color: var(--primary); cursor: pointer; width: 15px; height: 15px;"> GBJ
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer; opacity: 0.8;">
+            <input type="checkbox" class="chk-excel-role" value="ADMIN" checked disabled style="accent-color: var(--primary); cursor: not-allowed; width: 15px; height: 15px;"> ADMIN (SELALU AKTIF)
+          </label>
+        </div>
       </div>
 
       <!-- Action Toolbar inside Modal -->

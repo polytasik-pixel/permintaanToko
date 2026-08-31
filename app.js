@@ -23778,24 +23778,8 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
     const pSec = String(nowPrint.getSeconds()).padStart(2, '0');
     const timestampStr = `DICETAK PADA ${pDay}/${pMonth}/${pYear} Pukul ${pHour}:${pMin}:${pSec}`;
 
+    // SURAT JALAN PARSIAL TANPA LAMPIRAN FOTO (REKUESTI USER)
     let photoSection = '';
-    if (loadedValidPhotos.length > 0) {
-      photoSection = `
-        <div style="margin-top: 10px; margin-bottom: 8px; page-break-inside: avoid;">
-          <div style="font-size: 8px; font-weight: 700; color: #475569; letter-spacing: 0.3px; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; text-transform: uppercase;">
-            LAMPIRAN FOTO PENYERAHAN PARSIAL (${loadedValidPhotos.length} FOTO):
-          </div>
-          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%;">
-            ${loadedValidPhotos.map((p, pIdx) => `
-              <div style="aspect-ratio: 1/1; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #ffffff; position: relative; display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;">
-                <img src="${p}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;">
-                <span style="position: absolute; bottom: 2px; right: 2px; background: rgba(15,23,42,0.75); color: #ffffff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">#${pIdx+1}</span>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
     const areaNameMap = { TSM: 'TASIKMALAYA', BDG: 'BANDUNG', BDU: 'BANDUNG UTARA', CRB: 'CIREBON', SKB: 'SUKABUMI', SBN: 'SUBANG' };
     const hodsAreaTitle = `HODS ${areaNameMap[req.area] || req.area || ''}`;
 
@@ -23957,7 +23941,7 @@ function tampilkanPilihanCetakPdf(noSurat) {
   if (typeof pushPopupHistoryState === 'function') pushPopupHistoryState();
 
   const modalHtml = `
-    <div id="modalPilihanCetakPdf" class="modal-overlay active" onclick="if (event.target === this) this.remove();" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); z-index: 20000004 !important; align-items: center; justify-content: center; padding: 12px !important; box-sizing: border-box !important;">
+    <div id="modalPilihanCetakPdf" class="modal-overlay active" onclick="if (event.target === this) this.remove();" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); z-index: 2147483647 !important; align-items: center; justify-content: center; padding: 12px !important; box-sizing: border-box !important;">
       <div style="background: var(--bg-card); color: var(--text-main); width: calc(100% - 24px); max-width: 460px; border-radius: 8px !important; margin: auto !important; overflow: hidden; box-shadow: 0 20px 45px rgba(0,0,0,0.45); border: 1px solid var(--border-color); animation: popIn 0.2s ease-out;">
         <div style="background: var(--primary) !important; color: #ffffff !important; padding: 12px 16px !important; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0 !important; flex-shrink: 0; position: relative !important;">
           <div style="font-weight: 800; font-size: 13.5px; display: flex; align-items: center; gap: 6px; color: #ffffff !important;">

@@ -15255,3 +15255,18 @@ tr.rowWaitingDmBlink,
   visibility: visible !important;
   background-color: transparent !important;
 }
+
+
+/* =============================================================================
+   MODAL PILIHAN CETAK PDF - ENSURE ALWAYS AT THE VERY FRONT (HIGHEST Z-INDEX)
+   ============================================================================= */
+#modalPilihanCetakPdf {
+  z-index: 2147483647 !important;
+  position: fixed !important;
+  inset: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+}

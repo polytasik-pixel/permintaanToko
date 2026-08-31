@@ -7215,7 +7215,7 @@ async function prosesLogin() {
       catatLogLogin(user.username, user.fullName, user.area, 'BERHASIL');
       
       // SINKRONISASI KE DATABASE CLOUD HANYA KETIKA KLIK TOMBOL LOGIN BERHASIL
-      showLoading('MEMUAT DATA APLIKASI...');
+      showLoading('MEMUAT DATA...');
       try {
         if (typeof syncAllDataToCache === 'function') {
           await syncAllDataToCache();

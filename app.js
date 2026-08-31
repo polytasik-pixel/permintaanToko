@@ -7215,7 +7215,7 @@ async function prosesLogin() {
       catatLogLogin(user.username, user.fullName, user.area, 'BERHASIL');
       
       // SINKRONISASI KE DATABASE CLOUD HANYA KETIKA KLIK TOMBOL LOGIN BERHASIL
-      showLoading('MEMUAT DATA APLIKASI...');
+      showLoading('MEMUAT DATA...');
       try {
         if (typeof syncAllDataToCache === 'function') {
           await syncAllDataToCache();
@@ -7558,7 +7558,7 @@ window.bukaMainApp = bukaMainApp;
 async function eksekusiHapusPenyimpananLokal() {
   showConfirm('PERBARUI SEMUA DATA DENGAN DATA TERBARU DARI SERVER?', function() {
     var _asyncTask = async function() {
-    showLoading('MEMUAT DATA TERBARU...');
+    showLoading('MEMUAT DATA...');
     try {
       await clearLocalStorageKeepThemeAndTTD();
 

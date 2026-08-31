@@ -7215,7 +7215,7 @@ async function prosesLogin() {
       catatLogLogin(user.username, user.fullName, user.area, 'BERHASIL');
       
       // SINKRONISASI KE DATABASE CLOUD HANYA KETIKA KLIK TOMBOL LOGIN BERHASIL
-      showLoading('MEMUAT DATA...');
+      showLoading('MEMUAT DATA APLIKASI...');
       try {
         if (typeof syncAllDataToCache === 'function') {
           await syncAllDataToCache();
@@ -7558,7 +7558,7 @@ window.bukaMainApp = bukaMainApp;
 async function eksekusiHapusPenyimpananLokal() {
   showConfirm('PERBARUI SEMUA DATA DENGAN DATA TERBARU DARI SERVER?', function() {
     var _asyncTask = async function() {
-    showLoading('MEMUAT DATA...');
+    showLoading('MEMUAT DATA TERBARU...');
     try {
       await clearLocalStorageKeepThemeAndTTD();
 
@@ -9664,21 +9664,37 @@ function isPdfButtonAllowed(req) {
   if (!req || !currentUser) return false;
   const role = String(currentUser.category || '').toUpperCase();
   const isAdmin = typeof checkIsAdminUser === 'function' ? checkIsAdminUser() : (role === 'ADMIN' || (currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
-  
-  // TOMBOL PDF UNTUK ROLE TOKO DAN SALES: HANYA BOLEH JIKA HAK AKSES canPrintPdf DICENTANG OLEH ADMIN
+  const stUpper = String(req.status || '').toUpperCase();
+
+  // 1. JIKA LOGIN ADALAH ADMIN:
+  // Admin dapat melihat & mencetak PDF di semua status (termasuk DONE, BATAL, REJECT/DITOLAK)
+  if (isAdmin) {
+    return true;
+  }
+
+  // 2. UNTUK USERS SELAIN ADMIN (TOKO, SALES, SERVICE, DM, GBJ):
+  // JIKA STATUS SUDAH DONE, SELESAI, BATAL, REJECT, REJECTED, ATAU DITOLAK -> TOMBOL PDF TIDAK MUNCUL!
+  if (
+    stUpper === 'DONE' || 
+    stUpper === 'SELESAI' || 
+    stUpper === 'BATAL' || 
+    stUpper === 'REJECT' || 
+    stUpper === 'REJECTED' || 
+    stUpper === 'DITOLAK'
+  ) {
+    return false;
+  }
+
+  // 3. UNTUK ROLE TOKO & SALES (NON-ADMIN):
+  // Wajib memiliki hak akses canPrintPdf === true dari Admin
   if (role === 'TOKO' || role === 'SALES') {
     if (!currentUser.canPrintPdf) {
       return false;
     }
   }
 
-  // UNTUK LOGIN SELAIN ADMIN, APABILA STATUS SUDAH DONE MAKA TOMBOL PDF DIHILANGKAN (HANYA TOMBOL MATA & FOTO ARTEMIS YANG TAMPIL)
-  if (!isAdmin && req.status === 'DONE') {
-    return false;
-  }
-
-  // TOMBOL PDF HANYA KELUAR JIKA DM JUGA SUDAH APPROVE (STATUS APPROVE ATAU DONE)
-  const isDmApproved = (req.status === 'APPROVE' || req.status === 'DONE');
+  // 4. TOMBOL PDF HANYA MUNCUL JIKA STATUS DOKUMEN ADALAH 'APPROVE'
+  const isDmApproved = (stUpper === 'APPROVE');
   return isDmApproved;
 }
 window.isPdfButtonAllowed = isPdfButtonAllowed;
@@ -13873,11 +13889,9 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = true) {
     const userCat = (currentUser && currentUser.category) ? String(currentUser.category).toUpperCase() : '';
     const isAdmUser = (typeof checkIsAdminUser === 'function') ? checkIsAdminUser() : (userCat === 'ADMIN' || (currentUser && currentUser.username && currentUser.username.toUpperCase() === 'ADMIN'));
     if (!isAdmUser && typeof isPdfButtonAllowed === 'function' && !isPdfButtonAllowed(req)) {
-      if (userCat === 'TOKO' || userCat === 'SALES') {
-        if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
-        showNotif('DOKUMEN BELUM SELESAI DISETUJUI / DIVERIFIKASI OLEH DM!', 'warning');
-        return;
-      }
+      if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      showNotif('TOMBOL / AKSES CETAK PDF TIDAK TERSEDIA UNTUK DOKUMEN BER-STATUS DONE / BATAL / REJECT!', 'warning');
+      return;
     }
 
     const validPhotos = getReqPhotosList(req);
@@ -23615,6 +23629,14 @@ function bukaModalArtemisParsial(noSurat, partialId) {
 window.bukaModalArtemisParsial = bukaModalArtemisParsial;
 
 async function cetakPdfSuratParsial(noSurat, partialId) {
+  if (!noSurat) return;
+  const requestsCheck = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const targetReq = requestsCheck.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  if (targetReq && typeof isPdfButtonAllowed === 'function' && !isPdfButtonAllowed(targetReq)) {
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    showNotif('TOMBOL / AKSES CETAK PDF TIDAK TERSEDIA UNTUK DOKUMEN BER-STATUS DONE / BATAL / REJECT!', 'warning');
+    return;
+  }
   if (typeof tampilkanLoadingProses === 'function') {
     tampilkanLoadingProses('MOHON TUNGGU...');
   }
@@ -23880,6 +23902,12 @@ window.cetakPdfSuratParsial = cetakPdfSuratParsial;
 
 function tampilkanPilihanCetakPdf(noSurat) {
   if (!noSurat) return;
+  const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const targetReq = requests.find(r => r && (r.noSurat === noSurat || String(r.noSurat).trim().toUpperCase() === String(noSurat).trim().toUpperCase()));
+  if (targetReq && typeof isPdfButtonAllowed === 'function' && !isPdfButtonAllowed(targetReq)) {
+    showNotif('TOMBOL / AKSES CETAK PDF TIDAK TERSEDIA UNTUK DOKUMEN BER-STATUS DONE / BATAL / REJECT!', 'warning');
+    return;
+  }
   const partials = getPartialBreakdownsFromDB(noSurat);
   const approvedPartials = partials.filter(p => p && (p.status === 'APPROVE' || p.status === 'DONE'));
 
@@ -24878,6 +24906,23 @@ async function simpanBuktiPermintaanUploaded() {
     
     if (typeof safeSupabaseUpsertPermintaan === 'function') {
       await safeSupabaseUpsertPermintaan(requests[idx]);
+    }
+
+    // KIRIM NOTIFIKASI SISTEM KEPADA SERVICE DENGAN AREA YANG SAMA (TANPA NOTIFIKASI WHATSAPP)
+    try {
+      const targetArea = requests[idx].area || 'ALL';
+      const tokoName = requests[idx].toko || 'TOKO';
+      const uploaderName = currentUser ? (currentUser.fullName || currentUser.username) : 'PEMOHON';
+      if (typeof tambahNotifikasiSistem === 'function') {
+        tambahNotifikasiSistem(
+          ['SERVICE'],
+          targetArea,
+          `BUKTI PERMINTAAN UNGGAH: User ${uploaderName} (${tokoName}) telah mengunggah bukti foto fisik dokumen Surat #${noSurat}.`,
+          noSurat
+        );
+      }
+    } catch(notifErr) {
+      console.warn('[NOTIF UPLOAD BUKTI ERROR]:', notifErr);
     }
 
     tutupModalUploadBuktiPermintaan();

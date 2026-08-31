@@ -7215,7 +7215,7 @@ async function prosesLogin() {
       catatLogLogin(user.username, user.fullName, user.area, 'BERHASIL');
       
       // SINKRONISASI KE DATABASE CLOUD HANYA KETIKA KLIK TOMBOL LOGIN BERHASIL
-      showLoading('MEMUAT DATA...');
+      showLoading('MEMUAT DATA APLIKASI...');
       try {
         if (typeof syncAllDataToCache === 'function') {
           await syncAllDataToCache();
@@ -7302,14 +7302,19 @@ async function startSessionTokenRealtimeListener(isFreshLogin = false) {
   const unameUpper = String(currentUser.username || '').toUpperCase();
 
   const isAdmin = (catUpper === 'ADMIN' || unameUpper === 'ADMIN');
-  const isDMOrService = (catUpper === 'DM' || catUpper === 'SERVICE');
+  const isMultiDeviceRole = (
+    catUpper.includes('SERVICE') || 
+    catUpper.includes('GBJ') || 
+    catUpper.includes('DM')
+  );
 
-  // ATURAN BATASAN LOGIN PERANGKAT (DEVICE LIMITS):
-  // 1. SERVICE & DM: Maksimal 4 Perangkat (4 Logins)
-  // 2. SALES, TOKO, ADMIN, & LAINNYA: Maksimal 1 Perangkat (1 Login)
-  const maxAllowedLogins = isDMOrService ? 4 : 1;
+  // ATURAN BATASAN LOGIN PERANGKAT (DEVICE LIMITS PER AKUN):
+  // 1. SERVICE, GBJ, & DM: Maksimal 3 Perangkat (3 Logins simultan)
+  // 2. ADMIN, TOKO, SALES, & LAINNYA: Maksimal 1 Perangkat (1 Login - Perangkat baru akan menggantikan perangkat lama untuk AKUN YANG SAMA)
+  const maxAllowedLogins = isMultiDeviceRole ? 3 : 1;
 
-  const usernameKey = String(currentUser.id || currentUser.username || '').replace(/[\/\.#$\[\]]/g, '_').toUpperCase();
+  // KUNCI SESI TERISOLASI 100% BERDASARKAN NAMA USERNAME MASING-MASING
+  const usernameKey = String(currentUser.username || '').trim().replace(/[\/\.#$\[\]]/g, '_').toUpperCase();
   const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
   if (!rtdb) return;
 
@@ -7417,7 +7422,7 @@ function forceLogoutThisDevice(customMsg = 'AKUN ANDA TELAH DI-LOGOUT. SILAHKAN 
     try {
       const rtdb = typeof getDbRealtime === 'function' ? getDbRealtime() : null;
       if (rtdb && currentUser && currentUser.username) {
-        const usernameKey = String(currentUser.username).replace(/[\/\.#$\[\]]/g, '_');
+        const usernameKey = String(currentUser.username).trim().replace(/[\/\.#$\[\]]/g, '_').toUpperCase();
         rtdb.ref(`user_sessions/${usernameKey}`).off('value', _sessionTokenRealtimeRef);
       }
     } catch(e) {}
@@ -16440,7 +16445,7 @@ async function paksaLogoutUserByAdmin(targetUsername) {
     var _asyncTask = async function() {
       showLoading(`MEMPROSES LOGOUT USER '${targetUsername}'...`);
       try {
-        const uKey = String(targetUsername).trim().replace(/[\/\.#$\[\]]/g, '_');
+        const uKey = String(targetUsername).trim().replace(/[\/\.#$\[\]]/g, '_').toUpperCase();
         const newSessionToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
         // 1. Firebase Realtime DB
@@ -16530,7 +16535,7 @@ async function logoutSemuaPerangkatUserByAdmin() {
             continue;
           }
 
-          const uKey = String(u.username).trim().replace(/[\/\.#$\[\]]/g, '_');
+          const uKey = String(u.username).trim().replace(/[\/\.#$\[\]]/g, '_').toUpperCase();
           const token = newSessionTokenBase + i + '_' + Math.random().toString(36).substring(2, 6);
 
           if (rtdb) {

@@ -8921,7 +8921,7 @@ async function uploadSignatureDataUrlToSupabaseStorage(dataUrl, customFileName =
       const fileName = customFileName || `TTD_${Date.now()}_${Math.floor(Math.random()*1000)}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
 
-      const { data, error } = await sb.storage.from('photos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      const { data, error } = await sb.storage.from('photos').upload(fileName, file, { cacheControl: '3600000', upsert: true });
       if (!error && data) {
         const { data: pubData } = sb.storage.from('photos').getPublicUrl(fileName);
         if (pubData && pubData.publicUrl) {
@@ -9082,7 +9082,7 @@ async function uploadPhotoToSupabaseStorage(fileOrBlob) {
 
       const candidateBuckets = ['photos', 'foto-permintaan', 'permintaan_photos', 'request-photos'];
       for (const bucketName of candidateBuckets) {
-        const { data, error } = await sb.storage.from(bucketName).upload(fileName, fileToUpload, { cacheControl: '3600', upsert: true });
+        const { data, error } = await sb.storage.from(bucketName).upload(fileName, fileToUpload, { cacheControl: '3600000', upsert: true });
         if (!error && data) {
           const { data: pubData } = sb.storage.from(bucketName).getPublicUrl(fileName);
           if (pubData && pubData.publicUrl) {
@@ -22801,7 +22801,7 @@ async function handleFotoParsialFileSelected(event) {
         const sb = (typeof supabase !== 'undefined' && supabase) ? supabase : ((typeof window.supabaseClient !== 'undefined' && window.supabaseClient) ? window.supabaseClient : null);
         if (sb && sb.storage) {
           const fileName = `PARSIAL_${Date.now()}_${Math.floor(Math.random()*10000)}.jpg`;
-          const { data, error } = await sb.storage.from('photos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+          const { data, error } = await sb.storage.from('photos').upload(fileName, file, { cacheControl: '3600000', upsert: true });
           if (!error && data) {
             const { data: pubData } = sb.storage.from('photos').getPublicUrl(fileName);
             if (pubData && pubData.publicUrl) {

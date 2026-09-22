@@ -15909,9 +15909,252 @@ function loadRememberedCredentials() {
 
 window.loadRememberedCredentials = loadRememberedCredentials;
 
+function parseJwtPayload(token) {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    let base64Url = parts[1];
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+}
+window.parseJwtPayload = parseJwtPayload;
 
+async function processSupabaseSSOJWT(rawJwtToken) {
+  if (!rawJwtToken || typeof rawJwtToken !== 'string') return false;
+  const tokenSSO = rawJwtToken.trim();
+  if (!tokenSSO) return false;
+
+  try {
+    const payloadJson = parseJwtPayload(tokenSSO);
+    if (!payloadJson) return false;
+
+    // Check expiration if exp claim is present
+    if (payloadJson.exp && (payloadJson.exp * 1000) < Date.now()) {
+      if (typeof showNotif === 'function') showNotif('\u26a0\ufe0f TOKEN SSO SUPABASE SUDAH KADALUWARSA (EXPIRED). SILAKAN LOGIN ULANG.', 'warning');
+      return false;
+    }
+
+    // Mengambil identitas email / username dari payload JWT
+    const emailUser = (payloadJson.email || '').trim().toLowerCase();
+    const usernameUser = (payloadJson.username || (payloadJson.user_metadata && payloadJson.user_metadata.username) || payloadJson.sub || '').trim().toLowerCase();
+    const fullNameUser = (payloadJson.fullName || payloadJson.name || '').trim().toLowerCase();
+
+    console.log("Mencoba login otomatis via SSO untuk Email/Username:", emailUser || usernameUser);
+
+    let userFound = null;
+    const dataMasterUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+
+    // 1. Cek DULU ke Supabase Database table 'users' untuk data paling up-to-date (Fresh Verification)
+    if (typeof supabase !== 'undefined' && supabase) {
+      try {
+        let query = supabase.from('users').select('*');
+        if (emailUser && usernameUser) {
+          query = query.or(`email.ilike.${emailUser},username.ilike.${usernameUser},username.ilike.${emailUser}`);
+        } else if (emailUser) {
+          query = query.or(`email.ilike.${emailUser},username.ilike.${emailUser}`);
+        } else if (usernameUser) {
+          query = query.or(`username.ilike.${usernameUser},email.ilike.${usernameUser}`);
+        }
+        const { data: supaUsers, error } = await query.limit(1);
+        if (!error && Array.isArray(supaUsers) && supaUsers.length > 0) {
+          const su = supaUsers[0];
+          let canPrint = (su.can_print_pdf === true || su.can_print_pdf === 'true' || su.can_print_pdf === 1 || su.canPrintPdf === true);
+          let canForward = (su.can_forward === true || su.can_forward === 'true' || su.can_forward === 1 || su.canForward === true);
+          let canDownloadExcel = (su.can_download_excel === true || su.can_download_excel === 'true' || su.can_download_excel === 1 || su.canDownloadExcel === true);
+          let canUploadBukti = (su.can_upload_bukti === true || su.can_upload_bukti === 'true' || su.can_upload_bukti === 1 || su.canUploadBukti === true);
+
+          userFound = {
+            id: su.id,
+            username: String(su.username || '').trim(),
+            password: String(su.password || '').trim(),
+            fullName: String(su.full_name || su.fullName || '').trim(),
+            storeCode: String(su.store_code || su.storeCode || '').trim(),
+            phone: String(su.phone || '').trim(),
+            category: String(su.category || 'TOKO').trim().toUpperCase(),
+            area: String(su.area || 'BDG').trim().toUpperCase(),
+            email: String(su.email || emailUser || '').trim().toLowerCase(),
+            canPrintPdf: canPrint,
+            canForward: canForward,
+            can_forward: canForward,
+            canDownloadExcel: canDownloadExcel,
+            can_download_excel: canDownloadExcel,
+            canUploadBukti: canUploadBukti,
+            can_upload_bukti: canUploadBukti,
+            theme: su.theme || '',
+            createdAt: su.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
+          };
+
+          // Simpan / perbarui ke cache lokal
+          if (typeof saveUsersToDB === 'function') {
+            const idx = dataMasterUsers.findIndex(u => u && (String(u.username || '').toLowerCase() === String(userFound.username || '').toLowerCase() || (u.email && String(u.email).toLowerCase() === String(userFound.email).toLowerCase())));
+            if (idx !== -1) dataMasterUsers[idx] = userFound;
+            else dataMasterUsers.push(userFound);
+            saveUsersToDB(dataMasterUsers);
+          }
+        }
+      } catch(e) {
+        console.warn("[SSO SUPABASE DB SEARCH WARN]:", e);
+      }
+    }
+
+    // 2. Jika Supabase offline atau query gagal, fallback ke DB lokal (pencocokan ketat Email/Username saja)
+    if (!userFound && dataMasterUsers.length > 0) {
+      userFound = dataMasterUsers.find(u => {
+        if (!u) return false;
+        const uEmail = (u.email || '').trim().toLowerCase();
+        const uUsername = (u.username || '').trim().toLowerCase();
+
+        return (emailUser && uEmail === emailUser) ||
+               (usernameUser && uUsername === usernameUser) ||
+               (emailUser && uUsername === emailUser);
+      });
+    }
+
+    if (userFound) {
+      // Jika user DITEMUKAN di database aplikasi: Set session login
+      currentUser = userFound;
+      const sessionStr = JSON.stringify(currentUser);
+      try { sessionStorage.setItem(SESSION_KEY, sessionStr); } catch(e) {}
+      try { localStorage.setItem(SESSION_KEY, sessionStr); } catch(e) {}
+      try { localStorage.setItem('aktiva_logged_user', sessionStr); } catch(e) {}
+      if (typeof appStorage !== 'undefined' && appStorage) {
+        try { appStorage.setItem(SESSION_KEY, sessionStr); } catch(e) {}
+      }
+
+      // Bersihkan URL parameter agar token tidak terekspos di browser
+      try {
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.delete('token');
+        currentUrl.searchParams.delete('jwt');
+        currentUrl.searchParams.delete('sso');
+        currentUrl.searchParams.delete('portal');
+        currentUrl.searchParams.delete('access_token');
+        currentUrl.searchParams.delete('sso_token');
+        currentUrl.hash = '';
+        window.history.replaceState({}, document.title, currentUrl.pathname + currentUrl.search);
+      } catch(e) {}
+
+      // Tampilkan aplikasi utama
+      bukaMainApp(true);
+      if (typeof showNotif === 'function') {
+        showNotif(`\u2713 LOGIN SSO BERHASIL! Selamat datang, ${currentUser.fullName || currentUser.username}.`, 'success');
+      }
+      return true;
+    } else {
+      // Jika email / username TIDAK DITEMUKAN di database sama sekali
+      window.pendingSSOEmail = emailUser || usernameUser;
+      const portalUrl = localStorage.getItem('sso_return_url');
+
+      if (typeof showNotif === 'function') {
+        showNotif(`\u274c GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!${portalUrl ? ' Mengalihkan ke Portal...' : ''}`, 'error');
+      } else {
+        alert(`\u274c GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!`);
+      }
+
+      if (portalUrl && String(portalUrl).trim().length > 0) {
+        setTimeout(function() {
+          window.location.href = String(portalUrl).trim();
+        }, 1200);
+      }
+      return false;
+    }
+  } catch(e) {
+    console.error("Gagal membaca Token JWT Supabase", e);
+    return false;
+  }
+}
+window.processSupabaseSSOJWT = processSupabaseSSOJWT;
+
+function checkAndHandleSupabaseSSOUrl() {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenSSO = urlParams.get('token') || urlParams.get('jwt') || urlParams.get('sso') || urlParams.get('access_token') || urlParams.get('sso_token');
+    const portalUrl = urlParams.get('portal');
+
+    if (portalUrl) {
+      try { localStorage.setItem('sso_return_url', portalUrl); } catch(e) {}
+    }
+
+    let targetToken = tokenSSO;
+    if (!targetToken && window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      targetToken = hashParams.get('access_token') || hashParams.get('token') || hashParams.get('jwt');
+    }
+
+    if (targetToken) {
+      return processSupabaseSSOJWT(targetToken);
+    }
+  } catch(e) {}
+  return false;
+}
+window.checkAndHandleSupabaseSSOUrl = checkAndHandleSupabaseSSOUrl;
+
+(function() {
+  try {
+    checkAndHandleSupabaseSSOUrl();
+  } catch(e) {}
+})();
+
+function redirectPortalIfFromSSOOrGoLogin() {
+  try {
+    const portalUrl = localStorage.getItem('sso_return_url');
+    if (portalUrl && String(portalUrl).trim().length > 0) {
+      localStorage.removeItem('sso_return_url');
+      window.location.href = String(portalUrl).trim();
+      return true;
+    }
+  } catch(e) {}
+  if (typeof pindahHalaman === 'function') {
+    pindahHalaman('loginPage');
+  }
+  if (typeof loadRememberedCredentials === 'function') {
+    loadRememberedCredentials();
+  }
+  return false;
+}
+window.redirectPortalIfFromSSOOrGoLogin = redirectPortalIfFromSSOOrGoLogin;
 
 function autoLogin() {
+  if (typeof checkAndHandleSupabaseSSOUrl === 'function' && checkAndHandleSupabaseSSOUrl()) {
+    return;
+  }
+
+  if (!currentUser) {
+    try {
+      let savedSession = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem(SESSION_KEY) : null;
+      if (!savedSession) {
+        savedSession = (typeof appStorage !== 'undefined' && appStorage) ? appStorage.getItem(SESSION_KEY) : null;
+      }
+      if (!savedSession) {
+        savedSession = (typeof localStorage !== 'undefined') ? localStorage.getItem(SESSION_KEY) : null;
+      }
+      if (savedSession) {
+        currentUser = JSON.parse(savedSession);
+        if (typeof applyMaintenanceModeUI === 'function') applyMaintenanceModeUI(window._isMaintenanceModeActive, window._maintenanceModeMessage);
+      }
+    } catch (e) {
+      currentUser = null;
+    }
+  }
+
+  if (typeof currentUser !== 'undefined' && currentUser !== null) {
+    bukaMainApp();
+  } else {
+    redirectPortalIfFromSSOOrGoLogin();
+  }
+}
+window.autoLogin = autoLogin;
+
 
   if (!currentUser) {
 

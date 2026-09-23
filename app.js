@@ -53110,9 +53110,9 @@ function updateLiveHeaderClock() {
 
 
 
-  if (dateEl) dateEl.textContent = formattedDate;
+  if (dateEl && dateEl.textContent !== formattedDate) dateEl.textContent = formattedDate;
 
-  if (timeEl) timeEl.textContent = formattedTime;
+  if (timeEl && timeEl.textContent !== formattedTime) timeEl.textContent = formattedTime;
 
 }
 
@@ -53356,7 +53356,7 @@ window.tampilkanModalOfflineSafety = tampilkanModalOfflineSafety;
 
 function tutupModalOfflineSafety() {
   const modal = document.getElementById('popupOfflineSafetyModal');
-  if (modal) {
+  if (modal && (modal.style.display !== 'none' || modal.classList.contains('show'))) {
     modal.style.setProperty('display', 'none', 'important');
     modal.classList.remove('show');
   }
@@ -53460,10 +53460,12 @@ window.addEventListener('DOMContentLoaded', periksaStatusOfflineSeketika);
 window.addEventListener('load', periksaStatusOfflineSeketika);
 periksaStatusOfflineSeketika();
 
-// Periodic Cloud Ping Heartbeat Check setiap 4 detik
+// Periodic Cloud Ping Heartbeat Check disabled to prevent 4-second flickering
+/*
 setInterval(() => {
   periksaStatusOfflineSeketika();
 }, 4000);
+*/
 
 // Global Unhandled Rejection for Network Fetch Failures
 window.addEventListener('unhandledrejection', (event) => {

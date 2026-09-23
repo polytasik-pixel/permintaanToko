@@ -59306,51 +59306,79 @@ window.togglePhotoInputPopupDoneAdmin = togglePhotoInputPopupDoneAdmin;
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     applyPhotoInputPopupDoneState(window._showPhotoInputInPopupDone);
-    syncPhotoInputPopupDoneFromSupabase();
   }, 500);
 });
 
-
-
 // ============================================================================
-// MODUL OTOMATISASI APPROVAL DM, GENERATE PDF, AUTO-DOWNLOAD & SUPABASE 2 UPLOAD
-// ============================================================================
-
-async function uploadTtdDMToGoogleDriveViaScript(dataUrl, noSurat) {
-  if (!dataUrl || !noSurat) return null;
-  const scriptUrl = (typeof googleAppsScriptUrl !== 'undefined' && googleAppsScriptUrl) || window.GOOGLE_APPS_SCRIPT_PDF_ENDPOINT || (typeof DEFAULT_ADMIN_SCRIPT_URL !== 'undefined' ? DEFAULT_ADMIN_SCRIPT_URL : '');
-  if (!scriptUrl) return null;
-  const cleanNoSurat = String(noSurat).replace(/^#/g, '').trim();
+// Helper khusus: Unggah TTD DM dari Canvas ke Google Drive (Format PNG/JPG) & Tempel Link ke Kolom Approval DM Google Sheet
+async function uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, noSurat) {
+  if (!ttdDataUrl || !noSurat) return null;
+  const scriptUrl = typeof getAdminScriptUrl === 'function' ? getAdminScriptUrl() : '';
+  if (!scriptUrl) {
+    console.warn('[GDRIVE TTD DM]: URL Google Apps Script belum dikonfigurasi!');
+    return null;
+  }
 
   try {
-    console.log('[TTD DM GDRIVE]: Memulai unggah TTD DM ke Google Drive untuk #' + cleanNoSurat + '...');
-    const response = await fetch(scriptUrl, {
-      method: 'POST',
-      mode: 'cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        action: 'upload_ttd_gdrive',
-        fileName: `TTD_DM_${cleanNoSurat}.png`,
-        fileBase64: dataUrl,
-        fileData: dataUrl,
-        noSurat: cleanNoSurat
-      })
-    });
-    const result = await response.json();
-    if (result && (result.status === 'success' || result.fileId || result.url || result.downloadUrl)) {
-      const driveUrl = result.downloadUrl || result.url || result.fileUrl || (result.fileId ? `https://lh3.googleusercontent.com/d/${result.fileId}` : null);
-      if (driveUrl) {
-        console.log('✅ [TTD DM GDRIVE UPLOAD SUCCESS]: URL Google Drive TTD =', driveUrl);
-        return driveUrl;
-      }
+    const cleanNo = String(noSurat || 'SURAT').replace(/[\/\:]/g, '_').trim();
+    const fileName = `TTD_DM_${cleanNo}.png`;
+    const base64Str = ttdDataUrl.includes('base64,') ? ttdDataUrl.split('base64,')[1] : ttdDataUrl;
+
+    const payload = {
+      action: 'upload_ttd_gdrive',
+      noSurat: cleanNo,
+      fileName: fileName,
+      fileBase64: base64Str,
+      dmUserName: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.fullName || currentUser.username) : 'DM',
+      approvalDate: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : new Date().toLocaleDateString('id-ID'),
+      status: 'APPROVE'
+    };
+
+    console.log(`[GDRIVE TTD DM]: Mengunggah TTD Canvas (${fileName}) ke Google Drive & Google Sheet...`);
+
+    let timeoutId;
+    let resp;
+    try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 120000); // 2 menit timeout
+
+      resp = await fetch(scriptUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+    } catch (fErr) {
+      console.warn('[GDRIVE TTD DM FETCH ERROR]:', fErr);
+      return null;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    return null;
+
+    if (!resp || !resp.ok) {
+      console.warn('[GDRIVE TTD DM HTTP ERROR]:', resp ? resp.status : 'No Response');
+      return null;
+    }
+
+    const resJson = await resp.json();
+    const fileId = resJson ? (resJson.fileId || resJson.id || '') : '';
+    const rawUrl = resJson ? (resJson.url || resJson.fileUrl || resJson.downloadUrl || '') : '';
+    const driveUrl = fileId ? `https://lh3.googleusercontent.com/d/${fileId}` : (typeof formatGoogleDriveViewUrl === 'function' ? formatGoogleDriveViewUrl(rawUrl) : rawUrl);
+
+    if (resJson && (resJson.status === 'success' || driveUrl)) {
+      console.log('✅ [GDRIVE TTD DM SUCCESS]: URL Google Drive =', driveUrl);
+      return driveUrl;
+    } else {
+      console.warn('[GDRIVE TTD DM RESPONSE]:', resJson);
+      return driveUrl || null;
+    }
   } catch (err) {
-    console.warn('[UPLOAD TTD GDRIVE FAILED]:', err);
+    console.error('[GDRIVE TTD DM EXCEPTION]:', err);
     return null;
   }
 }
 window.uploadTtdDMToGoogleDriveViaScript = uploadTtdDMToGoogleDriveViaScript;
+
 
 async function simpanApprovalDMWithTTDAndGDrive() {
   const targetNoSurat = _dmApprovalCurrentNoSurat;
@@ -59373,92 +59401,100 @@ async function simpanApprovalDMWithTTDAndGDrive() {
     }
   }
 
+  // 1. Tampilkan loading singkat 'PROSES APPROVAL' & langsung tutup modal canvas
   if (typeof tutupModalApprovalDMCanvas === 'function') tutupModalApprovalDMCanvas();
 
   if (typeof tampilkanLoadingProses === 'function') tampilkanLoadingProses('PROSES APPROVAL...');
   else if (typeof showLoading === 'function') showLoading('PROSES APPROVAL...');
 
-  try {
-    const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
-    const cleanTarget = String(targetNoSurat).replace(/^#/g, '').trim().toUpperCase();
-    const idx = requests.findIndex(r => {
-      if (!r) return false;
-      const rNo = String(r.noSurat || '').replace(/^#/g, '').trim().toUpperCase();
-      const rId = String(r.id || '').replace(/^#/g, '').trim().toUpperCase();
-      return (rNo && rNo === cleanTarget) || (rId && rId === cleanTarget);
+  // 2. KILAT LOKAL UPDATE (0-10 ms UX): Update DB lokal & UI secara instant tanpa menunggu cloud!
+  const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+  const cleanTarget = String(targetNoSurat).replace(/^#/g, '').trim().toUpperCase();
+  const idx = requests.findIndex(r => {
+    if (!r) return false;
+    const rNo = String(r.noSurat || '').replace(/^#/g, '').trim().toUpperCase();
+    const rId = String(r.id || '').replace(/^#/g, '').trim().toUpperCase();
+    return (rNo && rNo === cleanTarget) || (rId && rId === cleanTarget);
+  });
+
+  let targetReq = null;
+  if (idx !== -1) {
+    requests[idx].status = 'APPROVE';
+    requests[idx].dmUserName = currentUser ? (currentUser.fullName || currentUser.username) : 'DM';
+    requests[idx].dmTTD = ttdDataUrl; 
+    requests[idx].dm_ttd = ttdDataUrl;
+
+    if (!requests[idx].log) requests[idx].log = [];
+    requests[idx].log.push({
+      action: 'APPROVE_DM',
+      user: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
+      notes: `Persetujuan DM dengan TTD Canvas`,
+      time: `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : ''} ${new Date().toLocaleTimeString('id-ID')}`
     });
 
-    const strokesJSON = typeof getSignatureStrokesJSON === 'function' ? getSignatureStrokesJSON() : JSON.stringify(window._dmCurrentStrokes || []);
-    let targetReq = null;
-    if (idx !== -1) {
-      requests[idx].status = 'APPROVE';
-      requests[idx].dmUserName = currentUser ? (currentUser.fullName || currentUser.username) : 'DM';
-      requests[idx].dmTTD = ttdDataUrl;
-      requests[idx].dm_ttd = ttdDataUrl;
-      requests[idx].dmTTDStrokes = strokesJSON;
+    if (typeof saveRequestsToDB === 'function') {
+      saveRequestsToDB(requests, requests[idx], 'UPDATE');
+    }
+    targetReq = requests[idx];
+  }
 
-      if (!requests[idx].log) requests[idx].log = [];
-      requests[idx].log.push({
-        action: 'APPROVE_DM',
-        user: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
-        notes: 'Persetujuan DM dengan TTD Manual',
-        time: `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : ''} ${new Date().toLocaleTimeString('id-ID')}`
-      });
+  // 3. TAMPILKAN HASIL INSTAN KE USER (0 MS DELAY)
+  if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+  else if (typeof hideLoading === 'function') hideLoading();
 
-      if (typeof saveRequestsToDB === 'function') {
-        saveRequestsToDB(requests, requests[idx], 'UPDATE');
+  if (typeof showNotif === 'function') {
+    showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL!`, 'success');
+  }
+
+  if (typeof loadRiwayat === 'function') loadRiwayat();
+  if (typeof loadDashboard === 'function') loadDashboard();
+  if (typeof lihatDetail === 'function') lihatDetail(targetNoSurat);
+
+  // 4. JALANKAN SEMUA PROSES BERAT DI LATAR BELAKANG (NON-BLOCKING BACKGROUND TASK)
+  setTimeout(async () => {
+    try {
+      // A. Unggah TTD Canvas PNG ke Google Drive & Tempel Link ke Google Sheet
+      let finalTtdUrl = ttdDataUrl;
+      if (typeof uploadTtdDMToGoogleDriveViaScript === 'function') {
+        try {
+          const driveUrl = await uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, targetNoSurat);
+          if (driveUrl) finalTtdUrl = driveUrl;
+        } catch(e) {
+          console.warn('[BACKGROUND GDRIVE TTD WARN]:', e);
+        }
       }
-      targetReq = requests[idx];
-    }
 
-    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
-    else if (typeof hideLoading === 'function') hideLoading();
-
-    if (typeof showNotif === 'function') {
-      showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL!`, 'success');
-    }
-
-    if (typeof loadRiwayat === 'function') loadRiwayat();
-    if (typeof loadDashboard === 'function') loadDashboard();
-    if (typeof lihatDetail === 'function') lihatDetail(targetNoSurat);
-
-    // NON-BLOCKING BACKGROUND TASK (SUPABASE 1, GOOGLE DRIVE TTD, & GOOGLE SHEET SYNC)
-    setTimeout(async () => {
-      try {
-        let driveTtdUrl = null;
-        if (ttdDataUrl) {
-          driveTtdUrl = await uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, targetNoSurat);
+      // B. Tempel Link Google Drive TTD DM ke Database Supabase (kolom dm_ttd) & DB lokal
+      if (idx !== -1 && finalTtdUrl && finalTtdUrl !== ttdDataUrl) {
+        requests[idx].dmTTD = finalTtdUrl;
+        requests[idx].dm_ttd = finalTtdUrl;
+        if (typeof saveRequestsToDB === 'function') {
+          saveRequestsToDB(requests, requests[idx], 'UPDATE');
         }
+      }
 
-        const finalSigUrl = driveTtdUrl || ttdDataUrl;
-
-        if (idx !== -1 && finalSigUrl) {
-          requests[idx].dm_ttd = finalSigUrl;
-          requests[idx].dmTTD = finalSigUrl;
-          if (typeof saveRequestsToDB === 'function') {
-            saveRequestsToDB(requests, requests[idx], 'UPDATE');
-          }
-        }
-
-        if (typeof supabase !== 'undefined' && supabase && finalSigUrl) {
+      if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
+        try {
           await supabase.from('permintaan_toko').update({
-            status: 'APPROVE',
+            dm_ttd: finalTtdUrl || ttdDataUrl,
             dm_user_name: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
-            dm_ttd: finalSigUrl
+            status: 'APPROVE',
+            updated_at: new Date().toISOString()
           }).eq('no_surat', targetNoSurat);
-        }
-
-        if (typeof generateAndBackupApprovedPdf === 'function') {
-          generateAndBackupApprovedPdf(targetNoSurat, targetReq || findRequestByNoSuratOrId(targetNoSurat)).catch(e => console.warn('[BACKGROUND PDF UPLOAD ERROR]:', e));
-        }
-      } catch (bgErr) {
-        console.warn('[BACKGROUND APPROVAL SYNC ERROR]:', bgErr);
+          console.log('[SUPABASE dm_ttd SUCCESS]: Link TTD tersimpan di kolom dm_ttd Supabase');
+        } catch(supaErr) {}
       }
-    }, 10);
 
-  } catch (err) {
-    console.error('[SIMPAN APPROVAL DM ERROR]:', err);
-    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+      // C. Generator PDF Dokumen & Backup ke Google Drive
+      if (typeof generateAndBackupApprovedPdf === 'function') {
+        generateAndBackupApprovedPdf(targetNoSurat, targetReq || findRequestByNoSuratOrId(targetNoSurat)).catch(e => console.warn('[BACKGROUND PDF WARN]:', e));
+      }
+    } catch (bgErr) {
+      console.warn('[BACKGROUND APPROVAL TASK ERROR]:', bgErr);
+    }
+  }, 10);
+}
+window.simpanApprovalDMWithTTDAndGDrive = simpanApprovalDMWithTTDAndGDrive;f (typeof tutupLoadingProses === 'function') tutupLoadingProses();
     else if (typeof hideLoading === 'function') hideLoading();
     if (typeof showNotif === 'function') showNotif('APPROVAL BERHASIL DISIMPAN!', 'info');
   }

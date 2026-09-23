@@ -8980,6 +8980,8 @@ function formatSupabaseRequestRow(row) {
 
     if (sig.includes('DIGITALLY VERIFIED') || sig.includes('OfficialDigitalSignatureStamp')) return '';
 
+    if (sig.startsWith('data:image/')) return '';
+
     return sig;
 
   };
@@ -11522,6 +11524,8 @@ function sanitizePermintaanTokoRow(r) {
     if (!sig || typeof sig !== 'string') return '';
 
     if (sig.includes('DIGITALLY VERIFIED') || sig.includes('OfficialDigitalSignatureStamp')) return '';
+
+    if (sig.startsWith('data:image/')) return '';
 
     return sig;
 
@@ -15941,62 +15945,90 @@ async function processSupabaseSSOJWT(rawJwtToken) {
       return false;
     }
 
-    // Mengambil identitas email / username dari payload JWT
-    const emailUser = (payloadJson.email || '').trim().toLowerCase();
-    const usernameUser = (payloadJson.username || (payloadJson.user_metadata && payloadJson.user_metadata.username) || payloadJson.sub || '').trim().toLowerCase();
-    const fullNameUser = (payloadJson.fullName || payloadJson.name || '').trim().toLowerCase();
+    // Mengambil identitas email / username dari payload JWT secara komprehensif
+    const emailUser = String(payloadJson.email || payloadJson.email_user || payloadJson.mail || (payloadJson.user_metadata && (payloadJson.user_metadata.email || payloadJson.user_metadata.email_user)) || '').trim().toLowerCase();
+    
+    let rawUsername = payloadJson.username || payloadJson.user_name || payloadJson.username_user || payloadJson.user || payloadJson.preferred_username || payloadJson.identity || payloadJson.nik || '';
+    if (!rawUsername && payloadJson.user_metadata) {
+      rawUsername = payloadJson.user_metadata.username || payloadJson.user_metadata.user_name || payloadJson.user_metadata.preferred_username || payloadJson.user_metadata.nik || '';
+    }
+    if (!rawUsername && typeof payloadJson.sub === 'string' && !payloadJson.sub.includes('-')) {
+      rawUsername = payloadJson.sub;
+    }
+    const usernameUser = String(rawUsername || '').trim().toLowerCase();
+    const fullNameUser = String(payloadJson.fullName || payloadJson.name || (payloadJson.user_metadata && payloadJson.user_metadata.name) || '').trim().toLowerCase();
 
     console.log("Mencoba login otomatis via SSO untuk Email/Username:", emailUser || usernameUser);
 
     let userFound = null;
-    const dataMasterUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+    let dataMasterUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+
+    const mapSupabaseUserObj = (su) => {
+      let canPrint = (su.can_print_pdf === true || su.can_print_pdf === 'true' || su.can_print_pdf === 1 || su.canPrintPdf === true);
+      let canForward = (su.can_forward === true || su.can_forward === 'true' || su.can_forward === 1 || su.canForward === true);
+      let canDownloadExcel = (su.can_download_excel === true || su.can_download_excel === 'true' || su.can_download_excel === 1 || su.canDownloadExcel === true);
+      let canUploadBukti = (su.can_upload_bukti === true || su.can_upload_bukti === 'true' || su.can_upload_bukti === 1 || su.canUploadBukti === true);
+
+      return {
+        id: su.id,
+        username: String(su.username || '').trim(),
+        password: String(su.password || '').trim(),
+        fullName: String(su.full_name || su.fullName || '').trim(),
+        storeCode: String(su.store_code || su.storeCode || '').trim(),
+        phone: String(su.phone || '').trim(),
+        category: String(su.category || 'TOKO').trim().toUpperCase(),
+        area: String(su.area || 'BDG').trim().toUpperCase(),
+        email: String(su.email || emailUser || '').trim().toLowerCase(),
+        canPrintPdf: canPrint,
+        canForward: canForward,
+        can_forward: canForward,
+        canDownloadExcel: canDownloadExcel,
+        can_download_excel: canDownloadExcel,
+        canUploadBukti: canUploadBukti,
+        can_upload_bukti: canUploadBukti,
+        theme: su.theme || '',
+        createdAt: su.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
+      };
+    };
 
     // 1. Cek DULU ke Supabase Database table 'users' untuk data paling up-to-date (Fresh Verification)
     if (typeof supabase !== 'undefined' && supabase) {
       try {
-        let query = supabase.from('users').select('*');
-        if (emailUser && usernameUser) {
-          query = query.or(`email.ilike.${emailUser},username.ilike.${usernameUser},username.ilike.${emailUser}`);
-        } else if (emailUser) {
-          query = query.or(`email.ilike.${emailUser},username.ilike.${emailUser}`);
-        } else if (usernameUser) {
-          query = query.or(`username.ilike.${usernameUser},email.ilike.${usernameUser}`);
+        let filterConditions = [];
+        if (emailUser) filterConditions.push(`email.ilike.${emailUser}`, `username.ilike.${emailUser}`);
+        if (usernameUser) filterConditions.push(`username.ilike.${usernameUser}`, `email.ilike.${usernameUser}`);
+        
+        if (filterConditions.length > 0) {
+          const { data: supaUsers, error } = await supabase.from('users').select('*').or(filterConditions.join(',')).limit(5);
+          if (!error && Array.isArray(supaUsers) && supaUsers.length > 0) {
+            userFound = mapSupabaseUserObj(supaUsers[0]);
+          }
         }
-        const { data: supaUsers, error } = await query.limit(1);
-        if (!error && Array.isArray(supaUsers) && supaUsers.length > 0) {
-          const su = supaUsers[0];
-          let canPrint = (su.can_print_pdf === true || su.can_print_pdf === 'true' || su.can_print_pdf === 1 || su.canPrintPdf === true);
-          let canForward = (su.can_forward === true || su.can_forward === 'true' || su.can_forward === 1 || su.canForward === true);
-          let canDownloadExcel = (su.can_download_excel === true || su.can_download_excel === 'true' || su.can_download_excel === 1 || su.canDownloadExcel === true);
-          let canUploadBukti = (su.can_upload_bukti === true || su.can_upload_bukti === 'true' || su.can_upload_bukti === 1 || su.canUploadBukti === true);
 
-          userFound = {
-            id: su.id,
-            username: String(su.username || '').trim(),
-            password: String(su.password || '').trim(),
-            fullName: String(su.full_name || su.fullName || '').trim(),
-            storeCode: String(su.store_code || su.storeCode || '').trim(),
-            phone: String(su.phone || '').trim(),
-            category: String(su.category || 'TOKO').trim().toUpperCase(),
-            area: String(su.area || 'BDG').trim().toUpperCase(),
-            email: String(su.email || emailUser || '').trim().toLowerCase(),
-            canPrintPdf: canPrint,
-            canForward: canForward,
-            can_forward: canForward,
-            canDownloadExcel: canDownloadExcel,
-            can_download_excel: canDownloadExcel,
-            canUploadBukti: canUploadBukti,
-            can_upload_bukti: canUploadBukti,
-            theme: su.theme || '',
-            createdAt: su.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
-          };
+        // 1B. Jika query spesifik belum menemukan, tarik semua users dari Supabase untuk pencocokan fleksibel (Abaikan spasi/simbol)
+        if (!userFound) {
+          const { data: allUsers, error: errAll } = await supabase.from('users').select('*');
+          if (!errAll && Array.isArray(allUsers) && allUsers.length > 0) {
+            const cleanTargetU = usernameUser.replace(/[\s\.\_\-]/g, '');
+            const cleanTargetE = emailUser.replace(/[\s\.\_\-]/g, '');
 
-          // Simpan / perbarui ke cache lokal
-          if (typeof saveUsersToDB === 'function') {
-            const idx = dataMasterUsers.findIndex(u => u && (String(u.username || '').toLowerCase() === String(userFound.username || '').toLowerCase() || (u.email && String(u.email).toLowerCase() === String(userFound.email).toLowerCase())));
-            if (idx !== -1) dataMasterUsers[idx] = userFound;
-            else dataMasterUsers.push(userFound);
-            saveUsersToDB(dataMasterUsers);
+            const matchedSu = allUsers.find(su => {
+              if (!su) return false;
+              const suU = String(su.username || '').trim().toLowerCase();
+              const suE = String(su.email || '').trim().toLowerCase();
+              const cleanSuU = suU.replace(/[\s\.\_\-]/g, '');
+              const cleanSuE = suE.replace(/[\s\.\_\-]/g, '');
+
+              return (emailUser && suE === emailUser) ||
+                     (usernameUser && suU === usernameUser) ||
+                     (emailUser && suU === emailUser) ||
+                     (cleanTargetU && cleanSuU === cleanTargetU) ||
+                     (cleanTargetE && cleanSuE === cleanTargetE) ||
+                     (cleanTargetU && cleanSuE === cleanTargetU);
+            });
+            if (matchedSu) {
+              userFound = mapSupabaseUserObj(matchedSu);
+            }
           }
         }
       } catch(e) {
@@ -16004,20 +16036,42 @@ async function processSupabaseSSOJWT(rawJwtToken) {
       }
     }
 
-    // 2. Jika Supabase offline atau query gagal, fallback ke DB lokal (pencocokan ketat Email/Username saja)
-    if (!userFound && dataMasterUsers.length > 0) {
-      userFound = dataMasterUsers.find(u => {
-        if (!u) return false;
-        const uEmail = (u.email || '').trim().toLowerCase();
-        const uUsername = (u.username || '').trim().toLowerCase();
+    // 2. Jika Supabase query belum menemukan, paksa sinkronisasi cache lokal & cek
+    if (!userFound) {
+      if (typeof syncSupabaseUsersToLocalCache === 'function') {
+        await syncSupabaseUsersToLocalCache().catch(() => {});
+        dataMasterUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
+      }
 
-        return (emailUser && uEmail === emailUser) ||
-               (usernameUser && uUsername === usernameUser) ||
-               (emailUser && uUsername === emailUser);
-      });
+      if (dataMasterUsers.length > 0) {
+        const cleanTargetU = usernameUser.replace(/[\s\.\_\-]/g, '');
+        const cleanTargetE = emailUser.replace(/[\s\.\_\-]/g, '');
+
+        userFound = dataMasterUsers.find(u => {
+          if (!u) return false;
+          const uEmail = (u.email || '').trim().toLowerCase();
+          const uUsername = (u.username || '').trim().toLowerCase();
+          const cleanU = uUsername.replace(/[\s\.\_\-]/g, '');
+          const cleanE = uEmail.replace(/[\s\.\_\-]/g, '');
+
+          return (emailUser && uEmail === emailUser) ||
+                 (usernameUser && uUsername === usernameUser) ||
+                 (emailUser && uUsername === emailUser) ||
+                 (cleanTargetU && cleanU === cleanTargetU) ||
+                 (cleanTargetE && cleanE === cleanTargetE);
+        });
+      }
     }
 
     if (userFound) {
+      // Simpan / perbarui ke cache lokal
+      if (typeof saveUsersToDB === 'function') {
+        const idx = dataMasterUsers.findIndex(u => u && (String(u.username || '').toLowerCase() === String(userFound.username || '').toLowerCase() || (u.email && String(u.email).toLowerCase() === String(userFound.email).toLowerCase())));
+        if (idx !== -1) dataMasterUsers[idx] = userFound;
+        else dataMasterUsers.push(userFound);
+        saveUsersToDB(dataMasterUsers);
+      }
+
       // Jika user DITEMUKAN di database aplikasi: Set session login
       currentUser = userFound;
       const sessionStr = JSON.stringify(currentUser);
@@ -16044,7 +16098,7 @@ async function processSupabaseSSOJWT(rawJwtToken) {
       // Tampilkan aplikasi utama
       bukaMainApp(true);
       if (typeof showNotif === 'function') {
-        showNotif(`\u2713 LOGIN SSO BERHASIL! Selamat datang, ${currentUser.fullName || currentUser.username}.`, 'success');
+        showNotif(`✓ LOGIN SSO BERHASIL! Selamat datang, ${currentUser.fullName || currentUser.username}.`, 'success');
       }
       return true;
     } else {
@@ -16053,9 +16107,9 @@ async function processSupabaseSSOJWT(rawJwtToken) {
       const portalUrl = localStorage.getItem('sso_return_url');
 
       if (typeof showNotif === 'function') {
-        showNotif(`\u274c GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!${portalUrl ? ' Mengalihkan ke Portal...' : ''}`, 'error');
+        showNotif(`❌ GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!${portalUrl ? ' Mengalihkan ke Portal...' : ''}`, 'error');
       } else {
-        alert(`\u274c GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!`);
+        alert(`❌ GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!`);
       }
 
       if (portalUrl && String(portalUrl).trim().length > 0) {
@@ -59009,13 +59063,25 @@ async function simpanApprovalDMWithTTDAndGDrive() {
     }
   }
 
-  // 1. Tampilkan loading singkat 'PROSES APPROVAL' & langsung tutup modal canvas
   if (typeof tutupModalApprovalDMCanvas === 'function') tutupModalApprovalDMCanvas();
 
-  if (typeof tampilkanLoadingProses === 'function') tampilkanLoadingProses('PROSES APPROVAL...');
-  else if (typeof showLoading === 'function') showLoading('PROSES APPROVAL...');
+  if (typeof tampilkanLoadingProses === 'function') tampilkanLoadingProses('MENGUNGGAH TTD KE GOOGLE DRIVE & PROSES APPROVAL...');
+  else if (typeof showLoading === 'function') showLoading('MENGUNGGAH TTD KE GOOGLE DRIVE & PROSES APPROVAL...');
 
-  // 2. KILAT LOKAL UPDATE (0-10 ms UX): Update DB lokal & UI secara instant tanpa menunggu cloud!
+  // 1. UNGGAH TTD KE GOOGLE DRIVE TERLEBIH DAHULU (PASTIKAN LINK PUBLIC G-DRIVE DIDAPATKAN)
+  let finalTtdUrl = '';
+  if (typeof uploadTtdDMToGoogleDriveViaScript === 'function') {
+    try {
+      const driveUrl = await uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, targetNoSurat);
+      if (driveUrl && (driveUrl.startsWith('http://') || driveUrl.startsWith('https://'))) {
+        finalTtdUrl = driveUrl;
+      }
+    } catch(e) {
+      console.warn('[GDRIVE TTD DM UPLOAD ERROR]:', e);
+    }
+  }
+
+  // 2. TEMPELKAN URL GOOGLE DRIVE KE SUPABASE & LOKAL DATABASE
   const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
   const cleanTarget = String(targetNoSurat).replace(/^#/g, '').trim().toUpperCase();
   const idx = requests.findIndex(r => {
@@ -59029,14 +59095,14 @@ async function simpanApprovalDMWithTTDAndGDrive() {
   if (idx !== -1) {
     requests[idx].status = 'APPROVE';
     requests[idx].dmUserName = currentUser ? (currentUser.fullName || currentUser.username) : 'DM';
-    requests[idx].dmTTD = ttdDataUrl; 
-    requests[idx].dm_ttd = ttdDataUrl;
+    requests[idx].dmTTD = finalTtdUrl || ttdDataUrl; 
+    requests[idx].dm_ttd = finalTtdUrl || '';
 
     if (!requests[idx].log) requests[idx].log = [];
     requests[idx].log.push({
       action: 'APPROVE_DM',
       user: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
-      notes: `Persetujuan DM dengan TTD Canvas`,
+      notes: `Persetujuan DM dengan TTD Drive (${finalTtdUrl ? 'Tersimpan Google Drive' : 'Drive Pending'})`,
       time: `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : ''} ${new Date().toLocaleTimeString('id-ID')}`
     });
 
@@ -59046,61 +59112,38 @@ async function simpanApprovalDMWithTTDAndGDrive() {
     targetReq = requests[idx];
   }
 
-  // 3. TAMPILKAN HASIL INSTAN KE USER (0 MS DELAY)
+  if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
+    try {
+      await supabase.from('permintaan_toko').update({
+        dm_ttd: finalTtdUrl || null,
+        dm_user_name: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
+        status: 'APPROVE',
+        updated_at: new Date().toISOString()
+      }).eq('no_surat', targetNoSurat);
+      console.log('[SUPABASE dm_ttd SUCCESS]: Link Google Drive TTD tersimpan di kolom dm_ttd Supabase');
+    } catch(supaErr) {
+      console.warn('[SUPABASE dm_ttd UPDATE ERROR]:', supaErr);
+    }
+  }
+
+  // 3. TAMPILKAN HASIL KE USER & REFRESH UI
   if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
   else if (typeof hideLoading === 'function') hideLoading();
 
   if (typeof showNotif === 'function') {
-    showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL!`, 'success');
+    showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL! TTD Tersimpan di Google Drive.`, 'success');
   }
 
   if (typeof loadRiwayat === 'function') loadRiwayat();
   if (typeof loadDashboard === 'function') loadDashboard();
   if (typeof lihatDetail === 'function') lihatDetail(targetNoSurat);
 
-  // 4. JALANKAN SEMUA PROSES BERAT DI LATAR BELAKANG (NON-BLOCKING BACKGROUND TASK)
-  setTimeout(async () => {
-    try {
-      // A. Unggah TTD Canvas PNG ke Google Drive & Tempel Link ke Google Sheet
-      let finalTtdUrl = ttdDataUrl;
-      if (typeof uploadTtdDMToGoogleDriveViaScript === 'function') {
-        try {
-          const driveUrl = await uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, targetNoSurat);
-          if (driveUrl) finalTtdUrl = driveUrl;
-        } catch(e) {
-          console.warn('[BACKGROUND GDRIVE TTD WARN]:', e);
-        }
-      }
-
-      // B. Tempel Link Google Drive TTD DM ke Database Supabase (kolom dm_ttd) & DB lokal
-      if (idx !== -1 && finalTtdUrl && finalTtdUrl !== ttdDataUrl) {
-        requests[idx].dmTTD = finalTtdUrl;
-        requests[idx].dm_ttd = finalTtdUrl;
-        if (typeof saveRequestsToDB === 'function') {
-          saveRequestsToDB(requests, requests[idx], 'UPDATE');
-        }
-      }
-
-      if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
-        try {
-          await supabase.from('permintaan_toko').update({
-            dm_ttd: finalTtdUrl || ttdDataUrl,
-            dm_user_name: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
-            status: 'APPROVE',
-            updated_at: new Date().toISOString()
-          }).eq('no_surat', targetNoSurat);
-          console.log('[SUPABASE dm_ttd SUCCESS]: Link TTD tersimpan di kolom dm_ttd Supabase');
-        } catch(supaErr) {}
-      }
-
-      // C. Generator PDF Dokumen & Backup ke Google Drive
-      if (typeof generateAndBackupApprovedPdf === 'function') {
-        generateAndBackupApprovedPdf(targetNoSurat, targetReq || findRequestByNoSuratOrId(targetNoSurat)).catch(e => console.warn('[BACKGROUND PDF WARN]:', e));
-      }
-    } catch (bgErr) {
-      console.warn('[BACKGROUND APPROVAL TASK ERROR]:', bgErr);
-    }
-  }, 10);
+  // 4. GENERATE PDF BACKUP DI LATAR BELAKANG
+  if (typeof generateAndBackupApprovedPdf === 'function') {
+    setTimeout(() => {
+      generateAndBackupApprovedPdf(targetNoSurat, targetReq || findRequestByNoSuratOrId(targetNoSurat)).catch(e => console.warn('[BACKGROUND PDF WARN]:', e));
+    }, 50);
+  }
 }
 window.simpanApprovalDMWithTTDAndGDrive = simpanApprovalDMWithTTDAndGDrive;
 

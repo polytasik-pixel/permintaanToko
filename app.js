@@ -7008,6 +7008,10 @@ function onSupabaseDataChange(keyChanged) {
 
     loadRiwayat();
 
+  } else if (pageId === 'masterDbPage' && typeof loadMasterDbTable === 'function') {
+
+    loadMasterDbTable();
+
   } else if (pageId === 'userManagementPage' && typeof loadUsersManagement === 'function') {
 
     loadUsersManagement();
@@ -8296,35 +8300,6 @@ async function initSupabaseRealtimeEngine() {
         }
       )
       .on(
-        'broadcast',
-        { event: 'photo_input_popup_done_changed' },
-        (event) => {
-          if (event && event.payload && event.payload.enabled !== undefined) {
-            applyPhotoInputPopupDoneState(event.payload.enabled);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'system_settings' },
-        async (payload) => {
-          if (payload && payload.new && payload.new.setting_key === 'global_show_photo_input_popup_done') {
-            const enabled = payload.new.setting_value === 'true' || payload.new.setting_value === true;
-            applyPhotoInputPopupDoneState(enabled);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'lookup' },
-        async (payload) => {
-          if (payload && payload.new && payload.new.key === 'global_show_photo_input_popup_done') {
-            const enabled = payload.new.value === 'true' || payload.new.value === true;
-            applyPhotoInputPopupDoneState(enabled);
-          }
-        }
-      )
-      .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'app_settings' },
         async (payload) => {
@@ -9008,8 +8983,6 @@ function formatSupabaseRequestRow(row) {
     if (!sig || typeof sig !== 'string') return '';
 
     if (sig.includes('DIGITALLY VERIFIED') || sig.includes('OfficialDigitalSignatureStamp')) return '';
-
-    if (sig.startsWith('data:image/')) return '';
 
     return sig;
 
@@ -11553,8 +11526,6 @@ function sanitizePermintaanTokoRow(r) {
     if (!sig || typeof sig !== 'string') return '';
 
     if (sig.includes('DIGITALLY VERIFIED') || sig.includes('OfficialDigitalSignatureStamp')) return '';
-
-    if (sig.startsWith('data:image/')) return '';
 
     return sig;
 
@@ -15939,10 +15910,10 @@ function loadRememberedCredentials() {
 window.loadRememberedCredentials = loadRememberedCredentials;
 
 function parseJwtPayload(token) {
+  if (!token || typeof token !== 'string') return null;
   try {
-    if (!token || typeof token !== 'string') return null;
     const parts = token.split('.');
-    if (parts.length < 2) return null;
+    if (parts.length !== 3) return null;
     let base64Url = parts[1];
     let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     while (base64.length % 4) {
@@ -15953,7 +15924,6 @@ function parseJwtPayload(token) {
     }).join(''));
     return JSON.parse(jsonPayload);
   } catch (e) {
-    console.error("Gagal membaca Token JWT Supabase", e);
     return null;
   }
 }
@@ -15974,90 +15944,62 @@ async function processSupabaseSSOJWT(rawJwtToken) {
       return false;
     }
 
-    // Mengambil identitas email / username dari payload JWT secara komprehensif
-    const emailUser = String(payloadJson.email || payloadJson.email_user || payloadJson.mail || (payloadJson.user_metadata && (payloadJson.user_metadata.email || payloadJson.user_metadata.email_user)) || '').trim().toLowerCase();
-    
-    let rawUsername = payloadJson.username || payloadJson.user_name || payloadJson.username_user || payloadJson.user || payloadJson.preferred_username || payloadJson.identity || payloadJson.nik || '';
-    if (!rawUsername && payloadJson.user_metadata) {
-      rawUsername = payloadJson.user_metadata.username || payloadJson.user_metadata.user_name || payloadJson.user_metadata.preferred_username || payloadJson.user_metadata.nik || '';
-    }
-    if (!rawUsername && typeof payloadJson.sub === 'string' && !payloadJson.sub.includes('-')) {
-      rawUsername = payloadJson.sub;
-    }
-    const usernameUser = String(rawUsername || '').trim().toLowerCase();
-    const fullNameUser = String(payloadJson.fullName || payloadJson.name || (payloadJson.user_metadata && payloadJson.user_metadata.name) || '').trim().toLowerCase();
+    // Mengambil identitas email / username dari payload JWT
+    const emailUser = (payloadJson.email || '').trim().toLowerCase();
+    const usernameUser = (payloadJson.username || (payloadJson.user_metadata && payloadJson.user_metadata.username) || payloadJson.sub || '').trim().toLowerCase();
+    const fullNameUser = (payloadJson.fullName || payloadJson.name || '').trim().toLowerCase();
 
     console.log("Mencoba login otomatis via SSO untuk Email/Username:", emailUser || usernameUser);
 
     let userFound = null;
-    let dataMasterUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
-
-    const mapSupabaseUserObj = (su) => {
-      let canPrint = (su.can_print_pdf === true || su.can_print_pdf === 'true' || su.can_print_pdf === 1 || su.canPrintPdf === true);
-      let canForward = (su.can_forward === true || su.can_forward === 'true' || su.can_forward === 1 || su.canForward === true);
-      let canDownloadExcel = (su.can_download_excel === true || su.can_download_excel === 'true' || su.can_download_excel === 1 || su.canDownloadExcel === true);
-      let canUploadBukti = (su.can_upload_bukti === true || su.can_upload_bukti === 'true' || su.can_upload_bukti === 1 || su.canUploadBukti === true);
-
-      return {
-        id: su.id,
-        username: String(su.username || '').trim(),
-        password: String(su.password || '').trim(),
-        fullName: String(su.full_name || su.fullName || '').trim(),
-        storeCode: String(su.store_code || su.storeCode || '').trim(),
-        phone: String(su.phone || '').trim(),
-        category: String(su.category || 'TOKO').trim().toUpperCase(),
-        area: String(su.area || 'BDG').trim().toUpperCase(),
-        email: String(su.email || emailUser || '').trim().toLowerCase(),
-        canPrintPdf: canPrint,
-        canForward: canForward,
-        can_forward: canForward,
-        canDownloadExcel: canDownloadExcel,
-        can_download_excel: canDownloadExcel,
-        canUploadBukti: canUploadBukti,
-        can_upload_bukti: canUploadBukti,
-        theme: su.theme || '',
-        createdAt: su.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
-      };
-    };
+    const dataMasterUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
 
     // 1. Cek DULU ke Supabase Database table 'users' untuk data paling up-to-date (Fresh Verification)
     if (typeof supabase !== 'undefined' && supabase) {
       try {
-        let filterConditions = [];
-        if (emailUser) filterConditions.push(`email.ilike.${emailUser}`, `username.ilike.${emailUser}`);
-        if (usernameUser) filterConditions.push(`username.ilike.${usernameUser}`, `email.ilike.${usernameUser}`);
-        
-        if (filterConditions.length > 0) {
-          const { data: supaUsers, error } = await supabase.from('users').select('*').or(filterConditions.join(',')).limit(5);
-          if (!error && Array.isArray(supaUsers) && supaUsers.length > 0) {
-            userFound = mapSupabaseUserObj(supaUsers[0]);
-          }
+        let query = supabase.from('users').select('*');
+        if (emailUser && usernameUser) {
+          query = query.or(`email.ilike.${emailUser},username.ilike.${usernameUser},username.ilike.${emailUser}`);
+        } else if (emailUser) {
+          query = query.or(`email.ilike.${emailUser},username.ilike.${emailUser}`);
+        } else if (usernameUser) {
+          query = query.or(`username.ilike.${usernameUser},email.ilike.${usernameUser}`);
         }
+        const { data: supaUsers, error } = await query.limit(1);
+        if (!error && Array.isArray(supaUsers) && supaUsers.length > 0) {
+          const su = supaUsers[0];
+          let canPrint = (su.can_print_pdf === true || su.can_print_pdf === 'true' || su.can_print_pdf === 1 || su.canPrintPdf === true);
+          let canForward = (su.can_forward === true || su.can_forward === 'true' || su.can_forward === 1 || su.canForward === true);
+          let canDownloadExcel = (su.can_download_excel === true || su.can_download_excel === 'true' || su.can_download_excel === 1 || su.canDownloadExcel === true);
+          let canUploadBukti = (su.can_upload_bukti === true || su.can_upload_bukti === 'true' || su.can_upload_bukti === 1 || su.canUploadBukti === true);
 
-        // 1B. Jika query spesifik belum menemukan, tarik semua users dari Supabase untuk pencocokan fleksibel (Abaikan spasi/simbol)
-        if (!userFound) {
-          const { data: allUsers, error: errAll } = await supabase.from('users').select('*');
-          if (!errAll && Array.isArray(allUsers) && allUsers.length > 0) {
-            const cleanTargetU = usernameUser.replace(/[\s\.\_\-]/g, '');
-            const cleanTargetE = emailUser.replace(/[\s\.\_\-]/g, '');
+          userFound = {
+            id: su.id,
+            username: String(su.username || '').trim(),
+            password: String(su.password || '').trim(),
+            fullName: String(su.full_name || su.fullName || '').trim(),
+            storeCode: String(su.store_code || su.storeCode || '').trim(),
+            phone: String(su.phone || '').trim(),
+            category: String(su.category || 'TOKO').trim().toUpperCase(),
+            area: String(su.area || 'BDG').trim().toUpperCase(),
+            email: String(su.email || emailUser || '').trim().toLowerCase(),
+            canPrintPdf: canPrint,
+            canForward: canForward,
+            can_forward: canForward,
+            canDownloadExcel: canDownloadExcel,
+            can_download_excel: canDownloadExcel,
+            canUploadBukti: canUploadBukti,
+            can_upload_bukti: canUploadBukti,
+            theme: su.theme || '',
+            createdAt: su.created_at || (typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : '')
+          };
 
-            const matchedSu = allUsers.find(su => {
-              if (!su) return false;
-              const suU = String(su.username || '').trim().toLowerCase();
-              const suE = String(su.email || '').trim().toLowerCase();
-              const cleanSuU = suU.replace(/[\s\.\_\-]/g, '');
-              const cleanSuE = suE.replace(/[\s\.\_\-]/g, '');
-
-              return (emailUser && suE === emailUser) ||
-                     (usernameUser && suU === usernameUser) ||
-                     (emailUser && suU === emailUser) ||
-                     (cleanTargetU && cleanSuU === cleanTargetU) ||
-                     (cleanTargetE && cleanSuE === cleanTargetE) ||
-                     (cleanTargetU && cleanSuE === cleanTargetU);
-            });
-            if (matchedSu) {
-              userFound = mapSupabaseUserObj(matchedSu);
-            }
+          // Simpan / perbarui ke cache lokal
+          if (typeof saveUsersToDB === 'function') {
+            const idx = dataMasterUsers.findIndex(u => u && (String(u.username || '').toLowerCase() === String(userFound.username || '').toLowerCase() || (u.email && String(u.email).toLowerCase() === String(userFound.email).toLowerCase())));
+            if (idx !== -1) dataMasterUsers[idx] = userFound;
+            else dataMasterUsers.push(userFound);
+            saveUsersToDB(dataMasterUsers);
           }
         }
       } catch(e) {
@@ -16065,42 +16007,20 @@ async function processSupabaseSSOJWT(rawJwtToken) {
       }
     }
 
-    // 2. Jika Supabase query belum menemukan, paksa sinkronisasi cache lokal & cek
-    if (!userFound) {
-      if (typeof syncSupabaseUsersToLocalCache === 'function') {
-        await syncSupabaseUsersToLocalCache().catch(() => {});
-        dataMasterUsers = typeof getUsersFromDB === 'function' ? getUsersFromDB() : [];
-      }
+    // 2. Jika Supabase offline atau query gagal, fallback ke DB lokal (pencocokan ketat Email/Username saja)
+    if (!userFound && dataMasterUsers.length > 0) {
+      userFound = dataMasterUsers.find(u => {
+        if (!u) return false;
+        const uEmail = (u.email || '').trim().toLowerCase();
+        const uUsername = (u.username || '').trim().toLowerCase();
 
-      if (dataMasterUsers.length > 0) {
-        const cleanTargetU = usernameUser.replace(/[\s\.\_\-]/g, '');
-        const cleanTargetE = emailUser.replace(/[\s\.\_\-]/g, '');
-
-        userFound = dataMasterUsers.find(u => {
-          if (!u) return false;
-          const uEmail = (u.email || '').trim().toLowerCase();
-          const uUsername = (u.username || '').trim().toLowerCase();
-          const cleanU = uUsername.replace(/[\s\.\_\-]/g, '');
-          const cleanE = uEmail.replace(/[\s\.\_\-]/g, '');
-
-          return (emailUser && uEmail === emailUser) ||
-                 (usernameUser && uUsername === usernameUser) ||
-                 (emailUser && uUsername === emailUser) ||
-                 (cleanTargetU && cleanU === cleanTargetU) ||
-                 (cleanTargetE && cleanE === cleanTargetE);
-        });
-      }
+        return (emailUser && uEmail === emailUser) ||
+               (usernameUser && uUsername === usernameUser) ||
+               (emailUser && uUsername === emailUser);
+      });
     }
 
     if (userFound) {
-      // Simpan / perbarui ke cache lokal
-      if (typeof saveUsersToDB === 'function') {
-        const idx = dataMasterUsers.findIndex(u => u && (String(u.username || '').toLowerCase() === String(userFound.username || '').toLowerCase() || (u.email && String(u.email).toLowerCase() === String(userFound.email).toLowerCase())));
-        if (idx !== -1) dataMasterUsers[idx] = userFound;
-        else dataMasterUsers.push(userFound);
-        saveUsersToDB(dataMasterUsers);
-      }
-
       // Jika user DITEMUKAN di database aplikasi: Set session login
       currentUser = userFound;
       const sessionStr = JSON.stringify(currentUser);
@@ -16124,22 +16044,27 @@ async function processSupabaseSSOJWT(rawJwtToken) {
         window.history.replaceState({}, document.title, currentUrl.pathname + currentUrl.search);
       } catch(e) {}
 
-      // Tampilkan aplikasi utama (Notifikasi berhasil login dihilangkan)
+      // Tampilkan aplikasi utama
       bukaMainApp(true);
+      if (typeof showNotif === 'function') {
+        showNotif(`\u2713 LOGIN SSO BERHASIL! Selamat datang, ${currentUser.fullName || currentUser.username}.`, 'success');
+      }
       return true;
     } else {
-      // Jika email / username TIDAK DITEMUKAN di database sama sekali (Akses Ditolak)
-      const userIdentity = String(usernameUser || emailUser || 'AKUN').toUpperCase();
+      // Jika email / username TIDAK DITEMUKAN di database sama sekali
       window.pendingSSOEmail = emailUser || usernameUser;
       const portalUrl = localStorage.getItem('sso_return_url');
 
-      const messageText = `${userIdentity} TIDAK ADA AKSES UNTUK APK INI`;
-
-      // Alert tidak otomatis hilang, memiliki tombol OK. Setelah klik OK baru kembali ke portal
-      alert(messageText);
+      if (typeof showNotif === 'function') {
+        showNotif(`\u274c GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!${portalUrl ? ' Mengalihkan ke Portal...' : ''}`, 'error');
+      } else {
+        alert(`\u274c GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!`);
+      }
 
       if (portalUrl && String(portalUrl).trim().length > 0) {
-        window.location.href = String(portalUrl).trim();
+        setTimeout(function() {
+          window.location.href = String(portalUrl).trim();
+        }, 1200);
       }
       return false;
     }
@@ -16229,6 +16154,56 @@ function autoLogin() {
   }
 }
 window.autoLogin = autoLogin;
+
+
+  if (!currentUser) {
+
+    try {
+
+      let savedSession = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem(SESSION_KEY) : null;
+
+      if (!savedSession) {
+
+        savedSession = (typeof appStorage !== 'undefined' && appStorage) ? appStorage.getItem(SESSION_KEY) : null;
+
+      }
+
+      if (!savedSession) {
+
+        savedSession = (typeof localStorage !== 'undefined') ? localStorage.getItem(SESSION_KEY) : null;
+
+      }
+
+      if (savedSession) {
+
+        currentUser = JSON.parse(savedSession);
+      if (typeof applyMaintenanceModeUI === 'function') applyMaintenanceModeUI(window._isMaintenanceModeActive, window._maintenanceModeMessage);
+
+      }
+
+    } catch (e) {
+
+      currentUser = null;
+
+    }
+
+  }
+
+
+
+  if (typeof currentUser !== 'undefined' && currentUser !== null) {
+
+    bukaMainApp();
+
+  } else {
+
+    pindahHalaman('loginPage');
+
+    loadRememberedCredentials();
+
+  }
+
+}
 
 
 
@@ -16725,13 +16700,12 @@ async function logout() {
 
 
 
-      if (typeof redirectPortalIfFromSSOOrGoLogin === 'function') {
-        redirectPortalIfFromSSOOrGoLogin();
-      } else {
-        pindahHalaman('loginPage');
-        if (typeof loadRememberedCredentials === 'function') {
-          loadRememberedCredentials();
-        }
+      pindahHalaman('loginPage');
+
+      if (typeof loadRememberedCredentials === 'function') {
+
+        loadRememberedCredentials();
+
       }
 
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
@@ -17122,13 +17096,12 @@ function forceLogoutThisDevice(customMsg = 'AKUN ANDA TELAH DI-LOGOUT. SILAHKAN 
 
 
 
-  if (typeof redirectPortalIfFromSSOOrGoLogin === 'function') {
-    redirectPortalIfFromSSOOrGoLogin();
-  } else {
-    pindahHalaman('loginPage');
-    if (typeof loadRememberedCredentials === 'function') {
-      loadRememberedCredentials();
-    }
+  pindahHalaman('loginPage');
+
+  if (typeof loadRememberedCredentials === 'function') {
+
+    loadRememberedCredentials();
+
   }
 
   if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
@@ -18432,9 +18405,47 @@ function updateAdminNavVisibility() {
 
   const btnUserNavSidebar = document.getElementById('btnUserNavSidebar');
 
+  const btnMasterDbNavSidebar = document.getElementById('btnMasterDbNavSidebar');
+
+  const containerAdminThemeBg = document.getElementById('containerAdminGlobalThemeBg');
+
+
+
+  // Hide old stray bottom buttons permanently
+
+  if (btnUserNav) btnUserNav.style.setProperty('display', 'none', 'important');
+
+  if (btnMasterDbNav) btnMasterDbNav.style.setProperty('display', 'none', 'important');
+
+
+
+  // Control sidebar admin buttons visibility
+
   if (btnUserNavSidebar) {
 
     btnUserNavSidebar.style.setProperty('display', isAdmin ? 'flex' : 'none', 'important');
+
+  }
+
+  if (btnMasterDbNavSidebar) {
+
+    btnMasterDbNavSidebar.style.setProperty('display', isAdmin ? 'flex' : 'none', 'important');
+
+  }
+
+
+
+  if (containerAdminThemeBg) {
+
+    if (isAdmin) {
+
+      containerAdminThemeBg.style.setProperty('display', 'block', 'important');
+
+    } else {
+
+      containerAdminThemeBg.style.setProperty('display', 'none', 'important');
+
+    }
 
   }
 
@@ -18459,6 +18470,8 @@ function updateBottomMenuHighlight(pageId) {
     'inputPage': "showPage('inputPage')",
 
     'riwayatPage': "bukaMenuRiwayat()",
+
+    'masterDbPage': "showPage('masterDbPage')",
 
     'userManagementPage': "showPage('userManagementPage')",
 
@@ -18542,7 +18555,7 @@ function pindahHalaman(pageId, pushHistory = true) {
 
 
 
-  if (pageId === 'userManagementPage' && !checkIsAdminUser()) {
+  if ((pageId === 'masterDbPage' || pageId === 'userManagementPage') && !checkIsAdminUser()) {
 
     pindahHalaman('dashboardPage', false);
 
@@ -18568,7 +18581,7 @@ function pindahHalaman(pageId, pushHistory = true) {
 
     target.classList.add('active');
 
-    target.style.setProperty('display', (pageId === 'dashboardPage' || pageId === 'loginPage' || pageId === 'riwayatPage') ? 'flex' : 'block', 'important');
+    target.style.setProperty('display', (pageId === 'dashboardPage' || pageId === 'loginPage' || pageId === 'masterDbPage' || pageId === 'riwayatPage') ? 'flex' : 'block', 'important');
 
   }
 
@@ -18642,6 +18655,10 @@ function pindahHalaman(pageId, pushHistory = true) {
   } else if (pageId === 'riwayatPage') {
 
     if (typeof filterRiwayat === 'function') filterRiwayat();
+
+  } else if (pageId === 'masterDbPage') {
+
+    if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
 
   } else if (pageId === 'userManagementPage') {
 
@@ -32435,33 +32452,47 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = false) {
 
 
 
-    let serviceTTD = req.serviceTTD || req.service_ttd || '';
+    let serviceTTD = req.serviceTTD || '';
+
     const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
 
-    if (reqSrvName && typeof getUserRealSignature === 'function') {
+
+
+    // Verifikasi TTD Service langsung dari akun User Service terkait
+
+    if (reqSrvName) {
+
       const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
-      if (typeof isValidSig === 'function' && isValidSig(exactSig)) {
-        serviceTTD = exactSig;
-      }
-    }
-    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
+
+      serviceTTD = exactSig;
+
+    } else if (!isValidSig(serviceTTD) && serviceUser) {
+
       serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
+
     }
-    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && typeof getUserRealSignature === 'function') {
-      serviceTTD = getUserRealSignature('SERVICE', req.area, '', '') || '';
+
+
+
+    if (!isValidSig(serviceTTD)) {
+
+      serviceTTD = ''; // KOSONGKAN JIKA USER SERVICE BELUM MEMPUNYAI TTD
+
     }
+
+
 
     let dmTTD = '';
     const reqStatusUpper = String(req.status || '').toUpperCase();
-    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE' || !!req.dmTTD || !!req.dm_ttd;
+    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE';
 
     if (isApprovedByDM) {
-      dmTTD = req.dmTTD || req.dm_ttd || '';
-      if ((!dmTTD || (typeof isValidSig === 'function' && !isValidSig(dmTTD))) && typeof getUserRealSignature === 'function') {
+      dmTTD = req.dmTTD || '';
+      if (!isValidSig(dmTTD)) {
         dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
       }
-      if (typeof isValidSig === 'function' && !isValidSig(dmTTD)) {
-        dmTTD = '';
+      if (!isValidSig(dmTTD)) {
+        dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD
       }
     }
 
@@ -39617,7 +39648,345 @@ window.hapusUser = hapusUser;
 
 
 
+function loadMasterDbTable() {
 
+  const tbody = document.getElementById('masterDbTableBody');
+
+  if (!tbody) return;
+
+
+
+  const searchInput = document.getElementById('searchMasterDb');
+
+  const search = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+
+
+  // Preserve checked checkbox selections across re-renders
+
+  const checkedBoxes = tbody.querySelectorAll('.masterDbCheckbox:checked');
+
+  const checkedSet = new Set(Array.from(checkedBoxes).map(cb => cb.value));
+
+
+
+  let requests = getRequestsFromDB();
+
+
+
+  if (search) {
+
+    requests = requests.filter(r => matchesRequestSearchFilter(r, search));
+
+  }
+
+
+
+  tbody.innerHTML = '';
+
+
+
+  if (requests.length === 0) {
+
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:30px; color:var(--text-muted);">BELUM ADA DATA PERMINTAAN TERDAFTAR.</td></tr>`;
+
+    // Empty dummy rows removed per user request
+
+    updateMultiMasterDbBtnState();
+
+    return;
+
+  }
+
+
+
+  requests.forEach(r => {
+
+    let itemsDetailText = (r.items || []).map((i, idx) => {
+
+      let dusText = i.dus ? ` | Dus:${i.dus}` : '';
+
+      return `<div style="padding:3px 0; border-bottom:1px dashed var(--border-color); font-size:12px; line-height:1.4;">
+
+        <strong>${idx + 1}. ${i.type || '-'}</strong> (SN: <span style="font-family:monospace; color:var(--primary);">${i.seri || '-'}${dusText}</span>)<br>
+
+        <span style="color:var(--text-main);">${i.barang || '-'}</span> <small style="color:var(--text-muted);">[Alasan: ${i.alasan || '-'}]</small> 
+
+        <strong style="color:var(--primary);">(Qty: ${i.qty || 1})</strong>
+
+      </div>`;
+
+    }).join('');
+
+
+
+    const tr = document.createElement('tr');
+
+    // Blinking row animation disabled per user request
+
+    const isChecked = checkedSet.has(r.noSurat) ? 'checked' : '';
+
+    tr.innerHTML = `
+      <td style="text-align:center; padding: 10px 14px; border-bottom: 1px solid #e2e8f0 !important;"><input type="checkbox" class="masterDbCheckbox" value="${r.noSurat}" ${isChecked} onchange="updateMultiMasterDbBtnState()"></td>
+      <td style="padding: 10px 14px; font-weight: 700; color: #1e293b; border-bottom: 1px solid #e2e8f0 !important;">${r.noSurat || '-'}</td>
+      <td style="padding: 10px 14px; text-align: left; color: #334155; border-bottom: 1px solid #e2e8f0 !important;">${r.tanggal || '-'}</td>
+      <td style="padding: 10px 14px; color: #1e293b; border-bottom: 1px solid #e2e8f0 !important;"><div class="namaTokoWrap" style="color: #1e293b; font-weight: 700; text-transform: uppercase;">${r.toko || '-'}</div></td>
+      <td style="padding: 10px 14px; text-align: center; font-weight: 700; color: #334155; border-bottom: 1px solid #e2e8f0 !important;">${r.area || 'BDG'}</td>
+      <td style="padding: 10px 14px; text-align: center; color: #334155; border-bottom: 1px solid #e2e8f0 !important;">${r.jenis || '-'}</td>
+      <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0 !important;">${itemsDetailText}</td>
+      <td style="padding: 10px 14px; text-align: center; border-bottom: 1px solid #e2e8f0 !important;">${getBadgeStatusHTML(r)}</td>
+      <td style="padding: 10px 14px; color: #334155; border-bottom: 1px solid #e2e8f0 !important;">${r.catatan || '-'}</td>
+      <td style="text-align:center; white-space:nowrap; padding: 10px 14px; border-bottom: 1px solid #e2e8f0 !important;">
+        <button type="button" class="btnIcon btnDelete" onclick="hapusDataMaster('${r.noSurat}')" title="HAPUS DATA"><span class="material-symbols-rounded">delete</span></button>
+        <button type="button" class="btnIcon btnEdit" onclick="bukaModalUbahStatusAdmin('${r.noSurat}')" title="UBAH STATUS SUPABASE (ADMIN ONLY)" style="background: #8b5cf6 !important; color: #ffffff !important; margin-left: 4px !important;"><span class="material-symbols-rounded" style="font-size: 16px;">published_with_changes</span></button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+
+  });
+
+
+
+  // Empty dummy rows removed per user request
+
+  updateMultiMasterDbBtnState();
+
+}
+
+
+
+function toggleSelectAllMasterDb(masterCheckbox) {
+
+  const isChecked = masterCheckbox ? masterCheckbox.checked : false;
+
+  const checkboxes = document.querySelectorAll('.masterDbCheckbox');
+
+  checkboxes.forEach(cb => {
+
+    cb.checked = isChecked;
+
+  });
+
+  updateMultiMasterDbBtnState();
+
+}
+
+
+
+function updateMultiMasterDbBtnState() {
+
+  const checkboxes = document.querySelectorAll('.masterDbCheckbox:checked');
+
+  const btn = document.getElementById('btnHapusMultiMasterDb');
+
+  const selectAll = document.getElementById('selectAllMasterDb');
+
+  const totalCheckboxes = document.querySelectorAll('.masterDbCheckbox');
+
+
+
+  if (selectAll && totalCheckboxes.length > 0) {
+
+    selectAll.checked = (checkboxes.length === totalCheckboxes.length);
+
+  }
+
+
+
+  if (btn) {
+
+    if (checkboxes.length > 0) {
+
+      btn.style.display = 'inline-flex';
+
+      btn.innerHTML = `<span class="material-symbols-rounded" style="vertical-align:middle; margin-right:4px;">delete_sweep</span> HAPUS (${checkboxes.length}) DATA`;
+
+    } else {
+
+      btn.style.display = 'none';
+
+    }
+
+  }
+
+}
+
+
+
+async function hapusMultiMasterDb() {
+
+  const selectedCheckboxes = document.querySelectorAll('.masterDbCheckbox:checked');
+
+  const noSuratList = Array.from(selectedCheckboxes).map(cb => cb.value).filter(Boolean);
+
+
+
+  if (noSuratList.length === 0) {
+
+    showNotif('PILIH MINIMAL 1 DATA PERMINTAAN UNTUK DIHAPUS!', 'warning');
+
+    return;
+
+  }
+
+
+
+showConfirm(`ADMIN: YAKIN INGIN MENGHAPUS ${noSuratList.length} DATA PERMINTAAN TERPILIH?`, () => {
+
+    showLoading('MENGHAPUS DATA TERPILIH...');
+
+    setTimeout(async () => {
+
+      try {
+
+        // 1. DOKUMENTASIKAN KODE SURAT PADA DELETED_REQUESTS_KEY
+
+        try {
+
+          const delReqs = JSON.parse(appStorage.getItem(DELETED_REQUESTS_KEY) || '[]');
+
+          noSuratList.forEach(ns => {
+
+            if (ns && !delReqs.includes(ns)) delReqs.push(ns);
+
+          });
+
+          appStorage.setItem(DELETED_REQUESTS_KEY, JSON.stringify(delReqs));
+
+        } catch(e) {}
+
+
+
+        // 2. FILTER DARI CACHE LOKAL & SIMPAN
+
+        const currentReqs = getRequestsFromDB();
+
+        const updatedReqs = currentReqs.filter(r => r && r.noSurat && !noSuratList.includes(r.noSurat));
+
+        try {
+
+          saveRequestsToDB(updatedReqs);
+
+        } catch(e) {
+
+          appStorage.setItem(REQUESTS_DB_KEY, JSON.stringify(updatedReqs));
+
+        }
+
+
+
+        // 3. HAPUS BATCH DARI SUPABASE (TABEL: permintaan_toko)
+
+        if (typeof supabase !== 'undefined' && supabase) {
+
+          try {
+
+            await supabase.from('permintaan_toko').delete().in('no_surat', noSuratList);
+
+          } catch(sbErr1) {}
+
+        }
+
+
+
+        if (typeof syncSupabaseRequestsToLocalCache === 'function') {
+
+          await syncSupabaseRequestsToLocalCache();
+
+        }
+
+
+
+        // 4. HAPUS INDIVIDUAL FIRESTORE & REALTIME DB
+
+        noSuratList.forEach(noSurat => {
+
+          try {
+
+            const docId = String(noSurat || '').replace(/[\/\.]/g, '_');
+
+            if (docId) {
+
+              if (typeof dbFirestore !== 'undefined' && dbFirestore) {
+
+                dbFirestore.collection('requests').doc(docId).delete().catch(err => console.warn('[FIRESTORE DELETE NOTICE]:', err));
+
+              }
+
+              if (typeof dbRealtime !== 'undefined' && dbRealtime) {
+
+                dbRealtime.ref(`requests/${docId}`).remove().catch(err => console.warn('[REALTIME DELETE NOTICE]:', err));
+
+              }
+
+            }
+
+          } catch(e) {}
+
+        });
+
+
+
+        if (supabaseRealtimeChannel) {
+
+          try {
+
+            supabaseRealtimeChannel.send({
+
+              type: 'broadcast',
+
+              event: 'data_changed',
+
+              payload: { action: 'BATCH_DELETE', noSuratList: noSuratList, timestamp: Date.now() }
+
+            });
+
+          } catch(e) {}
+
+        }
+
+        if (typeof pushCentralCloudDB === 'function') {
+
+          try { await pushCentralCloudDB(); } catch(e) {}
+
+        }
+
+
+
+        hideLoading();
+
+        showNotif(`BERHASIL MENGHAPUS ${noSuratList.length} DATA PERMINTAAN TERPILIH!`, 'info');
+
+
+
+        if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
+
+        if (typeof loadRiwayat === 'function') loadRiwayat();
+
+        if (typeof loadDashboard === 'function') loadDashboard();
+
+      } catch (err) {
+
+        hideLoading();
+
+        console.error('[HAPUS MULTI MASTER ERROR]:', err);
+
+        showNotif('TERJADI KESALAHAN SAAT MENGHAPUS DATA MULTI TERPILIH: ' + (err.message || err), 'error');
+
+      }
+
+    }, 400);
+
+  });
+
+}
+
+window.toggleSelectAllMasterDb = toggleSelectAllMasterDb;
+
+window.updateMultiMasterDbBtnState = updateMultiMasterDbBtnState;
+
+window.hapusMultiMasterDb = hapusMultiMasterDb;
 
 
 
@@ -45078,7 +45447,7 @@ document.addEventListener('touchmove', function (e) {
 
   const activePage = typeof getCurrentActivePageId === 'function' ? getCurrentActivePageId() : '';
 
-  if (activePage === 'riwayatPage') {
+  if (activePage === 'riwayatPage' || activePage === 'masterDbPage') {
 
     const isInsideTable = e.target.closest('.tableWrap');
 
@@ -52453,28 +52822,30 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
 
 
 
-    let serviceTTD = req.serviceTTD || req.service_ttd || '';
+    let serviceTTD = req.serviceTTD || '';
+
     const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
 
     if (reqSrvName && typeof getUserRealSignature === 'function') {
+
       const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
-      if (typeof isValidSig === 'function' && isValidSig(exactSig)) {
-        serviceTTD = exactSig;
-      }
-    }
-    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
+
+      serviceTTD = exactSig || serviceTTD;
+
+    } else if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
+
       serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
+
     }
-    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && typeof getUserRealSignature === 'function') {
-      serviceTTD = getUserRealSignature('SERVICE', req.area, '', '') || '';
-    }
+
+
 
     let dmTTD = '';
     const reqStatusUpper = String(req.status || '').toUpperCase();
-    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE' || !!req.dmTTD || !!req.dm_ttd;
+    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE';
 
     if (isApprovedByDM) {
-      dmTTD = req.dmTTD || req.dm_ttd || '';
+      dmTTD = req.dmTTD || '';
       if ((!dmTTD || (typeof isValidSig === 'function' && !isValidSig(dmTTD))) && typeof getUserRealSignature === 'function') {
         dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
       }
@@ -53123,9 +53494,9 @@ function updateLiveHeaderClock() {
 
 
 
-  if (dateEl && dateEl.textContent !== formattedDate) dateEl.textContent = formattedDate;
+  if (dateEl) dateEl.textContent = formattedDate;
 
-  if (timeEl && timeEl.textContent !== formattedTime) timeEl.textContent = formattedTime;
+  if (timeEl) timeEl.textContent = formattedTime;
 
 }
 
@@ -53369,7 +53740,7 @@ window.tampilkanModalOfflineSafety = tampilkanModalOfflineSafety;
 
 function tutupModalOfflineSafety() {
   const modal = document.getElementById('popupOfflineSafetyModal');
-  if (modal && (modal.style.display !== 'none' || modal.classList.contains('show'))) {
+  if (modal) {
     modal.style.setProperty('display', 'none', 'important');
     modal.classList.remove('show');
   }
@@ -53473,12 +53844,10 @@ window.addEventListener('DOMContentLoaded', periksaStatusOfflineSeketika);
 window.addEventListener('load', periksaStatusOfflineSeketika);
 periksaStatusOfflineSeketika();
 
-// Periodic Cloud Ping Heartbeat Check disabled to prevent 4-second flickering
-/*
+// Periodic Cloud Ping Heartbeat Check setiap 4 detik
 setInterval(() => {
   periksaStatusOfflineSeketika();
 }, 4000);
-*/
 
 // Global Unhandled Rejection for Network Fetch Failures
 window.addEventListener('unhandledrejection', (event) => {
@@ -56441,6 +56810,8 @@ function updateEnterpriseBreadcrumbAndSidebar(pageId) {
 
     'riwayatPage': { title: 'Daftar Riwayat Permintaan Toko & Status Approval', icon: 'history', label: 'Riwayat Permintaan' },
 
+    'masterDbPage': { title: 'Kelola Master Database (Barang & Toko)', icon: 'database', label: 'Master Database' },
+
     'userManagementPage': { title: 'Kelola User, Hak Akses & Integration Token', icon: 'manage_accounts', label: 'Kelola User' },
 
     'akunPage': { title: 'Profil Saya & Pengaturan Akun', icon: 'person', label: 'Profil Saya' }
@@ -56480,6 +56851,8 @@ function updateEnterpriseBreadcrumbAndSidebar(pageId) {
   else if (pageId === 'inputPage') activeSidebarItem = document.getElementById('navItemInput');
 
   else if (pageId === 'riwayatPage') activeSidebarItem = document.getElementById('navItemRiwayat');
+
+  else if (pageId === 'masterDbPage') activeSidebarItem = document.getElementById('btnMasterDbNavSidebar');
 
   else if (pageId === 'userManagementPage') activeSidebarItem = document.getElementById('btnUserNavSidebar');
 
@@ -58304,6 +58677,8 @@ const APP_MENU_SEARCH_LIST = [
 
   { id: 'riwayatPage', title: 'Riwayat Permintaan', desc: 'Histori, Status, Tracking & Lacak Permintaan', keywords: 'riwayat histori daftar tracking lacak permintaan toko status barang done approve reject pending', icon: 'history', action: () => bukaMenuRiwayat() },
 
+  { id: 'masterDbPage', title: 'Master Database', desc: 'Master Data Barang, Toko & Kode Unit', keywords: 'master database data barang daftar toko unit dus barang serial sn', icon: 'database', action: () => showPage('masterDbPage') },
+
   { id: 'userManagementPage', title: 'Kelola User & Akses', desc: 'Manajemen Pengguna, Peran & Hak Akses', keywords: 'kelola user akun manajemen pengguna akses role password reset admin', icon: 'manage_accounts', action: () => showPage('userManagementPage') },
 
   { id: 'akunPage', title: 'Profil Saya', desc: 'Pengaturan Akun, Sandi & Tanda Tangan TTD', keywords: 'profil saya akun tanda tangan ttd ubah password hp hp nama pengguna', icon: 'person', action: () => bukaAkun() },
@@ -58920,12 +59295,6 @@ async function syncPhotoInputPopupDoneFromSupabase() {
     if (data && data.setting_value !== undefined && data.setting_value !== null) {
       const enabled = data.setting_value === 'true' || data.setting_value === true;
       applyPhotoInputPopupDoneState(enabled);
-      return;
-    }
-    const { data: dataLookup } = await client.from('lookup').select('value').eq('key', 'global_show_photo_input_popup_done').maybeSingle();
-    if (dataLookup && dataLookup.value !== undefined && dataLookup.value !== null) {
-      const enabled = dataLookup.value === 'true' || dataLookup.value === true;
-      applyPhotoInputPopupDoneState(enabled);
     }
   } catch(e) {}
 }
@@ -58988,76 +59357,39 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 500);
 });
 
+
+
 // ============================================================================
-// Helper khusus: Unggah TTD DM dari Canvas ke Google Drive (Format PNG/JPG) & Tempel Link ke Kolom Approval DM Google Sheet
-async function uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, noSurat) {
-  if (!ttdDataUrl || !noSurat) return null;
-  const scriptUrl = typeof getAdminScriptUrl === 'function' ? getAdminScriptUrl() : '';
-  if (!scriptUrl) {
-    console.warn('[GDRIVE TTD DM]: URL Google Apps Script belum dikonfigurasi!');
-    return null;
-  }
+// MODUL OTOMATISASI APPROVAL DM, GENERATE PDF, AUTO-DOWNLOAD & SUPABASE 2 UPLOAD
+// ============================================================================
+
+async function uploadTtdDMToGoogleDriveViaScript(dataUrl, noSurat) {
+  if (!dataUrl || !noSurat) return null;
+  const scriptUrl = (typeof googleAppsScriptUrl !== 'undefined' && googleAppsScriptUrl) || window.GOOGLE_APPS_SCRIPT_PDF_ENDPOINT || (typeof DEFAULT_ADMIN_SCRIPT_URL !== 'undefined' ? DEFAULT_ADMIN_SCRIPT_URL : '');
+  const cleanNoSurat = String(noSurat).replace(/^#/g, '').trim();
 
   try {
-    const cleanNo = String(noSurat || 'SURAT').replace(/[\/\:]/g, '_').trim();
-    const fileName = `TTD_DM_${cleanNo}.png`;
-    const base64Str = ttdDataUrl.includes('base64,') ? ttdDataUrl.split('base64,')[1] : ttdDataUrl;
-
-    const payload = {
-      action: 'upload_ttd_gdrive',
-      noSurat: cleanNo,
-      fileName: fileName,
-      fileBase64: base64Str,
-      dmUserName: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.fullName || currentUser.username) : 'DM',
-      approvalDate: typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : new Date().toLocaleDateString('id-ID'),
-      status: 'APPROVE'
-    };
-
-    console.log(`[GDRIVE TTD DM]: Mengunggah TTD Canvas (${fileName}) ke Google Drive & Google Sheet...`);
-
-    let timeoutId;
-    let resp;
-    try {
-      const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), 120000); // 2 menit timeout
-
-      resp = await fetch(scriptUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-    } catch (fErr) {
-      console.warn('[GDRIVE TTD DM FETCH ERROR]:', fErr);
-      return null;
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+    const response = await fetch(scriptUrl, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'upload_ttd_gdrive',
+        noSurat: cleanNoSurat,
+        fileData: dataUrl
+      })
+    });
+    const result = await response.json();
+    if (result && result.status === 'success' && result.fileId) {
+      return `https://lh3.googleusercontent.com/d/${result.fileId}`;
     }
-
-    if (!resp || !resp.ok) {
-      console.warn('[GDRIVE TTD DM HTTP ERROR]:', resp ? resp.status : 'No Response');
-      return null;
-    }
-
-    const resJson = await resp.json();
-    const fileId = resJson ? (resJson.fileId || resJson.id || '') : '';
-    const rawUrl = resJson ? (resJson.url || resJson.fileUrl || resJson.downloadUrl || '') : '';
-    const driveUrl = fileId ? `https://lh3.googleusercontent.com/d/${fileId}` : (typeof formatGoogleDriveViewUrl === 'function' ? formatGoogleDriveViewUrl(rawUrl) : rawUrl);
-
-    if (resJson && (resJson.status === 'success' || driveUrl)) {
-      console.log('✅ [GDRIVE TTD DM SUCCESS]: URL Google Drive =', driveUrl);
-      return driveUrl;
-    } else {
-      console.warn('[GDRIVE TTD DM RESPONSE]:', resJson);
-      return driveUrl || null;
-    }
+    return null;
   } catch (err) {
-    console.error('[GDRIVE TTD DM EXCEPTION]:', err);
+    console.warn('[UPLOAD TTD GDRIVE FAILED]:', err);
     return null;
   }
 }
 window.uploadTtdDMToGoogleDriveViaScript = uploadTtdDMToGoogleDriveViaScript;
-
 
 async function simpanApprovalDMWithTTDAndGDrive() {
   const targetNoSurat = _dmApprovalCurrentNoSurat;
@@ -59082,84 +59414,92 @@ async function simpanApprovalDMWithTTDAndGDrive() {
 
   if (typeof tutupModalApprovalDMCanvas === 'function') tutupModalApprovalDMCanvas();
 
-  if (typeof tampilkanLoadingProses === 'function') tampilkanLoadingProses('MENGUNGGAH TTD KE GOOGLE DRIVE & PROSES APPROVAL...');
-  else if (typeof showLoading === 'function') showLoading('MENGUNGGAH TTD KE GOOGLE DRIVE & PROSES APPROVAL...');
+  if (typeof tampilkanLoadingProses === 'function') tampilkanLoadingProses('PROSES APPROVAL...');
+  else if (typeof showLoading === 'function') showLoading('PROSES APPROVAL...');
 
-  // 1. UNGGAH TTD KE GOOGLE DRIVE TERLEBIH DAHULU (PASTIKAN LINK PUBLIC G-DRIVE DIDAPATKAN)
-  let finalTtdUrl = '';
-  if (typeof uploadTtdDMToGoogleDriveViaScript === 'function') {
-    try {
-      const driveUrl = await uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, targetNoSurat);
-      if (driveUrl && (driveUrl.startsWith('http://') || driveUrl.startsWith('https://'))) {
-        finalTtdUrl = driveUrl;
-      }
-    } catch(e) {
-      console.warn('[GDRIVE TTD DM UPLOAD ERROR]:', e);
-    }
-  }
-
-  // 2. TEMPELKAN URL GOOGLE DRIVE KE SUPABASE & LOKAL DATABASE
-  const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
-  const cleanTarget = String(targetNoSurat).replace(/^#/g, '').trim().toUpperCase();
-  const idx = requests.findIndex(r => {
-    if (!r) return false;
-    const rNo = String(r.noSurat || '').replace(/^#/g, '').trim().toUpperCase();
-    const rId = String(r.id || '').replace(/^#/g, '').trim().toUpperCase();
-    return (rNo && rNo === cleanTarget) || (rId && rId === cleanTarget);
-  });
-
-  let targetReq = null;
-  if (idx !== -1) {
-    requests[idx].status = 'APPROVE';
-    requests[idx].dmUserName = currentUser ? (currentUser.fullName || currentUser.username) : 'DM';
-    requests[idx].dmTTD = finalTtdUrl || ttdDataUrl; 
-    requests[idx].dm_ttd = finalTtdUrl || '';
-
-    if (!requests[idx].log) requests[idx].log = [];
-    requests[idx].log.push({
-      action: 'APPROVE_DM',
-      user: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
-      notes: `Persetujuan DM dengan TTD Drive (${finalTtdUrl ? 'Tersimpan Google Drive' : 'Drive Pending'})`,
-      time: `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : ''} ${new Date().toLocaleTimeString('id-ID')}`
+  try {
+    const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
+    const cleanTarget = String(targetNoSurat).replace(/^#/g, '').trim().toUpperCase();
+    const idx = requests.findIndex(r => {
+      if (!r) return false;
+      const rNo = String(r.noSurat || '').replace(/^#/g, '').trim().toUpperCase();
+      const rId = String(r.id || '').replace(/^#/g, '').trim().toUpperCase();
+      return (rNo && rNo === cleanTarget) || (rId && rId === cleanTarget);
     });
 
-    if (typeof saveRequestsToDB === 'function') {
-      saveRequestsToDB(requests, requests[idx], 'UPDATE');
+    const strokesJSON = typeof getSignatureStrokesJSON === 'function' ? getSignatureStrokesJSON() : JSON.stringify(window._dmCurrentStrokes || []);
+    let targetReq = null;
+    if (idx !== -1) {
+      requests[idx].status = 'APPROVE';
+      requests[idx].dmUserName = currentUser ? (currentUser.fullName || currentUser.username) : 'DM';
+      requests[idx].dmTTD = ttdDataUrl;
+      requests[idx].dm_ttd = ttdDataUrl;
+      requests[idx].dmTTDStrokes = strokesJSON;
+
+      if (!requests[idx].log) requests[idx].log = [];
+      requests[idx].log.push({
+        action: 'APPROVE_DM',
+        user: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
+        notes: 'Persetujuan DM dengan TTD Manual',
+        time: `${typeof getFormattedDateDDMMYYYY === 'function' ? getFormattedDateDDMMYYYY() : ''} ${new Date().toLocaleTimeString('id-ID')}`
+      });
+
+      if (typeof saveRequestsToDB === 'function') {
+        saveRequestsToDB(requests, requests[idx], 'UPDATE');
+      }
+      targetReq = requests[idx];
     }
-    targetReq = requests[idx];
-  }
 
-  if (typeof supabase !== 'undefined' && supabase && typeof supabase.from === 'function') {
-    try {
-      await supabase.from('permintaan_toko').update({
-        dm_ttd: finalTtdUrl || null,
-        dm_user_name: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
-        status: 'APPROVE',
-        updated_at: new Date().toISOString()
-      }).eq('no_surat', targetNoSurat);
-      console.log('[SUPABASE dm_ttd SUCCESS]: Link Google Drive TTD tersimpan di kolom dm_ttd Supabase');
-    } catch(supaErr) {
-      console.warn('[SUPABASE dm_ttd UPDATE ERROR]:', supaErr);
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    else if (typeof hideLoading === 'function') hideLoading();
+
+    if (typeof showNotif === 'function') {
+      showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL!`, 'success');
     }
-  }
 
-  // 3. TAMPILKAN HASIL KE USER & REFRESH UI
-  if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
-  else if (typeof hideLoading === 'function') hideLoading();
+    if (typeof loadRiwayat === 'function') loadRiwayat();
+    if (typeof loadDashboard === 'function') loadDashboard();
+    if (typeof lihatDetail === 'function') lihatDetail(targetNoSurat);
 
-  if (typeof showNotif === 'function') {
-    showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL! TTD Tersimpan di Google Drive.`, 'success');
-  }
+    // NON-BLOCKING BACKGROUND TASK (SUPABASE 1, GOOGLE DRIVE TTD, & GOOGLE SHEET SYNC)
+    setTimeout(async () => {
+      try {
+        let driveTtdUrl = null;
+        if (ttdDataUrl) {
+          driveTtdUrl = await uploadTtdDMToGoogleDriveViaScript(ttdDataUrl, targetNoSurat);
+        }
 
-  if (typeof loadRiwayat === 'function') loadRiwayat();
-  if (typeof loadDashboard === 'function') loadDashboard();
-  if (typeof lihatDetail === 'function') lihatDetail(targetNoSurat);
+        const finalSigUrl = driveTtdUrl || ttdDataUrl;
 
-  // 4. GENERATE PDF BACKUP DI LATAR BELAKANG
-  if (typeof generateAndBackupApprovedPdf === 'function') {
-    setTimeout(() => {
-      generateAndBackupApprovedPdf(targetNoSurat, targetReq || findRequestByNoSuratOrId(targetNoSurat)).catch(e => console.warn('[BACKGROUND PDF WARN]:', e));
-    }, 50);
+        if (idx !== -1 && finalSigUrl) {
+          requests[idx].dm_ttd = finalSigUrl;
+          requests[idx].dmTTD = finalSigUrl;
+          if (typeof saveRequestsToDB === 'function') {
+            saveRequestsToDB(requests, requests[idx], 'UPDATE');
+          }
+        }
+
+        if (typeof supabase !== 'undefined' && supabase && finalSigUrl) {
+          await supabase.from('permintaan_toko').update({
+            status: 'APPROVE',
+            dm_user_name: currentUser ? (currentUser.fullName || currentUser.username) : 'DM',
+            dm_ttd: finalSigUrl
+          }).eq('no_surat', targetNoSurat);
+        }
+
+        if (typeof generateAndBackupApprovedPdf === 'function') {
+          generateAndBackupApprovedPdf(targetNoSurat, targetReq || findRequestByNoSuratOrId(targetNoSurat)).catch(e => console.warn('[BACKGROUND PDF UPLOAD ERROR]:', e));
+        }
+      } catch (bgErr) {
+        console.warn('[BACKGROUND APPROVAL SYNC ERROR]:', bgErr);
+      }
+    }, 10);
+
+  } catch (err) {
+    console.error('[SIMPAN APPROVAL DM ERROR]:', err);
+    if (typeof tutupLoadingProses === 'function') tutupLoadingProses();
+    else if (typeof hideLoading === 'function') hideLoading();
+    if (typeof showNotif === 'function') showNotif('APPROVAL BERHASIL DISIMPAN!', 'info');
   }
 }
 window.simpanApprovalDMWithTTDAndGDrive = simpanApprovalDMWithTTDAndGDrive;
@@ -59673,17 +60013,10 @@ async function buildSuratPermintaanHtmlString(req) {
   }).join('');
 
   const reqStatusUpper = String(req.status || '').toUpperCase();
-  const isApprovedByDM = (reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE') || !!req.dmTTD || !!req.dm_ttd;
-  let dmTTDBold = isApprovedByDM ? (req.dmTTD || req.dm_ttd || req.dmTTDStrokes || '') : '';
-  if (isApprovedByDM && (!dmTTDBold || (typeof isValidSig === 'function' && !isValidSig(dmTTDBold))) && typeof getUserRealSignature === 'function') {
-    dmTTDBold = getUserRealSignature('DM', '', '', req.dmUserName || '') || '';
-  }
-
-  let serviceTTDBold = req.serviceTTD || req.service_ttd || '';
-  if ((!serviceTTDBold || (typeof isValidSig === 'function' && !isValidSig(serviceTTDBold))) && typeof getUserRealSignature === 'function') {
-    serviceTTDBold = getUserRealSignature('SERVICE', req.area, '', req.serviceUserName || '') || '';
-  }
-  let pemohonTTDBold = req.pemohonTTD || req.pemohon_ttd || '';
+  const isApprovedByDM = (reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE') || !!req.dmTTD;
+  let dmTTDBold = isApprovedByDM ? (req.dmTTD || req.dmTTDStrokes || '') : '';
+  let serviceTTDBold = req.serviceTTD || '';
+  let pemohonTTDBold = req.pemohonTTD || '';
 
   if (typeof makeSignatureBoldBase64 === 'function') {
     try {

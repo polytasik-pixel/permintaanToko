@@ -8296,6 +8296,35 @@ async function initSupabaseRealtimeEngine() {
         }
       )
       .on(
+        'broadcast',
+        { event: 'photo_input_popup_done_changed' },
+        (event) => {
+          if (event && event.payload && event.payload.enabled !== undefined) {
+            applyPhotoInputPopupDoneState(event.payload.enabled);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'system_settings' },
+        async (payload) => {
+          if (payload && payload.new && payload.new.setting_key === 'global_show_photo_input_popup_done') {
+            const enabled = payload.new.setting_value === 'true' || payload.new.setting_value === true;
+            applyPhotoInputPopupDoneState(enabled);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'lookup' },
+        async (payload) => {
+          if (payload && payload.new && payload.new.key === 'global_show_photo_input_popup_done') {
+            const enabled = payload.new.value === 'true' || payload.new.value === true;
+            applyPhotoInputPopupDoneState(enabled);
+          }
+        }
+      )
+      .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'app_settings' },
         async (payload) => {
@@ -32406,47 +32435,33 @@ async function bukaPdfModal(noSurat, includePhotos = null, autoPrint = false) {
 
 
 
-    let serviceTTD = req.serviceTTD || '';
-
+    let serviceTTD = req.serviceTTD || req.service_ttd || '';
     const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
 
-
-
-    // Verifikasi TTD Service langsung dari akun User Service terkait
-
-    if (reqSrvName) {
-
+    if (reqSrvName && typeof getUserRealSignature === 'function') {
       const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
-
-      serviceTTD = exactSig;
-
-    } else if (!isValidSig(serviceTTD) && serviceUser) {
-
+      if (typeof isValidSig === 'function' && isValidSig(exactSig)) {
+        serviceTTD = exactSig;
+      }
+    }
+    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
       serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
-
     }
-
-
-
-    if (!isValidSig(serviceTTD)) {
-
-      serviceTTD = ''; // KOSONGKAN JIKA USER SERVICE BELUM MEMPUNYAI TTD
-
+    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && typeof getUserRealSignature === 'function') {
+      serviceTTD = getUserRealSignature('SERVICE', req.area, '', '') || '';
     }
-
-
 
     let dmTTD = '';
     const reqStatusUpper = String(req.status || '').toUpperCase();
-    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE';
+    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE' || !!req.dmTTD || !!req.dm_ttd;
 
     if (isApprovedByDM) {
-      dmTTD = req.dmTTD || '';
-      if (!isValidSig(dmTTD)) {
+      dmTTD = req.dmTTD || req.dm_ttd || '';
+      if ((!dmTTD || (typeof isValidSig === 'function' && !isValidSig(dmTTD))) && typeof getUserRealSignature === 'function') {
         dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
       }
-      if (!isValidSig(dmTTD)) {
-        dmTTD = ''; // KOSONGKAN DI PDF JIKA USER DM BELUM MEMPUNYAI TTD
+      if (typeof isValidSig === 'function' && !isValidSig(dmTTD)) {
+        dmTTD = '';
       }
     }
 
@@ -52438,30 +52453,28 @@ async function cetakPdfSuratParsial(noSurat, partialId) {
 
 
 
-    let serviceTTD = req.serviceTTD || '';
-
+    let serviceTTD = req.serviceTTD || req.service_ttd || '';
     const reqSrvName = req.serviceUserName || (serviceUser ? serviceUser.fullName : '');
 
     if (reqSrvName && typeof getUserRealSignature === 'function') {
-
       const exactSig = getUserRealSignature('SERVICE', req.area, '', reqSrvName);
-
-      serviceTTD = exactSig || serviceTTD;
-
-    } else if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
-
-      serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
-
+      if (typeof isValidSig === 'function' && isValidSig(exactSig)) {
+        serviceTTD = exactSig;
+      }
     }
-
-
+    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && serviceUser && typeof getUserRealSignature === 'function') {
+      serviceTTD = getUserRealSignature('SERVICE', req.area, serviceUser.username, serviceUser.fullName);
+    }
+    if ((!serviceTTD || (typeof isValidSig === 'function' && !isValidSig(serviceTTD))) && typeof getUserRealSignature === 'function') {
+      serviceTTD = getUserRealSignature('SERVICE', req.area, '', '') || '';
+    }
 
     let dmTTD = '';
     const reqStatusUpper = String(req.status || '').toUpperCase();
-    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE';
+    const isApprovedByDM = reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE' || !!req.dmTTD || !!req.dm_ttd;
 
     if (isApprovedByDM) {
-      dmTTD = req.dmTTD || '';
+      dmTTD = req.dmTTD || req.dm_ttd || '';
       if ((!dmTTD || (typeof isValidSig === 'function' && !isValidSig(dmTTD))) && typeof getUserRealSignature === 'function') {
         dmTTD = getUserRealSignature('DM', '', '', dmName) || (dmUser ? dmUser.ttd : '');
       }
@@ -58907,6 +58920,12 @@ async function syncPhotoInputPopupDoneFromSupabase() {
     if (data && data.setting_value !== undefined && data.setting_value !== null) {
       const enabled = data.setting_value === 'true' || data.setting_value === true;
       applyPhotoInputPopupDoneState(enabled);
+      return;
+    }
+    const { data: dataLookup } = await client.from('lookup').select('value').eq('key', 'global_show_photo_input_popup_done').maybeSingle();
+    if (dataLookup && dataLookup.value !== undefined && dataLookup.value !== null) {
+      const enabled = dataLookup.value === 'true' || dataLookup.value === true;
+      applyPhotoInputPopupDoneState(enabled);
     }
   } catch(e) {}
 }
@@ -58965,6 +58984,7 @@ window.togglePhotoInputPopupDoneAdmin = togglePhotoInputPopupDoneAdmin;
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     applyPhotoInputPopupDoneState(window._showPhotoInputInPopupDone);
+    syncPhotoInputPopupDoneFromSupabase();
   }, 500);
 });
 
@@ -59653,10 +59673,17 @@ async function buildSuratPermintaanHtmlString(req) {
   }).join('');
 
   const reqStatusUpper = String(req.status || '').toUpperCase();
-  const isApprovedByDM = (reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE') || !!req.dmTTD;
-  let dmTTDBold = isApprovedByDM ? (req.dmTTD || req.dmTTDStrokes || '') : '';
-  let serviceTTDBold = req.serviceTTD || '';
-  let pemohonTTDBold = req.pemohonTTD || '';
+  const isApprovedByDM = (reqStatusUpper === 'APPROVE' || reqStatusUpper === 'APPROVED' || reqStatusUpper === 'DONE') || !!req.dmTTD || !!req.dm_ttd;
+  let dmTTDBold = isApprovedByDM ? (req.dmTTD || req.dm_ttd || req.dmTTDStrokes || '') : '';
+  if (isApprovedByDM && (!dmTTDBold || (typeof isValidSig === 'function' && !isValidSig(dmTTDBold))) && typeof getUserRealSignature === 'function') {
+    dmTTDBold = getUserRealSignature('DM', '', '', req.dmUserName || '') || '';
+  }
+
+  let serviceTTDBold = req.serviceTTD || req.service_ttd || '';
+  if ((!serviceTTDBold || (typeof isValidSig === 'function' && !isValidSig(serviceTTDBold))) && typeof getUserRealSignature === 'function') {
+    serviceTTDBold = getUserRealSignature('SERVICE', req.area, '', req.serviceUserName || '') || '';
+  }
+  let pemohonTTDBold = req.pemohonTTD || req.pemohon_ttd || '';
 
   if (typeof makeSignatureBoldBase64 === 'function') {
     try {

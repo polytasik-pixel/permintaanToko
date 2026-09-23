@@ -59494,11 +59494,6 @@ async function simpanApprovalDMWithTTDAndGDrive() {
     }
   }, 10);
 }
-window.simpanApprovalDMWithTTDAndGDrive = simpanApprovalDMWithTTDAndGDrive;f (typeof tutupLoadingProses === 'function') tutupLoadingProses();
-    else if (typeof hideLoading === 'function') hideLoading();
-    if (typeof showNotif === 'function') showNotif('APPROVAL BERHASIL DISIMPAN!', 'info');
-  }
-}
 window.simpanApprovalDMWithTTDAndGDrive = simpanApprovalDMWithTTDAndGDrive;
 
 async function ensureHtml2PdfLoaded() {

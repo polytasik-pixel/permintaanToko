@@ -16095,27 +16095,22 @@ async function processSupabaseSSOJWT(rawJwtToken) {
         window.history.replaceState({}, document.title, currentUrl.pathname + currentUrl.search);
       } catch(e) {}
 
-      // Tampilkan aplikasi utama
+      // Tampilkan aplikasi utama (Notifikasi berhasil login dihilangkan)
       bukaMainApp(true);
-      if (typeof showNotif === 'function') {
-        showNotif(`✓ LOGIN SSO BERHASIL! Selamat datang, ${currentUser.fullName || currentUser.username}.`, 'success');
-      }
       return true;
     } else {
-      // Jika email / username TIDAK DITEMUKAN di database sama sekali
+      // Jika email / username TIDAK DITEMUKAN di database sama sekali (Akses Ditolak)
+      const userIdentity = String(usernameUser || emailUser || 'AKUN').toUpperCase();
       window.pendingSSOEmail = emailUser || usernameUser;
       const portalUrl = localStorage.getItem('sso_return_url');
 
-      if (typeof showNotif === 'function') {
-        showNotif(`❌ GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!${portalUrl ? ' Mengalihkan ke Portal...' : ''}`, 'error');
-      } else {
-        alert(`❌ GAGAL SSO: AKUN '${emailUser || usernameUser}' TIDAK TERDAFTAR DI DATABASE SYSTEM!`);
-      }
+      const messageText = `${userIdentity} TIDAK ADA AKSES UNTUK APK INI`;
+
+      // Alert tidak otomatis hilang, memiliki tombol OK. Setelah klik OK baru kembali ke portal
+      alert(messageText);
 
       if (portalUrl && String(portalUrl).trim().length > 0) {
-        setTimeout(function() {
-          window.location.href = String(portalUrl).trim();
-        }, 1200);
+        window.location.href = String(portalUrl).trim();
       }
       return false;
     }

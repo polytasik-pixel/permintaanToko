@@ -7008,10 +7008,6 @@ function onSupabaseDataChange(keyChanged) {
 
     loadRiwayat();
 
-  } else if (pageId === 'masterDbPage' && typeof loadMasterDbTable === 'function') {
-
-    loadMasterDbTable();
-
   } else if (pageId === 'userManagementPage' && typeof loadUsersManagement === 'function') {
 
     loadUsersManagement();
@@ -18424,8 +18420,6 @@ function updateBottomMenuHighlight(pageId) {
 
     'riwayatPage': "bukaMenuRiwayat()",
 
-    'masterDbPage': "showPage('masterDbPage')",
-
     'userManagementPage': "showPage('userManagementPage')",
 
     'popupAkun': "bukaAkun()",
@@ -18508,7 +18502,7 @@ function pindahHalaman(pageId, pushHistory = true) {
 
 
 
-  if ((pageId === 'masterDbPage' || pageId === 'userManagementPage') && !checkIsAdminUser()) {
+  if (pageId === 'userManagementPage' && !checkIsAdminUser()) {
 
     pindahHalaman('dashboardPage', false);
 
@@ -18534,7 +18528,7 @@ function pindahHalaman(pageId, pushHistory = true) {
 
     target.classList.add('active');
 
-    target.style.setProperty('display', (pageId === 'dashboardPage' || pageId === 'loginPage' || pageId === 'masterDbPage' || pageId === 'riwayatPage') ? 'flex' : 'block', 'important');
+    target.style.setProperty('display', (pageId === 'dashboardPage' || pageId === 'loginPage' || pageId === 'riwayatPage') ? 'flex' : 'block', 'important');
 
   }
 
@@ -18608,10 +18602,6 @@ function pindahHalaman(pageId, pushHistory = true) {
   } else if (pageId === 'riwayatPage') {
 
     if (typeof filterRiwayat === 'function') filterRiwayat();
-
-  } else if (pageId === 'masterDbPage') {
-
-    if (typeof loadMasterDbTable === 'function') loadMasterDbTable();
 
   } else if (pageId === 'userManagementPage') {
 
@@ -45400,7 +45390,7 @@ document.addEventListener('touchmove', function (e) {
 
   const activePage = typeof getCurrentActivePageId === 'function' ? getCurrentActivePageId() : '';
 
-  if (activePage === 'riwayatPage' || activePage === 'masterDbPage') {
+  if (activePage === 'riwayatPage') {
 
     const isInsideTable = e.target.closest('.tableWrap');
 
@@ -56763,8 +56753,6 @@ function updateEnterpriseBreadcrumbAndSidebar(pageId) {
 
     'riwayatPage': { title: 'Daftar Riwayat Permintaan Toko & Status Approval', icon: 'history', label: 'Riwayat Permintaan' },
 
-    'masterDbPage': { title: 'Kelola Master Database (Barang & Toko)', icon: 'database', label: 'Master Database' },
-
     'userManagementPage': { title: 'Kelola User, Hak Akses & Integration Token', icon: 'manage_accounts', label: 'Kelola User' },
 
     'akunPage': { title: 'Profil Saya & Pengaturan Akun', icon: 'person', label: 'Profil Saya' }
@@ -56804,8 +56792,6 @@ function updateEnterpriseBreadcrumbAndSidebar(pageId) {
   else if (pageId === 'inputPage') activeSidebarItem = document.getElementById('navItemInput');
 
   else if (pageId === 'riwayatPage') activeSidebarItem = document.getElementById('navItemRiwayat');
-
-  else if (pageId === 'masterDbPage') activeSidebarItem = document.getElementById('btnMasterDbNavSidebar');
 
   else if (pageId === 'userManagementPage') activeSidebarItem = document.getElementById('btnUserNavSidebar');
 
@@ -58629,8 +58615,6 @@ const APP_MENU_SEARCH_LIST = [
   { id: 'inputPage', title: 'Input Permintaan', desc: 'Buat & Pengajuan Permintaan Toko Baru', keywords: 'input buat buatkan tambah permintaan barang form buatkan permintaan toko unit dus', icon: 'edit_note', action: () => showPage('inputPage') },
 
   { id: 'riwayatPage', title: 'Riwayat Permintaan', desc: 'Histori, Status, Tracking & Lacak Permintaan', keywords: 'riwayat histori daftar tracking lacak permintaan toko status barang done approve reject pending', icon: 'history', action: () => bukaMenuRiwayat() },
-
-  { id: 'masterDbPage', title: 'Master Database', desc: 'Master Data Barang, Toko & Kode Unit', keywords: 'master database data barang daftar toko unit dus barang serial sn', icon: 'database', action: () => showPage('masterDbPage') },
 
   { id: 'userManagementPage', title: 'Kelola User & Akses', desc: 'Manajemen Pengguna, Peran & Hak Akses', keywords: 'kelola user akun manajemen pengguna akses role password reset admin', icon: 'manage_accounts', action: () => showPage('userManagementPage') },
 

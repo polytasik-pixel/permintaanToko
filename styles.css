@@ -3665,7 +3665,6 @@ div#popupEditStatusPart > div.popupBox > .modalFooter {
 #dashboardPage,
 #inputPage,
 #riwayatPage,
-#masterDbPage,
 #userManagementPage,
 #akunPage,
 .page-container,
@@ -3987,7 +3986,6 @@ body:not(.sidebar-open) .app-main {
 #dashboardPage,
 #inputPage,
 #riwayatPage,
-#masterDbPage,
 #userManagementPage,
 #akunPage,
 .page-container,
@@ -8520,7 +8518,6 @@ html body .main-content {
 html body #dashboardPage,
 html body #riwayatPage,
 html body #inputPage,
-html body #masterDbPage,
 html body #userManagementPage,
 html body #akunPage,
 html body .page-container,
@@ -8534,7 +8531,6 @@ html body .app-page {
 }
 
 html body #detailDashboard,
-html body #masterDbPage .box,
 html body #userManagementPage .box,
 html body #inputPage .card,
 html body #akunPage .card,
@@ -8760,141 +8756,7 @@ th.sortable-th.active-sort .sort-icon {
   color: #ffffff !important;
 }
 
-/* ==========================================================================
-   MASTER DATABASE PAGE TABLE AUTOFIT & WRAP TEXT (FIT SCREEN VIEWPORT)
-   ========================================================================== */
-#masterDbPage .tableWrap {
-  width: 100% !important;
-  max-width: 100% !important;
-  overflow-x: auto !important;
-  box-sizing: border-box !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
 
-#masterDbPage table,
-#masterDbPage .historyTable {
-  width: 100% !important;
-  max-width: 100% !important;
-  table-layout: auto !important;
-  border-collapse: collapse !important;
-}
-
-#masterDbPage .historyTable th,
-html body #masterDbPage .historyTable th,
-#masterDbPage table.historyTable th {
-  height: auto !important;
-  max-height: none !important;
-  white-space: nowrap !important;
-  word-break: normal !important;
-  overflow-wrap: normal !important;
-  background: #e2e8f0 !important;
-  color: #0f172a !important;
-  font-weight: 800 !important;
-  text-align: left !important;
-  border-bottom: 2px solid #cbd5e1 !important;
-  padding: 8px 10px !important;
-  vertical-align: middle !important;
-  font-size: 12px !important;
-  box-sizing: border-box !important;
-}
-
-#masterDbPage .historyTable td,
-html body #masterDbPage .historyTable td,
-#masterDbPage table.historyTable td {
-  height: auto !important;
-  max-height: none !important;
-  white-space: nowrap !important;
-  word-break: normal !important;
-  overflow-wrap: normal !important;
-  padding: 8px 10px !important;
-  vertical-align: middle !important;
-  font-size: 12px !important;
-  box-sizing: border-box !important;
-}
-
-#masterDbPage .historyTable td div,
-#masterDbPage .historyTable td span,
-#masterDbPage .historyTable td small,
-#masterDbPage .historyTable td strong,
-#masterDbPage .historyTable td .namaTokoWrap {
-  white-space: nowrap !important;
-  word-break: normal !important;
-  overflow-wrap: normal !important;
-}
-
-/* KHUSUS KOLOM ke-7 (DETAIL ITEM & ALASAN): DI-IZINKAN WRAP TEXT UNTUK ISI CELL TD */
-#masterDbPage .historyTable th:nth-child(7),
-html body #masterDbPage .historyTable th:nth-child(7) {
-  white-space: nowrap !important;
-  word-break: normal !important;
-  overflow-wrap: normal !important;
-}
-
-#masterDbPage .historyTable td:nth-child(7),
-html body #masterDbPage .historyTable td:nth-child(7),
-#masterDbPage .historyTable td:nth-child(7) div,
-#masterDbPage .historyTable td:nth-child(7) span,
-#masterDbPage .historyTable td:nth-child(7) small,
-#masterDbPage .historyTable td:nth-child(7) strong {
-  white-space: normal !important;
-  word-break: break-word !important;
-  overflow-wrap: break-word !important;
-}
-
-/* Specific column column fitting */
-#masterDbPage .historyTable th:nth-child(1),
-#masterDbPage .historyTable td:nth-child(1) {
-  width: 36px !important;
-  text-align: center !important;
-  white-space: nowrap !important;
-}
-
-#masterDbPage .historyTable th:nth-child(2),
-#masterDbPage .historyTable td:nth-child(2) {
-  white-space: nowrap !important;
-  font-size: 11.5px !important;
-}
-
-#masterDbPage .historyTable th:nth-child(3),
-#masterDbPage .historyTable td:nth-child(3) {
-  white-space: nowrap !important;
-}
-
-#masterDbPage .historyTable th:nth-child(4),
-#masterDbPage .historyTable td:nth-child(4),
-#masterDbPage .historyTable td:nth-child(4) div {
-  white-space: nowrap !important;
-}
-
-#masterDbPage .historyTable th:nth-child(5),
-#masterDbPage .historyTable td:nth-child(5) {
-  white-space: nowrap !important;
-  text-align: center !important;
-}
-
-#masterDbPage .historyTable th:nth-child(6),
-#masterDbPage .historyTable td:nth-child(6) {
-  white-space: nowrap !important;
-}
-
-#masterDbPage .historyTable th:nth-child(8),
-#masterDbPage .historyTable td:nth-child(8) {
-  white-space: nowrap !important;
-  text-align: center !important;
-}
-
-#masterDbPage .historyTable th:nth-child(9),
-#masterDbPage .historyTable td:nth-child(9) {
-  white-space: nowrap !important;
-}
-
-#masterDbPage .historyTable th:nth-child(10),
-#masterDbPage .historyTable td:nth-child(10) {
-  width: 75px !important;
-  text-align: center !important;
-  white-space: nowrap !important;
-}
 
 /* =============================================================================
    CLEAN RIGID TABLE HEADER LOCK (ZERO WOBBLE, ZERO SHAKE, NATURAL WIDTH)

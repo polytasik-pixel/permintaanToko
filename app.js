@@ -16157,56 +16157,6 @@ function autoLogin() {
 window.autoLogin = autoLogin;
 
 
-  if (!currentUser) {
-
-    try {
-
-      let savedSession = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem(SESSION_KEY) : null;
-
-      if (!savedSession) {
-
-        savedSession = (typeof appStorage !== 'undefined' && appStorage) ? appStorage.getItem(SESSION_KEY) : null;
-
-      }
-
-      if (!savedSession) {
-
-        savedSession = (typeof localStorage !== 'undefined') ? localStorage.getItem(SESSION_KEY) : null;
-
-      }
-
-      if (savedSession) {
-
-        currentUser = JSON.parse(savedSession);
-      if (typeof applyMaintenanceModeUI === 'function') applyMaintenanceModeUI(window._isMaintenanceModeActive, window._maintenanceModeMessage);
-
-      }
-
-    } catch (e) {
-
-      currentUser = null;
-
-    }
-
-  }
-
-
-
-  if (typeof currentUser !== 'undefined' && currentUser !== null) {
-
-    bukaMainApp();
-
-  } else {
-
-    pindahHalaman('loginPage');
-
-    loadRememberedCredentials();
-
-  }
-
-}
-
-
 
 async function prosesLogin() {
   try { localStorage.setItem('PREF_POPUP_DETAIL_MODE', 'B'); } catch(e) {}

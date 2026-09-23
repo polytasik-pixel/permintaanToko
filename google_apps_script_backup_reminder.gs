@@ -44,7 +44,7 @@ function doPost(e) {
     }
 
     var action = data.action || '';
-    if (action === 'upload_pdf_gdrive' || action === 'upload_pdf' || action === 'upload_gdrive') {
+    if (action === 'upload_pdf_gdrive' || action === 'upload_pdf' || action === 'upload_gdrive' || action === 'upload_ttd_gdrive' || action === 'upload_ttd') {
       return handleUploadPdfGDrive(data);
     }
     if (action === 'send_wa') {
@@ -65,10 +65,12 @@ function doPost(e) {
 
 function handleUploadPdfGDrive(data) {
   try {
-    var fileName = data.fileName || data.filename || ('SURAT_PERMINTAAN_' + (data.noSurat || Date.now()) + '.pdf');
-    var base64Data = data.fileBase64 || data.base64 || '';
+    var isTtd = (data.action === 'upload_ttd_gdrive' || data.action === 'upload_ttd');
+    var defaultName = isTtd ? ('TTD_DM_' + (data.noSurat || Date.now()) + '.png') : ('SURAT_PERMINTAAN_' + (data.noSurat || Date.now()) + '.pdf');
+    var fileName = data.fileName || data.filename || defaultName;
+    var base64Data = data.fileBase64 || data.base64 || data.fileData || '';
     if (!base64Data) {
-      return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Data Base64 PDF tidak ditemukan' }))
+      return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Data Base64 file tidak ditemukan' }))
         .setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -76,10 +78,11 @@ function handleUploadPdfGDrive(data) {
       base64Data = base64Data.split('base64,')[1];
     }
     
+    var mimeType = isTtd ? 'image/png' : 'application/pdf';
     var decoded = Utilities.base64Decode(base64Data);
-    var blob = Utilities.newBlob(decoded, 'application/pdf', fileName);
+    var blob = Utilities.newBlob(decoded, mimeType, fileName);
     
-    var folderName = 'PDF_PERMINTAAN_TOKO';
+    var folderName = isTtd ? 'TTD_PERMINTAAN_TOKO' : 'PDF_PERMINTAAN_TOKO';
     var folders = DriveApp.getFoldersByName(folderName);
     var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
     
@@ -95,7 +98,7 @@ function handleUploadPdfGDrive(data) {
     } catch(sErr) {}
 
     var fileUrl = file.getUrl();
-    var downloadUrl = 'https://drive.google.com/uc?export=download&id=' + file.getId();
+    var downloadUrl = isTtd ? ('https://lh3.googleusercontent.com/d/' + file.getId()) : ('https://drive.google.com/uc?export=download&id=' + file.getId());
     
     // 2. Bersihkan file lama jika ada yang namanya sama (tanpa merusak file baru)
     try {
@@ -110,8 +113,8 @@ function handleUploadPdfGDrive(data) {
 
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
-      message: 'PDF berhasil disimpan ke Google Drive!',
-      url: fileUrl,
+      message: (isTtd ? 'TTD' : 'PDF') + ' berhasil disimpan ke Google Drive!',
+      url: downloadUrl,
       fileUrl: fileUrl,
       downloadUrl: downloadUrl,
       fileId: file.getId(),

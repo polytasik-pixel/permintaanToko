@@ -14078,65 +14078,68 @@ window.getAppDirectLink = getAppDirectLink;
 
 
 async function checkUrlDirectNoSuratOpen() {
-
   try {
+    // 1. Ambil nomor surat dari window.PENDING_URL_NO_SURAT atau URL Search / Hash parameters
+    let targetNoSurat = window.PENDING_URL_NO_SURAT || null;
 
-    const urlParams = new URLSearchParams(window.location.search);
+    if (!targetNoSurat && window.location && window.location.search) {
+      const urlParams = new URLSearchParams(window.location.search);
+      targetNoSurat = urlParams.get('noSurat') || urlParams.get('nosurat') || urlParams.get('id') || urlParams.get('surat') || urlParams.get('doc');
+    }
 
-    let targetNoSurat = urlParams.get('noSurat') || urlParams.get('nosurat') || urlParams.get('id');
+    if (!targetNoSurat && window.location && window.location.hash) {
+      const hashStr = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
+      if (hashStr.includes('=')) {
+        const hashParams = new URLSearchParams(hashStr);
+        targetNoSurat = hashParams.get('noSurat') || hashParams.get('nosurat') || hashParams.get('id') || hashParams.get('surat') || hashParams.get('doc');
+      } else if (hashStr.trim() !== '') {
+        targetNoSurat = hashStr.trim();
+      }
+    }
 
     if (!targetNoSurat) return;
 
-
-
     const decodedNoSurat = decodeURIComponent(targetNoSurat).trim();
-
     if (!decodedNoSurat) return;
 
-
-
+    // Simpan di memori pending agar tidak hilang meskipun user belum login
     window.PENDING_URL_NO_SURAT = decodedNoSurat;
 
-
-
-    // Clean query parameter from browser URL bar to prevent recurring triggers on navigation/refresh
-
-    try {
-
-      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + window.location.hash;
-
-      window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
-
-    } catch(e) {}
-
-
-
     const executeOpenDetail = async () => {
-
       const currentTarget = window.PENDING_URL_NO_SURAT;
-
-      window.PENDING_URL_NO_SURAT = null;
-
       if (!currentTarget || window._isClosingDetailModal) return;
 
-
-
-      if (typeof lihatDetail === 'function') {
-
-        await lihatDetail(currentTarget, true);
-
+      // Jika user belum login, simpan pending state hingga login selesai
+      if (typeof currentUser === 'undefined' || !currentUser) {
+        console.log('[URL DIRECT OPEN]: User belum login, menunggu sesi login...');
+        return;
       }
 
+      if (typeof lihatDetail === 'function') {
+        try {
+          console.log('[URL DIRECT OPEN]: Otomatis membuka popup detail untuk nomor surat:', currentTarget);
+          await lihatDetail(currentTarget, true);
+
+          // Hapus pending state & bersihkan URL browser setelah detail berhasil dibuka
+          window.PENDING_URL_NO_SURAT = null;
+          try {
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + (window.location.hash || '');
+            window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+          } catch(e) {}
+        } catch(err) {
+          console.warn('[URL DIRECT OPEN EXCEPTION]:', err);
+        }
+      }
     };
 
-
-
-    setTimeout(executeOpenDetail, 200);
-
-    setTimeout(executeOpenDetail, 800);
-
-  } catch(e) {}
-
+    // Jalankan bertahap untuk memastikan data database/Supabase siap dan UI dirender
+    setTimeout(executeOpenDetail, 100);
+    setTimeout(executeOpenDetail, 400);
+    setTimeout(executeOpenDetail, 1000);
+    setTimeout(executeOpenDetail, 2200);
+  } catch(e) {
+    console.warn('[CHECK URL DIRECT OPEN ERROR]:', e);
+  }
 }
 
 window.checkUrlDirectNoSuratOpen = checkUrlDirectNoSuratOpen;

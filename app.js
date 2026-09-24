@@ -16047,11 +16047,11 @@ async function processSupabaseSSOJWT(rawJwtToken) {
         window.history.replaceState({}, document.title, currentUrl.pathname + currentUrl.search);
       } catch(e) {}
 
-      // Tampilkan aplikasi utama
+      // Tandai login via SSO
+      try { localStorage.setItem('IS_SSO_LOGIN', 'true'); } catch(e) {}
+
+      // Tampilkan aplikasi utama (notifikasi login berhasil dihilangkan sesuai instruksi)
       bukaMainApp(true);
-      if (typeof showNotif === 'function') {
-        showNotif(`\u2713 LOGIN SSO BERHASIL! Selamat datang, ${currentUser.fullName || currentUser.username}.`, 'success');
-      }
       return true;
     } else {
       // Jika email / username TIDAK DITEMUKAN di database sama sekali
@@ -16498,6 +16498,7 @@ async function prosesLogin() {
 
 
 
+      try { localStorage.setItem('IS_SSO_LOGIN', 'false'); } catch(e) {}
       await bukaMainApp(true);
 
     } else {
@@ -16628,44 +16629,47 @@ async function logout() {
 
     var _asyncTask = async function() {
 
-      // Hapus seluruh sesi login di memori, localStorage, sessionStorage, & appStorage
+      const isSso = (localStorage.getItem('IS_SSO_LOGIN') === 'true');
+      const portalUrl = localStorage.getItem('sso_return_url');
 
       if (typeof stopPendingSoundAlert === 'function') stopPendingSoundAlert();
 
       clearAllUserSessionData();
 
-
-
       tutupAkun(true);
-
       tutupNotificationModal();
 
       const popupBantuan = document.getElementById('popupBantuan');
-
       if (popupBantuan) popupBantuan.classList.remove('show');
 
       const bottomMenu = document.getElementById('bottomMenu');
-
       if (bottomMenu) bottomMenu.style.display = 'none';
 
       const helpBtn = document.getElementById('helpButton');
-
       if (helpBtn) helpBtn.style.display = 'none';
 
+      // Hapus flag SSO setelah dibaca
+      try { localStorage.removeItem('IS_SSO_LOGIN'); } catch(e) {}
 
+      if (isSso) {
+        if (portalUrl && String(portalUrl).trim().length > 0) {
+          try { localStorage.removeItem('sso_return_url'); } catch(e) {}
+          window.location.href = String(portalUrl).trim();
+          return;
+        } else if (typeof redirectPortalIfFromSSOOrGoLogin === 'function') {
+          const redirected = redirectPortalIfFromSSOOrGoLogin();
+          if (redirected) return;
+        }
+      }
 
       pindahHalaman('loginPage');
 
       if (typeof loadRememberedCredentials === 'function') {
-
         loadRememberedCredentials();
-
       }
 
       if (typeof updateNotifBellCounter === 'function') updateNotifBellCounter();
-
       if (typeof updateGlobalDeviceAppBadge === 'function') updateGlobalDeviceAppBadge();
-
       };
 
     _asyncTask();

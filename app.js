@@ -14084,15 +14084,15 @@ async function checkUrlDirectNoSuratOpen() {
 
     if (!targetNoSurat && window.location && window.location.search) {
       const urlParams = new URLSearchParams(window.location.search);
-      targetNoSurat = urlParams.get('noSurat') || urlParams.get('nosurat') || urlParams.get('id') || urlParams.get('surat') || urlParams.get('doc');
+      targetNoSurat = urlParams.get('noSurat') || urlParams.get('nosurat') || urlParams.get('no_surat') || urlParams.get('id') || urlParams.get('surat') || urlParams.get('doc') || urlParams.get('ref');
     }
 
     if (!targetNoSurat && window.location && window.location.hash) {
       const hashStr = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
       if (hashStr.includes('=')) {
         const hashParams = new URLSearchParams(hashStr);
-        targetNoSurat = hashParams.get('noSurat') || hashParams.get('nosurat') || hashParams.get('id') || hashParams.get('surat') || hashParams.get('doc');
-      } else if (hashStr.trim() !== '') {
+        targetNoSurat = hashParams.get('noSurat') || hashParams.get('nosurat') || hashParams.get('no_surat') || hashParams.get('id') || hashParams.get('surat') || hashParams.get('doc') || hashParams.get('ref');
+      } else if (hashStr.trim() !== '' && !hashStr.includes('/')) {
         targetNoSurat = hashStr.trim();
       }
     }
@@ -14102,7 +14102,7 @@ async function checkUrlDirectNoSuratOpen() {
     const decodedNoSurat = decodeURIComponent(targetNoSurat).trim();
     if (!decodedNoSurat) return;
 
-    // Simpan di memori pending agar tidak hilang meskipun user belum login
+    // Simpan di memori pending agar tidak hilang meskipun user belum login / data masih dimuat
     window.PENDING_URL_NO_SURAT = decodedNoSurat;
 
     const executeOpenDetail = async () => {
@@ -14118,25 +14118,31 @@ async function checkUrlDirectNoSuratOpen() {
       if (typeof lihatDetail === 'function') {
         try {
           console.log('[URL DIRECT OPEN]: Otomatis membuka popup detail untuk nomor surat:', currentTarget);
-          await lihatDetail(currentTarget, true);
+          const success = await lihatDetail(currentTarget, true);
 
-          // Hapus pending state & bersihkan URL browser setelah detail berhasil dibuka
-          window.PENDING_URL_NO_SURAT = null;
-          try {
-            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + (window.location.hash || '');
-            window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
-          } catch(e) {}
+          if (success) {
+            console.log('✅ [URL DIRECT OPEN SUCCESS]: Popup detail berhasil dibuka untuk:', currentTarget);
+            // Hapus pending state & bersihkan URL browser hanya jika detail BERHASIL dibuka
+            window.PENDING_URL_NO_SURAT = null;
+            try {
+              const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + (window.location.hash || '');
+              window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+            } catch(e) {}
+          } else {
+            console.warn('[URL DIRECT OPEN]: Data belum ditemukan untuk:', currentTarget, 'akan mencoba kembali...');
+          }
         } catch(err) {
           console.warn('[URL DIRECT OPEN EXCEPTION]:', err);
         }
       }
     };
 
-    // Jalankan bertahap untuk memastikan data database/Supabase siap dan UI dirender
-    setTimeout(executeOpenDetail, 100);
-    setTimeout(executeOpenDetail, 400);
-    setTimeout(executeOpenDetail, 1000);
-    setTimeout(executeOpenDetail, 2200);
+    // Jalankan bertahap untuk memastikan data database/Supabase/Firebase siap dan UI dirender
+    [50, 200, 500, 1000, 2200, 4500, 7500].forEach(delay => {
+      setTimeout(() => {
+        if (window.PENDING_URL_NO_SURAT) executeOpenDetail();
+      }, delay);
+    });
   } catch(e) {
     console.warn('[CHECK URL DIRECT OPEN ERROR]:', e);
   }
@@ -18387,7 +18393,7 @@ function updateAdminNavVisibility() {
 
   if (btnMasterDbNavSidebar) {
 
-    btnMasterDbNavSidebar.style.setProperty('display', isAdmin ? 'flex' : 'none', 'important');
+    btnMasterDbNavSidebar.style.setProperty('display', 'none', 'important');
 
   }
 
@@ -27693,41 +27699,31 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
     const requests = typeof getRequestsFromDB === 'function' ? getRequestsFromDB() : [];
 
     const upperTarget = targetStr.toUpperCase();
+    const cleanUpperTarget = upperTarget.replace(/^#/g, '').trim();
 
-    req = requests.find(r => r && (
+    req = requests.find(r => {
+      if (!r) return false;
+      const rNoSurat = String(r.noSurat || r.no_surat || '').trim().toUpperCase();
+      const rId = String(r.id || '').trim().toUpperCase();
+      const cleanRNoSurat = rNoSurat.replace(/^#/g, '').trim();
+      return rNoSurat === upperTarget || rId === upperTarget || cleanRNoSurat === cleanUpperTarget || decodeURIComponent(rNoSurat).toUpperCase() === upperTarget;
+    });
 
-      String(r.noSurat || '').trim().toUpperCase() === upperTarget ||
-
-      String(r.id || '').trim().toUpperCase() === upperTarget ||
-
-      decodeURIComponent(String(r.noSurat || '')).trim().toUpperCase() === upperTarget
-
-    ));
-
-
-
-    if (!req && window._activeDetailReq && (
-
-      String(window._activeDetailReq.noSurat || '').trim().toUpperCase() === upperTarget ||
-
-      String(window._activeDetailReq.id || '').trim().toUpperCase() === upperTarget
-
-    )) {
-
-      req = window._activeDetailReq;
-
+    if (!req && window._activeDetailReq) {
+      const activeNoSurat = String(window._activeDetailReq.noSurat || window._activeDetailReq.no_surat || '').trim().toUpperCase();
+      const activeCleanNoSurat = activeNoSurat.replace(/^#/g, '').trim();
+      if (activeNoSurat === upperTarget || activeCleanNoSurat === cleanUpperTarget || String(window._activeDetailReq.id || '').trim().toUpperCase() === upperTarget) {
+        req = window._activeDetailReq;
+      }
     }
 
-
-
     if (!req && typeof supabase !== 'undefined' && supabase) {
-
       try {
-
-        const { data, error } = await supabase.from('permintaan_toko').select('*').eq('no_surat', targetStr);
+        const hashTarget = '#' + cleanUpperTarget;
+        const searchTargets = Array.from(new Set([targetStr, upperTarget, cleanUpperTarget, hashTarget, decodeURIComponent(targetStr)]));
+        const { data, error } = await supabase.from('permintaan_toko').select('*').in('no_surat', searchTargets);
 
         if (data && data.length > 0) {
-
           const raw = data[0];
 
           req = {
@@ -27758,7 +27754,13 @@ async function lihatDetail(noSuratOrObj, fromDashboard = false) {
 
             createdAt: raw.created_at,
 
-            userId: raw.user_id
+            userId: raw.user_id,
+
+            dmTTD: raw.dm_ttd || raw.dmTTD || '',
+
+            dm_ttd: raw.dm_ttd || raw.dmTTD || '',
+
+            serviceTTD: raw.service_ttd || raw.serviceTTD || ''
 
           };
 
@@ -56878,7 +56880,7 @@ function updateEnterpriseBreadcrumbAndSidebar(pageId) {
 
   if (btnUserSidebar) btnUserSidebar.style.display = isAdmin ? 'flex' : 'none';
 
-  if (btnMasterSidebar) btnMasterSidebar.style.display = isAdmin ? 'flex' : 'none';
+  if (btnMasterSidebar) btnMasterSidebar.style.setProperty('display', 'none', 'important');
 
 }
 
@@ -59429,7 +59431,7 @@ async function simpanApprovalDMWithTTDAndGDrive() {
   else if (typeof hideLoading === 'function') hideLoading();
 
   if (typeof showNotif === 'function') {
-    showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL! (Memproses Link TTD Google Drive...)`, 'success');
+    showNotif(`APPROVAL DM #${targetNoSurat} BERHASIL!`, 'success');
   }
 
   if (typeof loadRiwayat === 'function') loadRiwayat();
@@ -59484,6 +59486,7 @@ async function simpanApprovalDMWithTTDAndGDrive() {
       if (typeof generateAndBackupApprovedPdf === 'function') {
         await generateAndBackupApprovedPdf(targetNoSurat, targetReq || findRequestByNoSuratOrId(targetNoSurat)).catch(e => console.warn('[BACKGROUND PDF UPLOAD ERROR]:', e));
       }
+
 
       // Notifikasi WA & Sistem ke Tim Service dan Toko Pembuat (Creator) saat DM Approve
       try {
